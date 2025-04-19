@@ -1,0 +1,61 @@
+# --- .NET Build ---
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.dbmdl
+*.pdb
+*.log
+
+# --- Visual Studio ---
+.vs/
+.vscode/
+*.csproj.user
+*.csproj.nuget.cache
+
+# --- ASP.NET Secrets ---
+appsettings.json
+appsettings.*.json
+secrets.json
+*.key
+
+# --- Angular ---
+node_modules/
+dist/
+.angular/
+.env
+.env.*
+
+# --- Logs & Dumps ---
+*.log
+*.stackdump
+
+# --- OS-specific ---
+.DS_Store
+Thumbs.db
+
+# --- IDE / Tooling ---
+.idea/
+*.iml
+*.sw?
+*.bak
+*.tmp
+
+# --- Publish / Build ---
+publish/
+wwwroot/
+coverage/
+
+# --- Auth/Service Bus/Cosmos Keys ---
+*.publishsettings
+*.azureauth
+*.cer
+*.pfx
+*.pem
+
+# --- Custom ---
+src/**/config/*
+AuthService/**/config/*
+*.local.*
