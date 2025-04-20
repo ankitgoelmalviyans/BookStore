@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net7.0</TargetFramework>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\InventoryService.Application\BookStore.InventoryService.Application.csproj" />
+    <ProjectReference Include="..\InventoryService.Domain\BookStore.InventoryService.Domain.csproj" />
+    <ProjectReference Include="..\InventoryService.Infrastructure\BookStore.InventoryService.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>
