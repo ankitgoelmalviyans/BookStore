@@ -6,21 +6,26 @@ using AuthService.Models;
 public class AuthController : ControllerBase
 {
     private readonly ITokenService _tokenService;
-
-    public AuthController(ITokenService tokenService)
+    private readonly IConfiguration _configuration;
+    
+    public AuthController(ITokenService tokenService, IConfiguration configuration)
     {
         _tokenService = tokenService;
+        _configuration = configuration;
     }
 
     [HttpPost("login")]
     public IActionResult Login([FromBody] LoginRequest request)
     {
-        if (request.Username == "admin@gmail.com" && request.Password == "Ankitgoel@123")
+        var adminUser = _configuration["Auth:Username"];
+        var adminPass = _configuration["Auth:Password"];
+    
+        if (request.Username == adminUser && request.Password == adminPass)
         {
             var token = _tokenService.GenerateToken(request.Username);
             return Ok(new { token });
         }
-
+    
         return Unauthorized();
     }
 }
