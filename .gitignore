@@ -22,7 +22,7 @@ secrets.json
 *.key
 
 # --- Angular ---
-node_modules/
+**/node_modules/
 dist/
 .angular/
 .env
