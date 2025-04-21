@@ -82,7 +82,7 @@ The **Book Store Microservices Project** is a real-world practice implementation
 - [x] Cosmos DB + InMemory DB Support
 - [x] Angular UI (Login, Products, Inventory)
 - [x] Product CRUD with Angular Material
-- [x] Kafka Events tested successfully
+- [x] Kafka/Azure Events tested successfully
 - [x] Repository initialized with `.gitignore` and secrets excluded
 - [x] Product SCS Backend + Frontend (Except Deployment) Completed
 
@@ -94,8 +94,8 @@ The **Book Store Microservices Project** is a real-world practice implementation
 - [ ] API Gateway with Azure API Management (NEXT 🔜)
 - [ ] Angular UI for Customer and Order SCS
 - [ ] Retry + DLQ for Kafka consumers
-- [ ] Order SCS Microservices (Rapid Dev Phase)
-- [ ] Customer SCS Microservices (Rapid Dev Phase)
+- [ ] Order SCS Microservices
+- [ ] Customer SCS Microservices
 
 ---
 
@@ -107,7 +107,7 @@ BookStore/
 ├── BookStore.ProductSCA/          # Product + Inventory SCS
 │   ├── ProductService/
 │   ├── InventoryService/
-│   └── product-ui-full-working/   # Angular UI for Product SCS
+│   └── product-ui/   # Angular UI for Product SCS
 ├── BookStore.OrderSCA/            # (Upcoming)
 ├── BookStore.CustomerSCA/         # (Upcoming)
 └── README.md                      # Project Overview
@@ -126,7 +126,7 @@ BookStore/
 
 | Layer | Tech |
 |-------|------|
-| Backend | .NET Core 7, Clean Arch |
+| Backend | .NET Core 8, Clean Arch |
 | Frontend | Angular v17 + Material UI |
 | Messaging | Kafka / Azure Bus |
 | Auth | JWT |
