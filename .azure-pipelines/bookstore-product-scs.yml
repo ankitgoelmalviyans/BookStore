@@ -61,28 +61,28 @@ stages:
       displayName: 'Restore & Build ProductService'
       inputs:
         command: 'build'
-        projects: 'BookStore.ProductSCA/ProductService/ProductService.csproj'
+        projects: 'BookStore.ProductSCA/BookStore.ProductService/src/BookStore.ProductService.API/BookStore.ProductService.API.csproj'
 
     - task: DotNetCoreCLI@2
       displayName: 'Publish ProductService'
       inputs:
         command: 'publish'
         publishWebProjects: false
-        projects: 'BookStore.ProductSCA/ProductService/ProductService.csproj'
+        projects: 'BookStore.ProductSCA/BookStore.ProductService/src/BookStore.ProductService.API/BookStore.ProductService.API.csproj'
         arguments: '--configuration Release --output $(Build.ArtifactStagingDirectory)/ProductService'
 
     - task: DotNetCoreCLI@2
       displayName: 'Restore & Build InventoryService'
       inputs:
         command: 'build'
-        projects: 'BookStore.ProductSCA/InventoryService/InventoryService.csproj'
+        projects: 'BookStore.ProductSCA/BookStore.InventoryService/InventoryService.API/BookStore.InventoryService.API.csproj'
 
     - task: DotNetCoreCLI@2
       displayName: 'Publish InventoryService'
       inputs:
         command: 'publish'
         publishWebProjects: false
-        projects: 'BookStore.ProductSCA/InventoryService/InventoryService.csproj'
+        projects: 'BookStore.ProductSCA/BookStore.InventoryService/InventoryService.API/BookStore.InventoryService.API.csproj'
         arguments: '--configuration Release --output $(Build.ArtifactStagingDirectory)/InventoryService'
 
     - task: PublishBuildArtifacts@1
