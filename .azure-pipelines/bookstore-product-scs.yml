@@ -10,8 +10,8 @@ variables:
   productServiceApp: 'bookstore-product-service'
   inventoryServiceApp: 'bookstore-inventory-service'
   productUiApp: 'bookstore-product-ui'
-  serviceBusNamespace: 'bookstore-sb'
-  topicName: 'product-topic'
+  serviceBusNamespace: 'bookstore-servicebus'
+  topicName: 'product-events'
   subscriptionName: 'inventory-subscription'
 
 stages:
@@ -85,6 +85,34 @@ stages:
         projects: 'BookStore.ProductSCA/BookStore.InventoryService/InventoryService.API/BookStore.InventoryService.API.csproj'
         arguments: '--configuration Release --output $(Build.ArtifactStagingDirectory)/InventoryService'
 
+  - job: BuildAngular
+    displayName: 'Build Angular UI'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '18.x'
+      displayName: 'Install Node.js'
+
+    - script: |
+        cd BookStore.ProductSCA/product-ui
+        npm install
+        npx ng build --configuration production
+      displayName: 'Build Angular App'
+
+    - task: CopyFiles@2
+      displayName: 'Copy Angular UI to Artifact Staging'
+      inputs:
+        SourceFolder: 'BookStore.ProductSCA/product-ui/dist/product-ui'
+        Contents: '**'
+        TargetFolder: '$(Build.ArtifactStagingDirectory)/ProductUI'
+
+  - job: PublishArtifacts
+    displayName: 'Publish All Artifacts'
+    pool:
+      vmImage: 'windows-latest'
+    steps:
     - task: PublishBuildArtifacts@1
       inputs:
         pathToPublish: '$(Build.ArtifactStagingDirectory)'
