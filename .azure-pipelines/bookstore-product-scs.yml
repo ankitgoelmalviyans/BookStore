@@ -2,119 +2,131 @@ trigger:
   branches:
     include:
       - main
-
 variables:
-  azureSubscription: 'AzureServiceConnectionName'  # Update in Azure DevOps UI
-  resourceGroup: 'BookStoreRG'
-  location: 'East US'
-  productServiceApp: 'bookstore-product-service'
-  inventoryServiceApp: 'bookstore-inventory-service'
-  productUiApp: 'bookstore-product-ui'
-  serviceBusNamespace: 'bookstore-servicebus'
-  topicName: 'product-events'
-  subscriptionName: 'inventory-subscription'
-
+  azureSubscription: AzureServiceConnectionName
+  resourceGroup: BookStoreRG
+  location: East US
+  productServiceApp: bookstore-product-service
+  inventoryServiceApp: bookstore-inventory-service
+  productUiApp: bookstore-product-ui
+  serviceBusNamespace: bookstore-servicebus
+  topicName: product-events
+  subscriptionName: inventory-subscription
 stages:
-- stage: Provision
-  displayName: 'Provision Azure Resources'
-  jobs:
-  - job: CreateResources
-    displayName: 'Create App Services and Service Bus'
-    pool:
-      vmImage: 'ubuntu-latest'
-    steps:
-    - task: AzureCLI@2
-      inputs:
-        azureSubscription: '$(azureSubscription)'
-        scriptType: 'bash'
-        scriptLocation: 'inlineScript'
-        inlineScript: |
-          echo "Creating resource group if not exists..."
-          az group create --name $(resourceGroup) --location "$(location)"
+  - stage: Provision
+    displayName: Provision Azure Resources
+    jobs:
+      - job: CreateResources
+        displayName: Create App Services and Service Bus
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - task: AzureCLI@2
+            inputs:
+              azureSubscription: $(azureSubscription)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: >
+                echo "Creating resource group if not exists..."
 
-          echo "Creating App Services..."
-          for app in $(productServiceApp) $(inventoryServiceApp) $(productUiApp); do
-            az appservice plan create --name "$app-plan" --resource-group $(resourceGroup) --sku B1 --is-linux --location "$(location)" || true
-            az webapp create --name "$app" --resource-group $(resourceGroup) --plan "$app-plan" --runtime "DOTNETCORE|7.0" || true
-          done
+                az group create --name $(resourceGroup) --location "$(location)"
 
-          echo "Creating Service Bus namespace and topic/subscription..."
-          az servicebus namespace create --name $(serviceBusNamespace) --resource-group $(resourceGroup) --location "$(location)" || true
-          az servicebus topic create --name $(topicName) --namespace-name $(serviceBusNamespace) --resource-group $(resourceGroup) || true
-          az servicebus topic subscription create --name $(subscriptionName) --topic-name $(topicName) --namespace-name $(serviceBusNamespace) --resource-group $(resourceGroup) || true
 
-- stage: Build
-  displayName: 'Build and Publish Artifacts'
-  jobs:
+                echo "Creating App Services..."
+
+                for app in $(productServiceApp) $(inventoryServiceApp)
+                $(productUiApp); do
+                  az appservice plan create --name "$app-plan" --resource-group $(resourceGroup) --sku B1 --is-linux --location "$(location)" || true
+                  az webapp create --name "$app" --resource-group $(resourceGroup) --plan "$app-plan" --runtime "DOTNETCORE|7.0" || true
+                done
+
+
+                echo "Creating Service Bus namespace and topic/subscription..."
+
+                az servicebus namespace create --name $(serviceBusNamespace)
+                --resource-group $(resourceGroup) --location "$(location)" ||
+                true
+
+                az servicebus topic create --name $(topicName) --namespace-name
+                $(serviceBusNamespace) --resource-group $(resourceGroup) || true
+
+                az servicebus topic subscription create --name
+                $(subscriptionName) --topic-name $(topicName) --namespace-name
+                $(serviceBusNamespace) --resource-group $(resourceGroup) || true
+  - stage: Build
+    displayName: Build and Publish Artifacts
+    jobs: null
   - job: BuildDotNet
-    displayName: 'Build Product and Inventory Services'
+    displayName: Build Product and Inventory Services
     pool:
-      vmImage: 'windows-latest'
+      vmImage: windows-latest
     steps:
-    - task: UseDotNet@2
-      inputs:
-        packageType: 'sdk'
-        version: '8.0.x'
-        installationPath: $(Agent.ToolsDirectory)/dotnet
-
-    - task: DotNetCoreCLI@2
-      displayName: 'Restore & Build ProductService'
-      inputs:
-        command: 'build'
-        projects: 'BookStore.ProductSCA/BookStore.ProductService/src/BookStore.ProductService.API/BookStore.ProductService.API.csproj'
-
-    - task: DotNetCoreCLI@2
-      displayName: 'Publish ProductService'
-      inputs:
-        command: 'publish'
-        publishWebProjects: false
-        projects: 'BookStore.ProductSCA/BookStore.ProductService/src/BookStore.ProductService.API/BookStore.ProductService.API.csproj'
-        arguments: '--configuration Release --output $(Build.ArtifactStagingDirectory)/ProductService'
-
-    - task: DotNetCoreCLI@2
-      displayName: 'Restore & Build InventoryService'
-      inputs:
-        command: 'build'
-        projects: 'BookStore.ProductSCA/BookStore.InventoryService/InventoryService.API/BookStore.InventoryService.API.csproj'
-
-    - task: DotNetCoreCLI@2
-      displayName: 'Publish InventoryService'
-      inputs:
-        command: 'publish'
-        publishWebProjects: false
-        projects: 'BookStore.ProductSCA/BookStore.InventoryService/InventoryService.API/BookStore.InventoryService.API.csproj'
-        arguments: '--configuration Release --output $(Build.ArtifactStagingDirectory)/InventoryService'
-
+      - task: UseDotNet@2
+        inputs:
+          packageType: sdk
+          version: 8.0.x
+          installationPath: $(Agent.ToolsDirectory)/dotnet
+      - task: DotNetCoreCLI@2
+        displayName: Restore & Build ProductService
+        inputs:
+          command: build
+          projects: >-
+            BookStore.ProductSCA/BookStore.ProductService/src/BookStore.ProductService.API/BookStore.ProductService.API.csproj
+      - task: DotNetCoreCLI@2
+        displayName: Publish ProductService
+        inputs:
+          command: publish
+          publishWebProjects: false
+          projects: >-
+            BookStore.ProductSCA/BookStore.ProductService/src/BookStore.ProductService.API/BookStore.ProductService.API.csproj
+          arguments: >-
+            --configuration Release --output
+            $(Build.ArtifactStagingDirectory)/ProductService
+      - task: DotNetCoreCLI@2
+        displayName: Restore & Build InventoryService
+        inputs:
+          command: build
+          projects: >-
+            BookStore.ProductSCA/BookStore.InventoryService/InventoryService.API/BookStore.InventoryService.API.csproj
+      - task: DotNetCoreCLI@2
+        displayName: Publish InventoryService
+        inputs:
+          command: publish
+          publishWebProjects: false
+          projects: >-
+            BookStore.ProductSCA/BookStore.InventoryService/InventoryService.API/BookStore.InventoryService.API.csproj
+          arguments: >-
+            --configuration Release --output
+            $(Build.ArtifactStagingDirectory)/InventoryService
+      - task: PublishBuildArtifacts@1
+        displayName: Publish Backend Services Artifacts
+        inputs:
+          pathToPublish: $(Build.ArtifactStagingDirectory)
+          artifactName: drop
+          publishLocation: Container
   - job: BuildAngular
-    displayName: 'Build Angular UI'
+    displayName: Build Angular UI
     pool:
-      vmImage: 'ubuntu-latest'
+      vmImage: ubuntu-latest
     steps:
-    - task: NodeTool@0
-      inputs:
-        versionSpec: '18.x'
-      displayName: 'Install Node.js'
-
-    - script: |
-        cd BookStore.ProductSCA/product-ui
-        npm install
-        npx ng build --configuration production
-      displayName: 'Build Angular App'
-
-    - task: CopyFiles@2
-      displayName: 'Copy Angular UI to Artifact Staging'
-      inputs:
-        SourceFolder: 'BookStore.ProductSCA/product-ui/dist/product-ui'
-        Contents: '**'
-        TargetFolder: '$(Build.ArtifactStagingDirectory)/ProductUI'
-
-  - job: PublishArtifacts
-    displayName: 'Publish All Artifacts'
-    pool:
-      vmImage: 'windows-latest'
-    steps:
-    - task: PublishBuildArtifacts@1
-      inputs:
-        pathToPublish: '$(Build.ArtifactStagingDirectory)'
-        artifactName: 'drop'
-        publishLocation: 'Container'
+      - task: NodeTool@0
+        inputs:
+          versionSpec: 18.x
+        displayName: Install Node.js
+      - script: |
+          cd BookStore.ProductSCA/product-ui
+          npm install
+          npx ng build --configuration production
+        displayName: Build Angular App
+      - task: CopyFiles@2
+        displayName: Copy Angular UI to Artifact Staging
+        inputs:
+          SourceFolder: BookStore.ProductSCA/product-ui/dist/product-ui
+          Contents: '**'
+          TargetFolder: $(Build.ArtifactStagingDirectory)/product-ui
+      - task: PublishBuildArtifacts@1
+        displayName: Publish Angular UI Artifacts
+        inputs:
+          pathToPublish: $(Build.ArtifactStagingDirectory)/product-ui
+          artifactName: drop
+          publishLocation: Container
