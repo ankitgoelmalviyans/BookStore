@@ -84,9 +84,9 @@ stages:
         publishWebProjects: false
         projects: 'BookStore.ProductSCA/BookStore.InventoryService/InventoryService.API/BookStore.InventoryService.API.csproj'
         arguments: '--configuration Release --output $(Build.ArtifactStagingDirectory)/InventoryService'
-     - task: PublishBuildArtifacts@1
-       displayName: 'Publish Backend Services Artifacts'
-       inputs:
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish Backend Services Artifacts'
+      inputs:
         pathToPublish: '$(Build.ArtifactStagingDirectory)'
         artifactName: 'drop'
         publishLocation: 'Container'   
