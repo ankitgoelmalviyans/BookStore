@@ -1,11 +1,7 @@
-trigger:
-  branches:
-    include:
-      - main
+trigger: none  # Manual trigger only for releases
 
 variables:
-  azureSubscription: 'AzureServiceConnectionName'  # Update with your service connection name
-  resourceGroup: 'BookStoreRG'
+  azureSubscription: 'AzureServiceConnectionName'
   productServiceApp: 'bookstore-product-service'
   inventoryServiceApp: 'bookstore-inventory-service'
   productUiApp: 'bookstore-product-ui'
@@ -13,8 +9,6 @@ variables:
 stages:
 - stage: Release
   displayName: 'Deploy to Azure App Services'
-  dependsOn: Build
-  condition: succeeded()
   jobs:
   - job: DeployProductService
     displayName: 'Deploy ProductService'
@@ -22,11 +16,11 @@ stages:
       vmImage: 'ubuntu-latest'
     steps:
     - task: AzureWebApp@1
-      displayName: 'Deploy ProductService to Azure'
+      displayName: 'Deploy ProductService'
       inputs:
         azureSubscription: '$(azureSubscription)'
         appName: '$(productServiceApp)'
-        package: '$(Pipeline.Workspace)/drop/ProductService/**.zip'
+        package: '$(Pipeline.Workspace)/drop/ProductService'
 
   - job: DeployInventoryService
     displayName: 'Deploy InventoryService'
@@ -34,20 +28,20 @@ stages:
       vmImage: 'ubuntu-latest'
     steps:
     - task: AzureWebApp@1
-      displayName: 'Deploy InventoryService to Azure'
+      displayName: 'Deploy InventoryService'
       inputs:
         azureSubscription: '$(azureSubscription)'
         appName: '$(inventoryServiceApp)'
-        package: '$(Pipeline.Workspace)/drop/InventoryService/**.zip'
+        package: '$(Pipeline.Workspace)/drop/InventoryService'
 
   - job: DeployAngularApp
-    displayName: 'Deploy Angular UI to Azure'
+    displayName: 'Deploy Angular UI'
     pool:
       vmImage: 'ubuntu-latest'
     steps:
-    - task: AzureStaticWebApp@0
-      displayName: 'Deploy Angular UI'
+    - task: AzureWebApp@1
+      displayName: 'Deploy Angular App'
       inputs:
         azureSubscription: '$(azureSubscription)'
-        app_name: '$(productUiApp)'
-        package: '$(Pipeline.Workspace)/drop/product-ui' # Make sure your Angular output is placed here
+        appName: '$(productUiApp)'
+        package: '$(Pipeline.Workspace)/drop/ProductUI'
