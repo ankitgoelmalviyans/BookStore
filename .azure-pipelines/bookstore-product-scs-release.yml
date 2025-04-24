@@ -1,15 +1,14 @@
-trigger: none  # Manual trigger only
+trigger: none  # Manual trigger only for releases
 
-# 🔄 Reference the build pipeline to select artifacts at runtime
 resources:
   pipelines:
   - pipeline: buildPipeline
-    source: ankitgoelmalviyans.BookStore                # Name of the build pipeline
-    project: BookStore               # Azure DevOps project name
-    trigger: none                    # Disable automatic triggers
+    source: ankitgoelmalviyans.BookStore     # Name of your build pipeline (not the YAML file name)
+    project: BookStore                       # Exact DevOps project name
+    trigger: none                            # Manual selection
 
 variables:
-  azureSubscription: 'AzureServiceConnectionName'
+  azureSubscription: 'AzureServiceConnectionName'   # Replace with your service connection
   productServiceApp: 'bookstore-product-service'
   inventoryServiceApp: 'bookstore-inventory-service'
   productUiApp: 'bookstore-product-ui'
@@ -26,15 +25,14 @@ stages:
       vmImage: 'ubuntu-latest'
     steps:
     - download: buildPipeline
-      artifact: ProductService
+      artifact: drop  # Artifact name from build pipeline
 
     - task: AzureWebApp@1
       displayName: 'Deploy ProductService'
       inputs:
         azureSubscription: '$(azureSubscription)'
         appName: '$(productServiceApp)'
-        package: '$(Pipeline.Workspace)/buildPipeline/ProductService/BookStore.ProductService.API.zip'
-
+        package: '$(Pipeline.Workspace)/_buildPipeline/drop/ProductService/BookStore.ProductService.API.zip'
 
   # ----------------- InventoryService -------------------
   - job: DeployInventoryService
@@ -44,17 +42,16 @@ stages:
       vmImage: 'ubuntu-latest'
     steps:
     - download: buildPipeline
-      artifact: InventoryService
+      artifact: drop
 
     - task: AzureWebApp@1
       displayName: 'Deploy InventoryService'
       inputs:
         azureSubscription: '$(azureSubscription)'
         appName: '$(inventoryServiceApp)'
-        package: '$(Pipeline.Workspace)/buildPipeline/InventoryService/InventoryService.API.zip'
+        package: '$(Pipeline.Workspace)/_buildPipeline/drop/InventoryService/InventoryService.API.zip'
 
-
-  # ----------------- ProductUI (Angular) -------------------
+  # ----------------- Angular ProductUI -------------------
   - job: DeployAngularApp
     displayName: 'Deploy Angular UI'
     dependsOn: DeployInventoryService
@@ -62,11 +59,11 @@ stages:
       vmImage: 'ubuntu-latest'
     steps:
     - download: buildPipeline
-      artifact: ProductUI
+      artifact: drop
 
     - task: AzureWebApp@1
       displayName: 'Deploy Angular App'
       inputs:
         azureSubscription: '$(azureSubscription)'
         appName: '$(productUiApp)'
-        package: '$(Pipeline.Workspace)/buildPipeline/ProductUI'
+        package: '$(Pipeline.Workspace)/_buildPipeline/drop/ProductUI'
