@@ -10,11 +10,11 @@ stages:
 - stage: Release
   displayName: 'Deploy to Azure App Services'
   jobs:
+
   - job: DeployProductService
     displayName: 'Deploy ProductService'
     pool:
       vmImage: 'ubuntu-latest'
-    
     steps:
     - task: DownloadBuildArtifacts@1
       displayName: 'Download ProductService Artifact'
@@ -23,10 +23,7 @@ stages:
         downloadType: 'single'
         artifactName: 'ProductService'
         downloadPath: '$(Pipeline.Workspace)/drop'
-    
-    - script: ls -R $(Pipeline.Workspace)/drop/ProductService
-      displayName: 'Verify ProductService Artifact Contents'
-      
+
     - task: AzureWebApp@1
       displayName: 'Deploy ProductService'
       inputs:
@@ -39,18 +36,34 @@ stages:
     pool:
       vmImage: 'ubuntu-latest'
     steps:
+    - task: DownloadBuildArtifacts@1
+      displayName: 'Download InventoryService Artifact'
+      inputs:
+        buildType: 'current'
+        downloadType: 'single'
+        artifactName: 'InventoryService'
+        downloadPath: '$(Pipeline.Workspace)/drop'
+
     - task: AzureWebApp@1
       displayName: 'Deploy InventoryService'
       inputs:
         azureSubscription: '$(azureSubscription)'
         appName: '$(inventoryServiceApp)'
-        package: '$(Pipeline.Workspace)/drop/InventoryService/InventoryService.API.zip'
+        package: '$(Pipeline.Workspace)/drop/InventoryService/BookStore.InventoryService.API.zip'
 
   - job: DeployAngularApp
     displayName: 'Deploy Angular UI'
     pool:
       vmImage: 'ubuntu-latest'
     steps:
+    - task: DownloadBuildArtifacts@1
+      displayName: 'Download ProductUI Artifact'
+      inputs:
+        buildType: 'current'
+        downloadType: 'single'
+        artifactName: 'ProductUI'
+        downloadPath: '$(Pipeline.Workspace)/drop'
+
     - task: AzureWebApp@1
       displayName: 'Deploy Angular App'
       inputs:
