@@ -14,7 +14,19 @@ stages:
     displayName: 'Deploy ProductService'
     pool:
       vmImage: 'ubuntu-latest'
+    
     steps:
+    - task: DownloadBuildArtifacts@1
+      displayName: 'Download ProductService Artifact'
+      inputs:
+        buildType: 'current'
+        downloadType: 'single'
+        artifactName: 'ProductService'
+        downloadPath: '$(Pipeline.Workspace)/drop'
+    
+    - script: ls -R $(Pipeline.Workspace)/drop/ProductService
+      displayName: 'Verify ProductService Artifact Contents'
+      
     - task: AzureWebApp@1
       displayName: 'Deploy ProductService'
       inputs:
