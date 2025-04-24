@@ -4,7 +4,7 @@ trigger: none  # Manual trigger only
 resources:
   pipelines:
   - pipeline: buildPipeline
-    source: BookStore                # Name of the build pipeline
+    source: ankitgoelmalviyans.BookStore                # Name of the build pipeline
     project: BookStore               # Azure DevOps project name
     trigger: none                    # Disable automatic triggers
 
