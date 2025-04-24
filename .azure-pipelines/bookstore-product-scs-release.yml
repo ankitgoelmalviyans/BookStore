@@ -32,7 +32,7 @@ stages:
       inputs:
         azureSubscription: '$(azureSubscription)'
         appName: '$(productServiceApp)'
-        package: '$(Pipeline.Workspace)/_buildPipeline/drop/ProductService/BookStore.ProductService.API.zip'
+        package: '$(Pipeline.Workspace)/buildPipeline/drop/ProductService/BookStore.ProductService.API.zip'
 
   # ----------------- InventoryService -------------------
   - job: DeployInventoryService
@@ -49,7 +49,7 @@ stages:
       inputs:
         azureSubscription: '$(azureSubscription)'
         appName: '$(inventoryServiceApp)'
-        package: '$(Pipeline.Workspace)/_buildPipeline/drop/InventoryService/InventoryService.API.zip'
+        package: '$(Pipeline.Workspace)/buildPipeline/drop/InventoryService/InventoryService.API.zip'
 
   # ----------------- Angular ProductUI -------------------
   - job: DeployAngularApp
@@ -66,4 +66,4 @@ stages:
       inputs:
         azureSubscription: '$(azureSubscription)'
         appName: '$(productUiApp)'
-        package: '$(Pipeline.Workspace)/_buildPipeline/drop/ProductUI'
+        package: '$(Pipeline.Workspace)/buildPipeline/drop/ProductUI'
