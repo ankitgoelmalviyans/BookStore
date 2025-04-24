@@ -20,7 +20,7 @@ stages:
       inputs:
         azureSubscription: '$(azureSubscription)'
         appName: '$(productServiceApp)'
-        package: '$(Pipeline.Workspace)/drop/ProductService'
+        package: '$(Pipeline.Workspace)/drop/ProductService/BookStore.ProductService.API.zip'
 
   - job: DeployInventoryService
     displayName: 'Deploy InventoryService'
@@ -32,7 +32,7 @@ stages:
       inputs:
         azureSubscription: '$(azureSubscription)'
         appName: '$(inventoryServiceApp)'
-        package: '$(Pipeline.Workspace)/drop/InventoryService'
+        package: '$(Pipeline.Workspace)/drop/InventoryService/InventoryService.API.zip'
 
   - job: DeployAngularApp
     displayName: 'Deploy Angular UI'
