@@ -122,5 +122,4 @@ Each job in a stage runs in parallel unless you use `dependsOn` to enforce order
 
 ---
 
-Let me know if you want a deeper example with Build + Test + Release combined in one YAML!
 
