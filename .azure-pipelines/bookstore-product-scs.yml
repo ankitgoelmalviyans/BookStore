@@ -61,6 +61,14 @@ stages:
           echo "Setting App Service Application Settings..."
           az webapp config appsettings set             --name $(productServiceApp)             --resource-group $(resourceGroup)             --settings               "Jwt:Issuer=BookStore.Identity"               "Jwt:Audience=BookStore.Services"               "Jwt:Key=$(JwtKey)"               "ServiceBus:ConnectionString=$serviceBusConnectionString"               "Kafka:BootstrapServers=$(KafkaBootstrapServers)"               "Kafka:Username=$(KafkaUsername)"               "Kafka:Password=$(KafkaPassword)"               "Messaging:Provider=Kafka"               "Database:Provider=InMemory"               "Database:Cosmos:AccountEndpoint=$(CosmosEndpoint)"               "Database:Cosmos:AccountKey=$(CosmosKey)"               "Database:Cosmos:DatabaseName=BookStoreDB"
 
+  env:
+    JWT_KEY: $(JwtKey)
+    KAFKA_BOOTSTRAP: $(KafkaBootstrapServers)
+    KAFKA_USER: $(KafkaUsername)
+    KAFKA_PASS: $(KafkaPassword)
+    COSMOS_ENDPOINT: $(CosmosEndpoint)
+    COSMOS_KEY: $(CosmosKey)
+
 - stage: Build
   displayName: 'Build and Publish Artifacts'
   jobs:
