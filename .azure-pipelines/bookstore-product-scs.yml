@@ -5,15 +5,26 @@
 #       - main
 trigger: none 
 variables:
-  azureSubscription: 'AzureServiceConnectionName'  # Update in Azure DevOps UI
-  resourceGroup: 'BookStoreRG'
-  location: 'East US'
-  productServiceApp: 'bookstore-product-service'
-  inventoryServiceApp: 'bookstore-inventory-service'
-  productUiApp: 'bookstore-product-ui'
-  serviceBusNamespace: 'bookstore-servicebus'
-  topicName: 'product-events'
-  subscriptionName: 'inventory-subscription'
+- group: BookStoreSecrets
+- name: azureSubscription
+  value: 'AzureServiceConnectionName'
+- name: resourceGroup
+  value: 'BookStoreRG'
+- name: location
+  value: 'East US'
+- name: productServiceApp
+  value: 'bookstore-product-service'
+- name: inventoryServiceApp
+  value: 'bookstore-inventory-service'
+- name: productUiApp
+  value: 'bookstore-product-ui'
+- name: serviceBusNamespace
+  value: 'bookstore-servicebus'
+- name: topicName
+  value: 'product-events'
+- name: subscriptionName
+  value: 'inventory-subscription'
+
 
 stages:
 - stage: Provision
