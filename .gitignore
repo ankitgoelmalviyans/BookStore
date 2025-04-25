@@ -16,7 +16,6 @@ obj/
 *.csproj.nuget.cache
 
 # --- ASP.NET Secrets ---
-appsettings.json
 appsettings.*.json
 secrets.json
 *.key
