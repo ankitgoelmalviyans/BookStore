@@ -1,4 +1,4 @@
-trigger: none 
+trigger: none
 
 variables:
 - group: BookStoreSecrets
@@ -36,32 +36,42 @@ stages:
         scriptType: 'bash'
         scriptLocation: 'inlineScript'
         inlineScript: |
+          # Export pipeline variables first (important!)
+          export RESOURCE_GROUP="$(resourceGroup)"
+          export LOCATION="$(location)"
+          export PRODUCT_SERVICE_APP="$(productServiceApp)"
+          export INVENTORY_SERVICE_APP="$(inventoryServiceApp)"
+          export PRODUCT_UI_APP="$(productUiApp)"
+          export SERVICEBUS_NAMESPACE="$(serviceBusNamespace)"
+          export TOPIC_NAME="$(topicName)"
+          export SUBSCRIPTION_NAME="$(subscriptionName)"
+
           echo "Creating resource group if not exists..."
-          az group create --name $resourceGroup --location "$location"
+          az group create --name "$RESOURCE_GROUP" --location "$LOCATION"
 
           echo "Creating App Services..."
-          for app in $productServiceApp $inventoryServiceApp $productUiApp; do
-            az appservice plan create --name "$app-plan" --resource-group $resourceGroup --sku B1 --is-linux --location "$location" || true
-            az webapp create --name "$app" --resource-group $resourceGroup --plan "$app-plan" --runtime "DOTNETCORE|7.0" || true
+          for app in "$PRODUCT_SERVICE_APP" "$INVENTORY_SERVICE_APP" "$PRODUCT_UI_APP"; do
+            az appservice plan create --name "$app-plan" --resource-group "$RESOURCE_GROUP" --sku B1 --is-linux --location "$LOCATION" || true
+            az webapp create --name "$app" --resource-group "$RESOURCE_GROUP" --plan "$app-plan" --runtime "DOTNETCORE|7.0" || true
           done
 
           echo "Creating Service Bus namespace and topic/subscription..."
-          az servicebus namespace create --name $serviceBusNamespace --resource-group $resourceGroup --location "$location" || true
-          az servicebus topic create --name $topicName --namespace-name $serviceBusNamespace --resource-group $resourceGroup || true
-          az servicebus topic subscription create --name $subscriptionName --topic-name $topicName --namespace-name $serviceBusNamespace --resource-group $resourceGroup || true
+          az servicebus namespace create --name "$SERVICEBUS_NAMESPACE" --resource-group "$RESOURCE_GROUP" --location "$LOCATION" || true
+          az servicebus topic create --name "$TOPIC_NAME" --namespace-name "$SERVICEBUS_NAMESPACE" --resource-group "$RESOURCE_GROUP" || true
+          az servicebus topic subscription create --name "$SUBSCRIPTION_NAME" --topic-name "$TOPIC_NAME" --namespace-name "$SERVICEBUS_NAMESPACE" --resource-group "$RESOURCE_GROUP" || true
 
           echo "Fetching Service Bus primary connection string..."
           serviceBusConnectionString=$(az servicebus namespace authorization-rule keys list \
-            --resource-group $resourceGroup \
-            --namespace-name $serviceBusNamespace \
+            --resource-group "$RESOURCE_GROUP" \
+            --namespace-name "$SERVICEBUS_NAMESPACE" \
             --name RootManageSharedAccessKey \
             --query "primaryConnectionString" \
             --output tsv)
 
           echo "Setting App Service Application Settings..."
           az webapp config appsettings set \
-            --name $productServiceApp \
-            --resource-group $resourceGroup \
+            --name "$PRODUCT_SERVICE_APP" \
+            --resource-group "$RESOURCE_GROUP" \
             --settings \
               "Jwt:Issuer=BookStore.Identity" \
               "Jwt:Audience=BookStore.Services" \
