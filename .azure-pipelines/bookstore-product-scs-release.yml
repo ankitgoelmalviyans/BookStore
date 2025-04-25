@@ -1,0 +1,69 @@
+trigger: none  # Manual trigger only for releases
+
+resources:
+  pipelines:
+  - pipeline: buildPipeline
+    source: ankitgoelmalviyans.BookStore     # Name of your build pipeline (not the YAML file name)
+    project: BookStore                       # Exact DevOps project name
+    trigger: none                            # Manual selection
+
+variables:
+  azureSubscription: 'AzureServiceConnectionName'   # Replace with your service connection
+  productServiceApp: 'bookstore-product-service'
+  inventoryServiceApp: 'bookstore-inventory-service'
+  productUiApp: 'bookstore-product-ui'
+
+stages:
+- stage: Release
+  displayName: 'Deploy to Azure App Services'
+  jobs:
+
+  # ----------------- ProductService -------------------
+  - job: DeployProductService
+    displayName: 'Deploy ProductService'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - download: buildPipeline
+      artifact: drop  # Artifact name from build pipeline
+
+    - task: AzureWebApp@1
+      displayName: 'Deploy ProductService'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        appName: '$(productServiceApp)'
+        package: '$(Pipeline.Workspace)/buildPipeline/drop/ProductService/BookStore.ProductService.API.zip'
+
+  # ----------------- InventoryService -------------------
+  - job: DeployInventoryService
+    displayName: 'Deploy InventoryService'
+    dependsOn: DeployProductService
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - download: buildPipeline
+      artifact: drop
+
+    - task: AzureWebApp@1
+      displayName: 'Deploy InventoryService'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        appName: '$(inventoryServiceApp)'
+        package: '$(Pipeline.Workspace)/buildPipeline/drop/InventoryService/InventoryService.API.zip'
+
+  # ----------------- Angular ProductUI -------------------
+  - job: DeployAngularApp
+    displayName: 'Deploy Angular UI'
+    dependsOn: DeployInventoryService
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - download: buildPipeline
+      artifact: drop
+
+    - task: AzureWebApp@1
+      displayName: 'Deploy Angular App'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        appName: '$(productUiApp)'
+        package: '$(Pipeline.Workspace)/buildPipeline/drop/ProductUI'
