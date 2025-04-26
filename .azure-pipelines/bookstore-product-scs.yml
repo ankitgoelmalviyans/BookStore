@@ -36,55 +36,42 @@ stages:
         scriptType: 'bash'
         scriptLocation: 'inlineScript'
         inlineScript: |
-          # Export pipeline variables first (important!)
-          export RESOURCE_GROUP="$(resourceGroup)"
-          export LOCATION="$(location)"
-          export PRODUCT_SERVICE_APP="$(productServiceApp)"
-          export INVENTORY_SERVICE_APP="$(inventoryServiceApp)"
-          export PRODUCT_UI_APP="$(productUiApp)"
-          export SERVICEBUS_NAMESPACE="$(serviceBusNamespace)"
-          export TOPIC_NAME="$(topicName)"
-          export SUBSCRIPTION_NAME="$(subscriptionName)"
-
           echo "Creating resource group if not exists..."
-          az group create --name "$RESOURCE_GROUP" --location "$LOCATION"
+          az group create --name "$(resourceGroup)" --location "$(location)"
 
-          echo "Creating App Services..."
-          for app in "$PRODUCT_SERVICE_APP" "$INVENTORY_SERVICE_APP" "$PRODUCT_UI_APP"; do
-            az appservice plan create --name "$app-plan" --resource-group "$RESOURCE_GROUP" --sku B1 --is-linux --location "$LOCATION" || true
-            az webapp create --name "$app" --resource-group "$RESOURCE_GROUP" --plan "$app-plan" --runtime "DOTNETCORE|7.0" || true
+          echo "Creating App Service Plans and WebApps..."
+          for app in "$(productServiceApp)" "$(inventoryServiceApp)" "$(productUiApp)"; do
+            PLAN_NAME="${app}-plan"
+            az appservice plan create --name "$PLAN_NAME" --resource-group "$(resourceGroup)" --sku B1 --is-linux --location "$(location)" || true
+            az webapp create --name "$app" --resource-group "$(resourceGroup)" --plan "$PLAN_NAME" --runtime "DOTNETCORE|7.0" || true
           done
 
-          echo "Creating Service Bus namespace and topic/subscription..."
-          az servicebus namespace create --name "$SERVICEBUS_NAMESPACE" --resource-group "$RESOURCE_GROUP" --location "$LOCATION" || true
-          az servicebus topic create --name "$TOPIC_NAME" --namespace-name "$SERVICEBUS_NAMESPACE" --resource-group "$RESOURCE_GROUP" || true
-          az servicebus topic subscription create --name "$SUBSCRIPTION_NAME" --topic-name "$TOPIC_NAME" --namespace-name "$SERVICEBUS_NAMESPACE" --resource-group "$RESOURCE_GROUP" || true
+          echo "Creating Service Bus namespace, topic, and subscription..."
+          az servicebus namespace create --name "$(serviceBusNamespace)" --resource-group "$(resourceGroup)" --location "$(location)" || true
+          az servicebus topic create --name "$(topicName)" --namespace-name "$(serviceBusNamespace)" --resource-group "$(resourceGroup)" || true
+          az servicebus topic subscription create --name "$(subscriptionName)" --topic-name "$(topicName)" --namespace-name "$(serviceBusNamespace)" --resource-group "$(resourceGroup)" || true
 
           echo "Fetching Service Bus primary connection string..."
           serviceBusConnectionString=$(az servicebus namespace authorization-rule keys list \
-            --resource-group "$RESOURCE_GROUP" \
-            --namespace-name "$SERVICEBUS_NAMESPACE" \
+            --resource-group "$(resourceGroup)" \
+            --namespace-name "$(serviceBusNamespace)" \
             --name RootManageSharedAccessKey \
-            --query "primaryConnectionString" \
-            --output tsv)
+            --query "primaryConnectionString" --output tsv)
 
-          echo "Setting App Service Application Settings..."
-          az webapp config appsettings set \
-            --name "$PRODUCT_SERVICE_APP" \
-            --resource-group "$RESOURCE_GROUP" \
-            --settings \
-              "Jwt:Issuer=BookStore.Identity" \
-              "Jwt:Audience=BookStore.Services" \
-              "Jwt:Key=$JWT_KEY" \
-              "ServiceBus:ConnectionString=$serviceBusConnectionString" \
-              "Kafka:BootstrapServers=$KAFKA_BOOTSTRAP" \
-              "Kafka:Username=$KAFKA_USER" \
-              "Kafka:Password=$KAFKA_PASS" \
-              "Messaging:Provider=Kafka" \
-              "Database:Provider=InMemory" \
-              "Database:Cosmos:AccountEndpoint=$COSMOS_ENDPOINT" \
-              "Database:Cosmos:AccountKey=$COSMOS_KEY" \
-              "Database:Cosmos:DatabaseName=BookStoreDB"
+          echo "Setting App Settings for Product Service App..."
+          az webapp config appsettings set --name "$(productServiceApp)" --resource-group "$(resourceGroup)" --settings \
+            "Jwt__Issuer=BookStore.Identity" \
+            "Jwt__Audience=BookStore.Services" \
+            "Jwt__Key=$JWT_KEY" \
+            "ServiceBus__ConnectionString=$serviceBusConnectionString" \
+            "Kafka__BootstrapServers=$KAFKA_BOOTSTRAP" \
+            "Kafka__Username=$KAFKA_USER" \
+            "Kafka__Password=$KAFKA_PASS" \
+            "Messaging__Provider=Kafka" \
+            "Database__Provider=InMemory" \
+            "Database__Cosmos__AccountEndpoint=$COSMOS_ENDPOINT" \
+            "Database__Cosmos__AccountKey=$COSMOS_KEY" \
+            "Database__Cosmos__DatabaseName=BookStoreDB"
       env:
         JWT_KEY: $(JwtKey)
         KAFKA_BOOTSTRAP: $(KafkaBootstrapServers)
