@@ -1,83 +1,160 @@
 trigger: none
 
-pool:
-  vmImage: ubuntu-latest
-
 variables:
-  azureSubscription: 'AzureServiceConnectionName'  # Replace with your real Service Connection
-  resourceGroup: 'bookstore-product-scs'
-  location: 'Central India'
+- group: BookStoreSecrets
+- name: azureSubscription
+  value: 'AzureServiceConnectionName'
+- name: resourceGroup
+  value: 'BookStoreRG'
+- name: location
+  value: 'East US'
+- name: productServiceApp
+  value: 'bookstore-product-service'
+- name: inventoryServiceApp
+  value: 'bookstore-inventory-service'
+- name: productUiApp
+  value: 'bookstore-product-ui'
+- name: serviceBusNamespace
+  value: 'bookstore-servicebus'
+- name: topicName
+  value: 'product-events'
+- name: subscriptionName
+  value: 'inventory-subscription'
 
-  productServiceApp: 'bookstore-productservice-api'
-  inventoryServiceApp: 'bookstore-inventoryservice-api'
-  productUiApp: 'bookstore-product-ui'
+stages:
+- stage: Provision
+  displayName: 'Provision Azure Resources'
+  jobs:
+  - job: CreateResources
+    displayName: 'Create App Services and Service Bus'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: AzureCLI@2
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          echo "Creating resource group if not exists..."
+          az group create --name "$(resourceGroup)" --location "$(location)"
 
-  serviceBusNamespace: 'bookstore-servicebus'
-  topicName: 'bookstore-topic'
-  subscriptionName: 'bookstore-subscription'
+          echo "Creating App Service Plans and WebApps..."
+          for app in "$(productServiceApp)" "$(inventoryServiceApp)" "$(productUiApp)"; do
+            PLAN_NAME="${app}-plan"
+            az appservice plan create --name "$PLAN_NAME" --resource-group "$(resourceGroup)" --sku B1 --is-linux --location "$(location)" || true
+            az webapp create --name "$app" --resource-group "$(resourceGroup)" --plan "$PLAN_NAME" --runtime "DOTNETCORE|7.0" || true
+          done
 
-steps:
-- task: AzureCLI@2
-  displayName: 'Create Resources and Setup App Settings'
-  inputs:
-    azureSubscription: '$(azureSubscription)'
-    scriptType: 'bash'
-    scriptLocation: 'inlineScript'
-    inlineScript: |
-      echo "Setting environment variables..."
-      RESOURCE_GROUP="$(resourceGroup)"
-      LOCATION="$(location)"
-      PRODUCT_SERVICE_APP="$(productServiceApp)"
-      INVENTORY_SERVICE_APP="$(inventoryServiceApp)"
-      PRODUCT_UI_APP="$(productUiApp)"
-      SERVICE_BUS_NAMESPACE="$(serviceBusNamespace)"
-      TOPIC_NAME="$(topicName)"
-      SUBSCRIPTION_NAME="$(subscriptionName)"
+          echo "Creating Service Bus namespace, topic, and subscription..."
+          az servicebus namespace create --name "$(serviceBusNamespace)" --resource-group "$(resourceGroup)" --location "$(location)" || true
+          az servicebus topic create --name "$(topicName)" --namespace-name "$(serviceBusNamespace)" --resource-group "$(resourceGroup)" || true
+          az servicebus topic subscription create --name "$(subscriptionName)" --topic-name "$(topicName)" --namespace-name "$(serviceBusNamespace)" --resource-group "$(resourceGroup)" || true
 
-      echo "Creating Resource Group if not exists..."
-      az group create --name "$RESOURCE_GROUP" --location "$LOCATION"
+          echo "Fetching Service Bus primary connection string..."
+          serviceBusConnectionString=$(az servicebus namespace authorization-rule keys list \
+            --resource-group "$(resourceGroup)" \
+            --namespace-name "$(serviceBusNamespace)" \
+            --name RootManageSharedAccessKey \
+            --query "primaryConnectionString" --output tsv)
 
-      echo "Creating App Service Plans and Web Apps..."
-      for app in "$PRODUCT_SERVICE_APP" "$INVENTORY_SERVICE_APP" "$PRODUCT_UI_APP"; do
-        az appservice plan create --name "${app}-plan" --resource-group "$RESOURCE_GROUP" --sku B1 --is-linux --location "$LOCATION" || echo "App Plan already exists."
-        az webapp create --name "$app" --resource-group "$RESOURCE_GROUP" --plan "${app}-plan" --runtime "DOTNETCORE|7.0" || echo "WebApp already exists."
-      done
+          echo "Setting App Settings for Product Service App..."
+          az webapp config appsettings set --name "$(productServiceApp)" --resource-group "$(resourceGroup)" --settings \
+            "Jwt__Issuer=BookStore.Identity" \
+            "Jwt__Audience=BookStore.Services" \
+            "Jwt__Key=$JWT_KEY" \
+            "ServiceBus__ConnectionString=$serviceBusConnectionString" \
+            "Kafka__BootstrapServers=$KAFKA_BOOTSTRAP" \
+            "Kafka__Username=$KAFKA_USER" \
+            "Kafka__Password=$KAFKA_PASS" \
+            "Messaging__Provider=Kafka" \
+            "Database__Provider=InMemory" \
+            "Database__Cosmos__AccountEndpoint=$COSMOS_ENDPOINT" \
+            "Database__Cosmos__AccountKey=$COSMOS_KEY" \
+            "Database__Cosmos__DatabaseName=BookStoreDB"
+      env:
+        JWT_KEY: $(JwtKey)
+        KAFKA_BOOTSTRAP: $(KafkaBootstrapServers)
+        KAFKA_USER: $(KafkaUsername)
+        KAFKA_PASS: $(KafkaPassword)
+        COSMOS_ENDPOINT: $(CosmosEndpoint)
+        COSMOS_KEY: $(CosmosKey)
 
-      echo "Creating Service Bus Namespace and Topic/Subscription..."
-      az servicebus namespace create --name "$SERVICE_BUS_NAMESPACE" --resource-group "$RESOURCE_GROUP" --location "$LOCATION" --sku Standard || echo "Namespace exists"
-      az servicebus topic create --name "$TOPIC_NAME" --namespace-name "$SERVICE_BUS_NAMESPACE" --resource-group "$RESOURCE_GROUP" || echo "Topic exists"
-      az servicebus topic subscription create --name "$SUBSCRIPTION_NAME" --topic-name "$TOPIC_NAME" --namespace-name "$SERVICE_BUS_NAMESPACE" --resource-group "$RESOURCE_GROUP" || echo "Subscription exists"
+- stage: Build
+  displayName: 'Build and Publish Artifacts'
+  jobs:
+  - job: BuildDotNet
+    displayName: 'Build Product and Inventory Services'
+    pool:
+      vmImage: 'windows-latest'
+    steps:
+    - task: UseDotNet@2
+      inputs:
+        packageType: 'sdk'
+        version: '8.0.x'
+        installationPath: $(Agent.ToolsDirectory)/dotnet
 
-      echo "Fetching Service Bus primary connection string..."
-      SERVICE_BUS_CONNECTION_STRING=$(az servicebus namespace authorization-rule keys list \
-        --resource-group "$RESOURCE_GROUP" \
-        --namespace-name "$SERVICE_BUS_NAMESPACE" \
-        --name RootManageSharedAccessKey \
-        --query "primaryConnectionString" \
-        --output tsv)
+    - task: DotNetCoreCLI@2
+      displayName: 'Restore & Build ProductService'
+      inputs:
+        command: 'build'
+        projects: 'BookStore.ProductSCA/BookStore.ProductService/src/BookStore.ProductService.API/BookStore.ProductService.API.csproj'
 
-      echo "Setting Application Settings on App Services..."
-      for app in "$PRODUCT_SERVICE_APP" "$INVENTORY_SERVICE_APP"; do
-        az webapp config appsettings set --name "$app" --resource-group "$RESOURCE_GROUP" --settings \
-          "Jwt__Issuer=BookStore.Identity" \
-          "Jwt__Audience=BookStore.Services" \
-          "Jwt__Key=$JWT_KEY" \
-          "ServiceBus__ConnectionString=$SERVICE_BUS_CONNECTION_STRING" \
-          "Kafka__BootstrapServers=$KAFKA_BOOTSTRAP" \
-          "Kafka__Username=$KAFKA_USER" \
-          "Kafka__Password=$KAFKA_PASS" \
-          "Messaging__Provider=Kafka" \
-          "Database__Provider=InMemory" \
-          "Database__Cosmos__AccountEndpoint=$COSMOS_ENDPOINT" \
-          "Database__Cosmos__AccountKey=$COSMOS_KEY" \
-          "Database__Cosmos__DatabaseName=BookStoreDB"
-      done
+    - task: DotNetCoreCLI@2
+      displayName: 'Publish ProductService'
+      inputs:
+        command: 'publish'
+        publishWebProjects: false
+        projects: 'BookStore.ProductSCA/BookStore.ProductService/src/BookStore.ProductService.API/BookStore.ProductService.API.csproj'
+        arguments: '--configuration Release --output $(Build.ArtifactStagingDirectory)/ProductService'
 
-      echo "Done Successfully ✅"
-  env:
-    JWT_KEY: $(JwtKey)
-    KAFKA_BOOTSTRAP: $(KafkaBootstrapServers)
-    KAFKA_USER: $(KafkaUsername)
-    KAFKA_PASS: $(KafkaPassword)
-    COSMOS_ENDPOINT: $(CosmosEndpoint)
-    COSMOS_KEY: $(CosmosKey)
+    - task: DotNetCoreCLI@2
+      displayName: 'Restore & Build InventoryService'
+      inputs:
+        command: 'build'
+        projects: 'BookStore.ProductSCA/BookStore.InventoryService/InventoryService.API/BookStore.InventoryService.API.csproj'
+
+    - task: DotNetCoreCLI@2
+      displayName: 'Publish InventoryService'
+      inputs:
+        command: 'publish'
+        publishWebProjects: false
+        projects: 'BookStore.ProductSCA/BookStore.InventoryService/InventoryService.API/BookStore.InventoryService.API.csproj'
+        arguments: '--configuration Release --output $(Build.ArtifactStagingDirectory)/InventoryService'
+
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish Backend Services Artifacts'
+      inputs:
+        pathToPublish: '$(Build.ArtifactStagingDirectory)'
+        artifactName: 'drop'
+        publishLocation: 'Container'
+
+  - job: BuildAngular
+    displayName: 'Build Angular UI'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '18.x'
+      displayName: 'Install Node.js'
+
+    - script: |
+        cd BookStore.ProductSCA/product-ui
+        npm install
+        npx ng build --configuration production
+      displayName: 'Build Angular App'
+
+    - task: CopyFiles@2
+      displayName: 'Copy Angular UI to Artifact Staging'
+      inputs:
+        SourceFolder: 'BookStore.ProductSCA/product-ui/dist/product-ui'
+        Contents: '**'
+        TargetFolder: '$(Build.ArtifactStagingDirectory)/ProductUI'
+
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish Angular UI Artifacts'
+      inputs:
+        pathToPublish: '$(Build.ArtifactStagingDirectory)'
+        artifactName: 'drop'
+        publishLocation: 'Container'
