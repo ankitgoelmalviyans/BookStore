@@ -1,10 +1,30 @@
 using BookStore.InventoryService.Application.Interfaces;
 using BookStore.InventoryService.Infrastructure;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using System;
 
 var builder = WebApplication.CreateBuilder(args);
+
+if (builder.Environment.IsDevelopment())
+{
+    builder.Configuration
+        .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+        .AddJsonFile("appsettings.Development.json", optional: true, reloadOnChange: true)
+        .AddEnvironmentVariables();
+
+    Console.WriteLine("Loaded Development configuration");
+}
+else
+{
+    builder.Configuration
+        .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+        .AddEnvironmentVariables();
+
+    Console.WriteLine($"Loaded {builder.Environment.EnvironmentName} configuration");
+}
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
