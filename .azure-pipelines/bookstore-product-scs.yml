@@ -43,7 +43,7 @@ stages:
           for app in "$(productServiceApp)" "$(inventoryServiceApp)" "$(productUiApp)"; do
             PLAN_NAME="${app}-plan"
             az appservice plan create --name "$PLAN_NAME" --resource-group "$(resourceGroup)" --sku B1 --is-linux --location "$(location)" || true
-            az webapp create --name "$app" --resource-group "$(resourceGroup)" --plan "$PLAN_NAME" --runtime "DOTNETCORE|7.0" || true
+            az webapp create --name "$app" --resource-group "$(resourceGroup)" --plan "$PLAN_NAME" --runtime "DOTNETCORE|8.0" || true
           done
 
           echo "Creating Service Bus namespace, topic, and subscription..."
