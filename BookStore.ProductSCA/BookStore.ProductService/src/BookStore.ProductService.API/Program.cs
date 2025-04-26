@@ -10,6 +10,21 @@ using Confluent.Kafka;
 
 var builder = WebApplication.CreateBuilder(args);
 
+if (builder.Environment.IsDevelopment())
+{
+    builder.Configuration
+        .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+        .AddJsonFile("appsettings.Development.json", optional: true, reloadOnChange: true)
+        .AddEnvironmentVariables();
+}
+else
+{
+    builder.Configuration
+        .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+        .AddEnvironmentVariables();
+}
+
+
 // Add Services
 builder.Services.AddApplicationServices(builder.Configuration);
 builder.Services.AddControllers();
