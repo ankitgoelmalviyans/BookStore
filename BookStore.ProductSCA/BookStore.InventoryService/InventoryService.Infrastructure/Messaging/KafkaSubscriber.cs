@@ -24,9 +24,9 @@ namespace BookStore.InventoryService.Infrastructure.Messaging
         {
             var conf = new ConsumerConfig
             {
-                BootstrapServers = _config["Kafka:BootstrapServers"],
-                SaslUsername = _config["Kafka:Username"],
-                SaslPassword = _config["Kafka:Password"],
+                BootstrapServers = _config["Kafka:KafkaBootstrapServers"],
+                SaslUsername = _config["Kafka:KafkaUsername"],
+                SaslPassword = _config["Kafka:KafkaPassword"],
                 SecurityProtocol = SecurityProtocol.SaslSsl,
                 SaslMechanism = SaslMechanism.Plain,
                 GroupId = "inventory-group",
