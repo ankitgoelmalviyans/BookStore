@@ -72,6 +72,21 @@ stages:
             "Database__Cosmos__AccountEndpoint=$COSMOS_ENDPOINT" \
             "Database__Cosmos__AccountKey=$COSMOS_KEY" \
             "Database__Cosmos__DatabaseName=BookStoreDB"
+
+          echo "Setting App Settings for Inventory Service App..."
+          az webapp config appsettings set --name "$(inventoryServiceApp)" --resource-group "$(resourceGroup)" --settings \
+            "Jwt__Issuer=BookStore.Identity" \
+            "Jwt__Audience=BookStore.Services" \
+            "Jwt__Key=$JWT_KEY" \
+            "ServiceBus__ConnectionString=$serviceBusConnectionString" \
+            "Kafka__BootstrapServers=$KAFKA_BOOTSTRAP" \
+            "Kafka__Username=$KAFKA_USER" \
+            "Kafka__Password=$KAFKA_PASS" \
+            "Messaging__Provider=Kafka" \
+            "Database__Provider=InMemory" \
+            "Database__Cosmos__AccountEndpoint=$COSMOS_ENDPOINT" \
+            "Database__Cosmos__AccountKey=$COSMOS_KEY" \
+            "Database__Cosmos__DatabaseName=BookStoreDB"
       env:
         JWT_KEY: $(JwtKey)
         KAFKA_BOOTSTRAP: $(KafkaBootstrapServers)
