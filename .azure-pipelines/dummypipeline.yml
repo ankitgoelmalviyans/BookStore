@@ -1,17 +1,83 @@
 trigger: none
 
 pool:
-  vmImage: 'ubuntu-latest'
+  vmImage: ubuntu-latest
 
 variables:
-- group: BookStoreSecrets
+  azureSubscription: 'AzureServiceConnectionName'  # Replace with your real Service Connection
+  resourceGroup: 'bookstore-product-scs'
+  location: 'Central India'
+
+  productServiceApp: 'bookstore-productservice-api'
+  inventoryServiceApp: 'bookstore-inventoryservice-api'
+  productUiApp: 'bookstore-product-ui'
+
+  serviceBusNamespace: 'bookstore-servicebus'
+  topicName: 'bookstore-topic'
+  subscriptionName: 'bookstore-subscription'
 
 steps:
-- script: |
-    echo "JwtKey: $(JwtKey)"
-    echo "KafkaBootstrapServers: $(KafkaBootstrapServers)"
-    echo "KafkaUsername: $(KafkaUsername)"
-    echo "KafkaPassword: $(KafkaPassword)"
-    echo "CosmosEndpoint: $(CosmosEndpoint)"
-    echo "CosmosKey: $(CosmosKey)"
-  displayName: 'Print Secret Variables (test)'
+- task: AzureCLI@2
+  displayName: 'Create Resources and Setup App Settings'
+  inputs:
+    azureSubscription: '$(azureSubscription)'
+    scriptType: 'bash'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      echo "Setting environment variables..."
+      RESOURCE_GROUP="$(resourceGroup)"
+      LOCATION="$(location)"
+      PRODUCT_SERVICE_APP="$(productServiceApp)"
+      INVENTORY_SERVICE_APP="$(inventoryServiceApp)"
+      PRODUCT_UI_APP="$(productUiApp)"
+      SERVICE_BUS_NAMESPACE="$(serviceBusNamespace)"
+      TOPIC_NAME="$(topicName)"
+      SUBSCRIPTION_NAME="$(subscriptionName)"
+
+      echo "Creating Resource Group if not exists..."
+      az group create --name "$RESOURCE_GROUP" --location "$LOCATION"
+
+      echo "Creating App Service Plans and Web Apps..."
+      for app in "$PRODUCT_SERVICE_APP" "$INVENTORY_SERVICE_APP" "$PRODUCT_UI_APP"; do
+        az appservice plan create --name "${app}-plan" --resource-group "$RESOURCE_GROUP" --sku B1 --is-linux --location "$LOCATION" || echo "App Plan already exists."
+        az webapp create --name "$app" --resource-group "$RESOURCE_GROUP" --plan "${app}-plan" --runtime "DOTNETCORE|7.0" || echo "WebApp already exists."
+      done
+
+      echo "Creating Service Bus Namespace and Topic/Subscription..."
+      az servicebus namespace create --name "$SERVICE_BUS_NAMESPACE" --resource-group "$RESOURCE_GROUP" --location "$LOCATION" --sku Standard || echo "Namespace exists"
+      az servicebus topic create --name "$TOPIC_NAME" --namespace-name "$SERVICE_BUS_NAMESPACE" --resource-group "$RESOURCE_GROUP" || echo "Topic exists"
+      az servicebus topic subscription create --name "$SUBSCRIPTION_NAME" --topic-name "$TOPIC_NAME" --namespace-name "$SERVICE_BUS_NAMESPACE" --resource-group "$RESOURCE_GROUP" || echo "Subscription exists"
+
+      echo "Fetching Service Bus primary connection string..."
+      SERVICE_BUS_CONNECTION_STRING=$(az servicebus namespace authorization-rule keys list \
+        --resource-group "$RESOURCE_GROUP" \
+        --namespace-name "$SERVICE_BUS_NAMESPACE" \
+        --name RootManageSharedAccessKey \
+        --query "primaryConnectionString" \
+        --output tsv)
+
+      echo "Setting Application Settings on App Services..."
+      for app in "$PRODUCT_SERVICE_APP" "$INVENTORY_SERVICE_APP"; do
+        az webapp config appsettings set --name "$app" --resource-group "$RESOURCE_GROUP" --settings \
+          "Jwt__Issuer=BookStore.Identity" \
+          "Jwt__Audience=BookStore.Services" \
+          "Jwt__Key=$JWT_KEY" \
+          "ServiceBus__ConnectionString=$SERVICE_BUS_CONNECTION_STRING" \
+          "Kafka__BootstrapServers=$KAFKA_BOOTSTRAP" \
+          "Kafka__Username=$KAFKA_USER" \
+          "Kafka__Password=$KAFKA_PASS" \
+          "Messaging__Provider=Kafka" \
+          "Database__Provider=InMemory" \
+          "Database__Cosmos__AccountEndpoint=$COSMOS_ENDPOINT" \
+          "Database__Cosmos__AccountKey=$COSMOS_KEY" \
+          "Database__Cosmos__DatabaseName=BookStoreDB"
+      done
+
+      echo "Done Successfully ✅"
+  env:
+    JWT_KEY: $(JwtKey)
+    KAFKA_BOOTSTRAP: $(KafkaBootstrapServers)
+    KAFKA_USER: $(KafkaUsername)
+    KAFKA_PASS: $(KafkaPassword)
+    COSMOS_ENDPOINT: $(CosmosEndpoint)
+    COSMOS_KEY: $(CosmosKey)
