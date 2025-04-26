@@ -7,6 +7,7 @@ using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using Serilog;
 using Confluent.Kafka;
+using System;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,12 +17,16 @@ if (builder.Environment.IsDevelopment())
         .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
         .AddJsonFile("appsettings.Development.json", optional: true, reloadOnChange: true)
         .AddEnvironmentVariables();
+
+    Console.WriteLine("Loaded Development configuration");
 }
 else
 {
     builder.Configuration
         .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
         .AddEnvironmentVariables();
+
+    Console.WriteLine($"Loaded {builder.Environment.EnvironmentName} configuration");
 }
 
 
