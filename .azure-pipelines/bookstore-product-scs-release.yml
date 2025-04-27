@@ -69,3 +69,46 @@ stages:
         appType: 'webAppLinux'
         WebAppName: '$(productUiApp)'
         packageForLinux: '$(Pipeline.Workspace)/buildPipeline/drop/ProductUI'
+
+- stage: ImportSwagger
+  displayName: 'Import Swagger into APIM'
+  dependsOn: Release
+  jobs:
+  - job: ImportSwaggerFiles
+    displayName: 'Import Swagger for Product and Inventory APIs'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: AzureCLI@2
+      displayName: 'Import ProductService Swagger'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          echo "Importing ProductService Swagger..."
+          az apim api import --resource-group "$(resourceGroup)" \
+            --service-name "$(apimServiceName)" \
+            --api-id "product-api" \
+            --path "product-api" \
+            --specification-format "OpenApi" \
+            --specification-path "https://$(productServiceApp).azurewebsites.net/swagger/v1/swagger.json" \
+            --display-name "Product Service API" \
+            --protocols https
+
+    - task: AzureCLI@2
+      displayName: 'Import InventoryService Swagger'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          echo "Importing InventoryService Swagger..."
+          az apim api import --resource-group "$(resourceGroup)" \
+            --service-name "$(apimServiceName)" \
+            --api-id "inventory-api" \
+            --path "inventory-api" \
+            --specification-format "OpenApi" \
+            --specification-path "https://$(inventoryServiceApp).azurewebsites.net/swagger/v1/swagger.json" \
+            --display-name "Inventory Service API" \
+            --protocols https
