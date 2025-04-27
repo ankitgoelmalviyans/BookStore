@@ -79,9 +79,9 @@ stages:
             "Jwt__Audience=BookStore.Services" \
             "Jwt__Key=$JWT_KEY" \
             "ServiceBus__ConnectionString=$serviceBusConnectionString" \
-            "Kafka__BootstrapServers=$KAFKA_BOOTSTRAP" \
-            "Kafka__Username=$KAFKA_USER" \
-            "Kafka__Password=$KAFKA_PASS" \
+            "Kafka__KafkaBootstrapServers=$KAFKA_BOOTSTRAP" \
+            "Kafka__KafkaUsername=$KAFKA_USER" \
+            "Kafka__KafkaPassword=$KAFKA_PASS" \
             "Messaging__Provider=Kafka" \
             "Database__Provider=InMemory" \
             "Database__Cosmos__AccountEndpoint=$COSMOS_ENDPOINT" \
