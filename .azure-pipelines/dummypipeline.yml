@@ -20,6 +20,8 @@ variables:
   value: 'product-events'
 - name: subscriptionName
   value: 'inventory-subscription'
+- name: apimServiceName
+  value: 'bookstore-apim'
 
 stages:
 - stage: Provision
@@ -43,7 +45,7 @@ stages:
           for app in "$(productServiceApp)" "$(inventoryServiceApp)" "$(productUiApp)"; do
             PLAN_NAME="${app}-plan"
             az appservice plan create --name "$PLAN_NAME" --resource-group "$(resourceGroup)" --sku B1 --is-linux --location "$(location)" || true
-            az webapp create --name "$app" --resource-group "$(resourceGroup)" --plan "$PLAN_NAME" --runtime "DOTNETCORE|7.0" || true
+            az webapp create --name "$app" --resource-group "$(resourceGroup)" --plan "$PLAN_NAME" --runtime "DOTNETCORE|8.0" || true
           done
 
           echo "Creating Service Bus namespace, topic, and subscription..."
@@ -72,6 +74,25 @@ stages:
             "Database__Cosmos__AccountEndpoint=$COSMOS_ENDPOINT" \
             "Database__Cosmos__AccountKey=$COSMOS_KEY" \
             "Database__Cosmos__DatabaseName=BookStoreDB"
+
+          echo "Setting App Settings for Inventory Service App..."
+          az webapp config appsettings set --name "$(inventoryServiceApp)" --resource-group "$(resourceGroup)" --settings \
+            "Jwt__Issuer=BookStore.Identity" \
+            "Jwt__Audience=BookStore.Services" \
+            "Jwt__Key=$JWT_KEY" \
+            "ServiceBus__ConnectionString=$serviceBusConnectionString" \
+            "Kafka__KafkaBootstrapServers=$KAFKA_BOOTSTRAP" \
+            "Kafka__KafkaUsername=$KAFKA_USER" \
+            "Kafka__KafkaPassword=$KAFKA_PASS" \
+            "Messaging__Provider=Kafka" \
+            "Database__Provider=InMemory" \
+            "Database__Cosmos__AccountEndpoint=$COSMOS_ENDPOINT" \
+            "Database__Cosmos__AccountKey=$COSMOS_KEY" \
+            "Database__Cosmos__DatabaseName=BookStoreDB"
+
+          echo "Creating APIM instance if not exists..."
+          az apim show --resource-group "$(resourceGroup)" --name "$(apimServiceName)" || \
+          az apim create --name "$(apimServiceName)" --resource-group "$(resourceGroup)" --location "$(location)" --publisher-email "admin@bookstore.com" --publisher-name "BookStore Admin" --sku-name Developer
       env:
         JWT_KEY: $(JwtKey)
         KAFKA_BOOTSTRAP: $(KafkaBootstrapServers)
@@ -158,3 +179,47 @@ stages:
         pathToPublish: '$(Build.ArtifactStagingDirectory)'
         artifactName: 'drop'
         publishLocation: 'Container'
+
+
+- stage: ImportSwagger
+  displayName: 'Import Swagger into APIM'
+  dependsOn: Build
+  jobs:
+  - job: ImportSwaggerFiles
+    displayName: 'Import Swagger for Product and Inventory APIs'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: AzureCLI@2
+      displayName: 'Import ProductService Swagger'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          echo "Importing ProductService Swagger..."
+          az apim api import --resource-group "$(resourceGroup)" \
+            --service-name "$(apimServiceName)" \
+            --api-id "product-api" \
+            --path "product-api" \
+            --specification-format "OpenApi" \
+            --specification-path "https://bookstore-product-service.azurewebsites.net/swagger/v1/swagger.json" \
+            --display-name "Product Service API" \
+            --protocols https
+
+    - task: AzureCLI@2
+      displayName: 'Import InventoryService Swagger'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          echo "Importing InventoryService Swagger..."
+          az apim api import --resource-group "$(resourceGroup)" \
+            --service-name "$(apimServiceName)" \
+            --api-id "inventory-api" \
+            --path "inventory-api" \
+            --specification-format "OpenApi" \
+            --specification-path "https://bookstore-inventory-service.azurewebsites.net/swagger/v1/swagger.json" \
+            --display-name "Inventory Service API" \
+            --protocols https
