@@ -3,8 +3,8 @@ trigger: none  # Manual trigger only for releases
 resources:
   pipelines:
   - pipeline: buildPipeline
-    source: ankitgoelmalviyans.BookStore
-    project: BookStore
+    source: ankitgoelmalviyans.BookStore    # Your build pipeline name
+    project: BookStore                      # Your Azure DevOps project name
     trigger: none
 
 variables:
@@ -51,9 +51,9 @@ stages:
         appName: '$(inventoryServiceApp)'
         package: '$(Pipeline.Workspace)/buildPipeline/drop/InventoryService/InventoryService.API.zip'
 
-  # ----------------- Angular ProductUI -------------------
-  - job: DeployAngularApp
-    displayName: 'Deploy Angular UI'
+  # ----------------- Angular Product-UI -------------------
+  - job: DeployAngularUI
+    displayName: 'Deploy Angular Product UI'
     dependsOn: DeployInventoryService
     pool:
       vmImage: 'ubuntu-latest'
@@ -61,18 +61,11 @@ stages:
     - download: buildPipeline
       artifact: drop
 
-    - task: ArchiveFiles@2
-      displayName: 'Archive Angular ProductUI files'
+    - task: AzureRmWebAppDeployment@4
+      displayName: 'Deploy Angular UI to WebApp'
       inputs:
-        rootFolderOrFile: '$(Pipeline.Workspace)/buildPipeline/drop/ProductUI'
-        includeRootFolder: false
-        archiveType: 'zip'
-        archiveFile: '$(Pipeline.Workspace)/buildPipeline/drop/ProductUI.zip'
-        replaceExistingArchive: true
-
-    - task: AzureWebApp@1
-      displayName: 'Deploy Angular App'
-      inputs:
+        ConnectionType: 'AzureRM'
         azureSubscription: '$(azureSubscription)'
-        appName: '$(productUiApp)'
-        package: '$(Pipeline.Workspace)/buildPipeline/drop/ProductUI.zip'
+        appType: 'webAppLinux'
+        WebAppName: '$(productUiApp)'
+        packageForLinux: '$(Pipeline.Workspace)/buildPipeline/drop/ProductUI'
