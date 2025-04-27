@@ -1,4 +1,4 @@
-trigger: none  # Manual trigger only for releases
+trigger: none
 
 resources:
   pipelines:
@@ -10,17 +10,19 @@ resources:
 variables:
   azureSubscription: 'AzureServiceConnectionName'
   resourceGroup: 'BookStoreRG'
-  apimServiceName: 'bookstore-apim'
+  location: 'East US'
   productServiceApp: 'bookstore-product-service'
   inventoryServiceApp: 'bookstore-inventory-service'
   productUiApp: 'bookstore-product-ui'
+  apimServiceName: 'bookstore-apim'
 
 stages:
+
+# ----------------- Release Stage -----------------
 - stage: Release
   displayName: 'Deploy to Azure App Services'
   jobs:
 
-  # ----------------- ProductService -------------------
   - job: DeployProductService
     displayName: 'Deploy ProductService'
     pool:
@@ -36,7 +38,6 @@ stages:
         appName: '$(productServiceApp)'
         package: '$(Pipeline.Workspace)/buildPipeline/drop/ProductService/BookStore.ProductService.API.zip'
 
-  # ----------------- InventoryService -------------------
   - job: DeployInventoryService
     displayName: 'Deploy InventoryService'
     dependsOn: DeployProductService
@@ -53,7 +54,6 @@ stages:
         appName: '$(inventoryServiceApp)'
         package: '$(Pipeline.Workspace)/buildPipeline/drop/InventoryService/InventoryService.API.zip'
 
-  # ----------------- Angular Product-UI -------------------
   - job: DeployAngularUI
     displayName: 'Deploy Angular Product UI'
     dependsOn: DeployInventoryService
@@ -72,6 +72,7 @@ stages:
         WebAppName: '$(productUiApp)'
         packageForLinux: '$(Pipeline.Workspace)/buildPipeline/drop/ProductUI'
 
+# ----------------- Import Swagger Stage -----------------
 - stage: ImportSwagger
   displayName: 'Import Swagger into APIM'
   dependsOn: Release
@@ -81,6 +82,12 @@ stages:
     pool:
       vmImage: 'ubuntu-latest'
     steps:
+
+    - script: |
+        echo "Downloading ProductService Swagger..."
+        curl -o product-swagger.json https://$(productServiceApp).azurewebsites.net/swagger/v1/swagger.json
+      displayName: 'Download ProductService Swagger'
+
     - task: AzureCLI@2
       displayName: 'Import ProductService Swagger'
       inputs:
@@ -88,21 +95,20 @@ stages:
         scriptType: 'bash'
         scriptLocation: 'inlineScript'
         inlineScript: |
-          echo "Waiting for ProductService to be ready..."
-          sleep 20
-          echo "Importing ProductService Swagger..."
-          az apim api import --resource-group "$RESOURCE_GROUP" \
-            --service-name "$APIM_SERVICE_NAME" \
-            --api-id "product-api" \
-            --path "product-api" \
-            --specification-format "OpenApi" \
-            --specification-path "https://$PRODUCT_SERVICE_APP.azurewebsites.net/swagger/v1/swagger.json" \
+          echo "Importing ProductService Swagger from local file..."
+          az apim api import --resource-group $(resourceGroup) \
+            --service-name $(apimServiceName) \
+            --api-id product-api \
+            --path product-api \
+            --specification-format OpenApi \
+            --specification-path product-swagger.json \
             --display-name "Product Service API" \
             --protocols https
-      env:
-        RESOURCE_GROUP: $(resourceGroup)
-        APIM_SERVICE_NAME: $(apimServiceName)
-        PRODUCT_SERVICE_APP: $(productServiceApp)
+
+    - script: |
+        echo "Downloading InventoryService Swagger..."
+        curl -o inventory-swagger.json https://$(inventoryServiceApp).azurewebsites.net/swagger/v1/swagger.json
+      displayName: 'Download InventoryService Swagger'
 
     - task: AzureCLI@2
       displayName: 'Import InventoryService Swagger'
@@ -111,18 +117,12 @@ stages:
         scriptType: 'bash'
         scriptLocation: 'inlineScript'
         inlineScript: |
-          echo "Waiting for InventoryService to be ready..."
-          sleep 20
-          echo "Importing InventoryService Swagger..."
-          az apim api import --resource-group "$RESOURCE_GROUP" \
-            --service-name "$APIM_SERVICE_NAME" \
-            --api-id "inventory-api" \
-            --path "inventory-api" \
-            --specification-format "OpenApi" \
-            --specification-path "https://$INVENTORY_SERVICE_APP.azurewebsites.net/swagger/v1/swagger.json" \
+          echo "Importing InventoryService Swagger from local file..."
+          az apim api import --resource-group $(resourceGroup) \
+            --service-name $(apimServiceName) \
+            --api-id inventory-api \
+            --path inventory-api \
+            --specification-format OpenApi \
+            --specification-path inventory-swagger.json \
             --display-name "Inventory Service API" \
             --protocols https
-      env:
-        RESOURCE_GROUP: $(resourceGroup)
-        APIM_SERVICE_NAME: $(apimServiceName)
-        INVENTORY_SERVICE_APP: $(inventoryServiceApp)
