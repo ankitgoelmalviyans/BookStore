@@ -3,12 +3,12 @@ trigger: none  # Manual trigger only for releases
 resources:
   pipelines:
   - pipeline: buildPipeline
-    source: ankitgoelmalviyans.BookStore     # Name of your build pipeline (not the YAML file name)
-    project: BookStore                       # Exact DevOps project name
-    trigger: none                            # Manual selection
+    source: ankitgoelmalviyans.BookStore
+    project: BookStore
+    trigger: none
 
 variables:
-  azureSubscription: 'AzureServiceConnectionName'   # Replace with your service connection
+  azureSubscription: 'AzureServiceConnectionName'
   productServiceApp: 'bookstore-product-service'
   inventoryServiceApp: 'bookstore-inventory-service'
   productUiApp: 'bookstore-product-ui'
@@ -25,7 +25,7 @@ stages:
       vmImage: 'ubuntu-latest'
     steps:
     - download: buildPipeline
-      artifact: drop  # Artifact name from build pipeline
+      artifact: drop
 
     - task: AzureWebApp@1
       displayName: 'Deploy ProductService'
@@ -61,9 +61,18 @@ stages:
     - download: buildPipeline
       artifact: drop
 
+    - task: ArchiveFiles@2
+      displayName: 'Archive Angular ProductUI files'
+      inputs:
+        rootFolderOrFile: '$(Pipeline.Workspace)/buildPipeline/drop/ProductUI'
+        includeRootFolder: false
+        archiveType: 'zip'
+        archiveFile: '$(Pipeline.Workspace)/buildPipeline/drop/ProductUI.zip'
+        replaceExistingArchive: true
+
     - task: AzureWebApp@1
       displayName: 'Deploy Angular App'
       inputs:
         azureSubscription: '$(azureSubscription)'
         appName: '$(productUiApp)'
-        package: '$(Pipeline.Workspace)/buildPipeline/drop/ProductUI'
+        package: '$(Pipeline.Workspace)/buildPipeline/drop/ProductUI.zip'
