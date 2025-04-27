@@ -1,189 +1,80 @@
-trigger: none
+trigger: none  # Manual trigger only for releases
+
+resources:
+  pipelines:
+  - pipeline: buildPipeline
+    source: ankitgoelmalviyans.BookStore
+    project: BookStore
+    trigger: none
 
 variables:
-- group: BookStoreSecrets
-- name: azureSubscription
-  value: 'AzureServiceConnectionName'
-- name: resourceGroup
-  value: 'BookStoreRG'
-- name: location
-  value: 'East US'
-- name: productServiceApp
-  value: 'bookstore-product-service'
-- name: inventoryServiceApp
-  value: 'bookstore-inventory-service'
-- name: productUiApp
-  value: 'bookstore-product-ui'
-- name: serviceBusNamespace
-  value: 'bookstore-servicebus'
-- name: topicName
-  value: 'product-events'
-- name: subscriptionName
-  value: 'inventory-subscription'
-- name: apimServiceName
-  value: 'bookstore-apim'
+  azureSubscription: 'AzureServiceConnectionName'
+  resourceGroup: 'BookStoreRG'
+  apimServiceName: 'bookstore-apim'
+  productServiceApp: 'bookstore-product-service'
+  inventoryServiceApp: 'bookstore-inventory-service'
+  productUiApp: 'bookstore-product-ui'
 
 stages:
-- stage: Provision
-  displayName: 'Provision Azure Resources'
+- stage: Release
+  displayName: 'Deploy to Azure App Services'
   jobs:
-  - job: CreateResources
-    displayName: 'Create App Services and Service Bus'
+
+  # ----------------- ProductService -------------------
+  - job: DeployProductService
+    displayName: 'Deploy ProductService'
     pool:
       vmImage: 'ubuntu-latest'
     steps:
-    - task: AzureCLI@2
+    - download: buildPipeline
+      artifact: drop
+
+    - task: AzureWebApp@1
+      displayName: 'Deploy ProductService'
       inputs:
         azureSubscription: '$(azureSubscription)'
-        scriptType: 'bash'
-        scriptLocation: 'inlineScript'
-        inlineScript: |
-          echo "Creating resource group if not exists..."
-          az group create --name "$(resourceGroup)" --location "$(location)"
+        appName: '$(productServiceApp)'
+        package: '$(Pipeline.Workspace)/buildPipeline/drop/ProductService/BookStore.ProductService.API.zip'
 
-          echo "Creating App Service Plans and WebApps..."
-          for app in "$(productServiceApp)" "$(inventoryServiceApp)" "$(productUiApp)"; do
-            PLAN_NAME="${app}-plan"
-            az appservice plan create --name "$PLAN_NAME" --resource-group "$(resourceGroup)" --sku B1 --is-linux --location "$(location)" || true
-            az webapp create --name "$app" --resource-group "$(resourceGroup)" --plan "$PLAN_NAME" --runtime "DOTNETCORE|8.0" || true
-          done
-
-          echo "Creating Service Bus namespace, topic, and subscription..."
-          az servicebus namespace create --name "$(serviceBusNamespace)" --resource-group "$(resourceGroup)" --location "$(location)" || true
-          az servicebus topic create --name "$(topicName)" --namespace-name "$(serviceBusNamespace)" --resource-group "$(resourceGroup)" || true
-          az servicebus topic subscription create --name "$(subscriptionName)" --topic-name "$(topicName)" --namespace-name "$(serviceBusNamespace)" --resource-group "$(resourceGroup)" || true
-
-          echo "Fetching Service Bus primary connection string..."
-          serviceBusConnectionString=$(az servicebus namespace authorization-rule keys list \
-            --resource-group "$(resourceGroup)" \
-            --namespace-name "$(serviceBusNamespace)" \
-            --name RootManageSharedAccessKey \
-            --query "primaryConnectionString" --output tsv)
-
-          echo "Setting App Settings for Product Service App..."
-          az webapp config appsettings set --name "$(productServiceApp)" --resource-group "$(resourceGroup)" --settings \
-            "Jwt__Issuer=BookStore.Identity" \
-            "Jwt__Audience=BookStore.Services" \
-            "Jwt__Key=$JWT_KEY" \
-            "ServiceBus__ConnectionString=$serviceBusConnectionString" \
-            "Kafka__BootstrapServers=$KAFKA_BOOTSTRAP" \
-            "Kafka__Username=$KAFKA_USER" \
-            "Kafka__Password=$KAFKA_PASS" \
-            "Messaging__Provider=Kafka" \
-            "Database__Provider=InMemory" \
-            "Database__Cosmos__AccountEndpoint=$COSMOS_ENDPOINT" \
-            "Database__Cosmos__AccountKey=$COSMOS_KEY" \
-            "Database__Cosmos__DatabaseName=BookStoreDB"
-
-          echo "Setting App Settings for Inventory Service App..."
-          az webapp config appsettings set --name "$(inventoryServiceApp)" --resource-group "$(resourceGroup)" --settings \
-            "Jwt__Issuer=BookStore.Identity" \
-            "Jwt__Audience=BookStore.Services" \
-            "Jwt__Key=$JWT_KEY" \
-            "ServiceBus__ConnectionString=$serviceBusConnectionString" \
-            "Kafka__KafkaBootstrapServers=$KAFKA_BOOTSTRAP" \
-            "Kafka__KafkaUsername=$KAFKA_USER" \
-            "Kafka__KafkaPassword=$KAFKA_PASS" \
-            "Messaging__Provider=Kafka" \
-            "Database__Provider=InMemory" \
-            "Database__Cosmos__AccountEndpoint=$COSMOS_ENDPOINT" \
-            "Database__Cosmos__AccountKey=$COSMOS_KEY" \
-            "Database__Cosmos__DatabaseName=BookStoreDB"
-
-          echo "Creating APIM instance if not exists..."
-          az apim show --resource-group "$(resourceGroup)" --name "$(apimServiceName)" || \
-          az apim create --name "$(apimServiceName)" --resource-group "$(resourceGroup)" --location "$(location)" --publisher-email "admin@bookstore.com" --publisher-name "BookStore Admin" --sku-name Developer
-      env:
-        JWT_KEY: $(JwtKey)
-        KAFKA_BOOTSTRAP: $(KafkaBootstrapServers)
-        KAFKA_USER: $(KafkaUsername)
-        KAFKA_PASS: $(KafkaPassword)
-        COSMOS_ENDPOINT: $(CosmosEndpoint)
-        COSMOS_KEY: $(CosmosKey)
-
-- stage: Build
-  displayName: 'Build and Publish Artifacts'
-  jobs:
-  - job: BuildDotNet
-    displayName: 'Build Product and Inventory Services'
-    pool:
-      vmImage: 'windows-latest'
-    steps:
-    - task: UseDotNet@2
-      inputs:
-        packageType: 'sdk'
-        version: '8.0.x'
-        installationPath: $(Agent.ToolsDirectory)/dotnet
-
-    - task: DotNetCoreCLI@2
-      displayName: 'Restore & Build ProductService'
-      inputs:
-        command: 'build'
-        projects: 'BookStore.ProductSCA/BookStore.ProductService/src/BookStore.ProductService.API/BookStore.ProductService.API.csproj'
-
-    - task: DotNetCoreCLI@2
-      displayName: 'Publish ProductService'
-      inputs:
-        command: 'publish'
-        publishWebProjects: false
-        projects: 'BookStore.ProductSCA/BookStore.ProductService/src/BookStore.ProductService.API/BookStore.ProductService.API.csproj'
-        arguments: '--configuration Release --output $(Build.ArtifactStagingDirectory)/ProductService'
-
-    - task: DotNetCoreCLI@2
-      displayName: 'Restore & Build InventoryService'
-      inputs:
-        command: 'build'
-        projects: 'BookStore.ProductSCA/BookStore.InventoryService/InventoryService.API/BookStore.InventoryService.API.csproj'
-
-    - task: DotNetCoreCLI@2
-      displayName: 'Publish InventoryService'
-      inputs:
-        command: 'publish'
-        publishWebProjects: false
-        projects: 'BookStore.ProductSCA/BookStore.InventoryService/InventoryService.API/BookStore.InventoryService.API.csproj'
-        arguments: '--configuration Release --output $(Build.ArtifactStagingDirectory)/InventoryService'
-
-    - task: PublishBuildArtifacts@1
-      displayName: 'Publish Backend Services Artifacts'
-      inputs:
-        pathToPublish: '$(Build.ArtifactStagingDirectory)'
-        artifactName: 'drop'
-        publishLocation: 'Container'
-
-  - job: BuildAngular
-    displayName: 'Build Angular UI'
+  # ----------------- InventoryService -------------------
+  - job: DeployInventoryService
+    displayName: 'Deploy InventoryService'
+    dependsOn: DeployProductService
     pool:
       vmImage: 'ubuntu-latest'
     steps:
-    - task: NodeTool@0
+    - download: buildPipeline
+      artifact: drop
+
+    - task: AzureWebApp@1
+      displayName: 'Deploy InventoryService'
       inputs:
-        versionSpec: '18.x'
-      displayName: 'Install Node.js'
+        azureSubscription: '$(azureSubscription)'
+        appName: '$(inventoryServiceApp)'
+        package: '$(Pipeline.Workspace)/buildPipeline/drop/InventoryService/InventoryService.API.zip'
 
-    - script: |
-        cd BookStore.ProductSCA/product-ui
-        npm install
-        npx ng build --configuration production
-      displayName: 'Build Angular App'
+  # ----------------- Angular Product-UI -------------------
+  - job: DeployAngularUI
+    displayName: 'Deploy Angular Product UI'
+    dependsOn: DeployInventoryService
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - download: buildPipeline
+      artifact: drop
 
-    - task: CopyFiles@2
-      displayName: 'Copy Angular UI to Artifact Staging'
+    - task: AzureRmWebAppDeployment@4
+      displayName: 'Deploy Angular UI to WebApp'
       inputs:
-        SourceFolder: 'BookStore.ProductSCA/product-ui/dist/product-ui'
-        Contents: '**'
-        TargetFolder: '$(Build.ArtifactStagingDirectory)/ProductUI'
-
-    - task: PublishBuildArtifacts@1
-      displayName: 'Publish Angular UI Artifacts'
-      inputs:
-        pathToPublish: '$(Build.ArtifactStagingDirectory)'
-        artifactName: 'drop'
-        publishLocation: 'Container'
-
+        ConnectionType: 'AzureRM'
+        azureSubscription: '$(azureSubscription)'
+        appType: 'webAppLinux'
+        WebAppName: '$(productUiApp)'
+        packageForLinux: '$(Pipeline.Workspace)/buildPipeline/drop/ProductUI'
 
 - stage: ImportSwagger
   displayName: 'Import Swagger into APIM'
-  dependsOn: Build
+  dependsOn: Release
   jobs:
   - job: ImportSwaggerFiles
     displayName: 'Import Swagger for Product and Inventory APIs'
@@ -197,15 +88,21 @@ stages:
         scriptType: 'bash'
         scriptLocation: 'inlineScript'
         inlineScript: |
+          echo "Waiting for ProductService to be ready..."
+          sleep 20
           echo "Importing ProductService Swagger..."
-          az apim api import --resource-group "$(resourceGroup)" \
-            --service-name "$(apimServiceName)" \
+          az apim api import --resource-group "$RESOURCE_GROUP" \
+            --service-name "$APIM_SERVICE_NAME" \
             --api-id "product-api" \
             --path "product-api" \
             --specification-format "OpenApi" \
-            --specification-path "https://bookstore-product-service.azurewebsites.net/swagger/v1/swagger.json" \
+            --specification-path "https://$PRODUCT_SERVICE_APP.azurewebsites.net/swagger/v1/swagger.json" \
             --display-name "Product Service API" \
             --protocols https
+      env:
+        RESOURCE_GROUP: $(resourceGroup)
+        APIM_SERVICE_NAME: $(apimServiceName)
+        PRODUCT_SERVICE_APP: $(productServiceApp)
 
     - task: AzureCLI@2
       displayName: 'Import InventoryService Swagger'
@@ -214,12 +111,18 @@ stages:
         scriptType: 'bash'
         scriptLocation: 'inlineScript'
         inlineScript: |
+          echo "Waiting for InventoryService to be ready..."
+          sleep 20
           echo "Importing InventoryService Swagger..."
-          az apim api import --resource-group "$(resourceGroup)" \
-            --service-name "$(apimServiceName)" \
+          az apim api import --resource-group "$RESOURCE_GROUP" \
+            --service-name "$APIM_SERVICE_NAME" \
             --api-id "inventory-api" \
             --path "inventory-api" \
             --specification-format "OpenApi" \
-            --specification-path "https://bookstore-inventory-service.azurewebsites.net/swagger/v1/swagger.json" \
+            --specification-path "https://$INVENTORY_SERVICE_APP.azurewebsites.net/swagger/v1/swagger.json" \
             --display-name "Inventory Service API" \
             --protocols https
+      env:
+        RESOURCE_GROUP: $(resourceGroup)
+        APIM_SERVICE_NAME: $(apimServiceName)
+        INVENTORY_SERVICE_APP: $(inventoryServiceApp)
