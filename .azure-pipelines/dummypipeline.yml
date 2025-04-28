@@ -14,7 +14,7 @@ variables:
   productServiceApp: 'bookstore-product-service'
   inventoryServiceApp: 'bookstore-inventory-service'
   productUiApp: 'bookstore-product-ui'
-  apimServiceName: 'bookstore-apim'
+  apimServiceName: 'bookstore-apim-new'
 
 stages:
 
@@ -23,10 +23,33 @@ stages:
   displayName: 'Deploy to Azure App Services'
   jobs:
 
-  - job: DeployProductService
-    displayName: 'Deploy ProductService'
+  # Step 1 - Fetch APIM IP
+  - job: FetchAPIMIP
+    displayName: 'Fetch APIM Public IP'
     pool:
       vmImage: 'ubuntu-latest'
+    steps:
+    - task: AzureCLI@2
+      name: FetchApimIp
+      displayName: 'Get APIM Public IP'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          echo "Fetching APIM Public IP..."
+          ip=$(az network public-ip list --query "[?dnsSettings.domainNameLabel=='$(apimServiceName)'].ipAddress" -o tsv)
+          echo "Fetched IP: $ip"
+          echo "##vso[task.setvariable variable=apimPublicIP;isOutput=true]$ip"
+
+  # Step 2 - Deploy ProductService
+  - job: DeployProductService
+    displayName: 'Deploy ProductService'
+    dependsOn: FetchAPIMIP
+    pool:
+      vmImage: 'ubuntu-latest'
+    variables:
+      apimPublicIP: $[ dependencies.FetchAPIMIP.outputs['FetchApimIp.apimPublicIP'] ]
     steps:
     - download: buildPipeline
       artifact: drop
@@ -38,11 +61,36 @@ stages:
         appName: '$(productServiceApp)'
         package: '$(Pipeline.Workspace)/buildPipeline/drop/ProductService/BookStore.ProductService.API.zip'
 
+    - task: AzureCLI@2
+      displayName: 'Restrict ProductService to APIM IP'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          echo "Applying access restriction to ProductService..."
+          az webapp config access-restriction add \
+            --resource-group $(resourceGroup) \
+            --name $(productServiceApp) \
+            --rule-name allow-apim \
+            --action Allow \
+            --ip-address $(apimPublicIP)/32 \
+            --priority 100 \
+            --description "Allow access only from APIM"
+
+          az webapp config access-restriction set \
+            --resource-group $(resourceGroup) \
+            --name $(productServiceApp) \
+            --use-same-restrictions-for-scm-site true
+
+  # Step 3 - Deploy InventoryService
   - job: DeployInventoryService
     displayName: 'Deploy InventoryService'
     dependsOn: DeployProductService
     pool:
       vmImage: 'ubuntu-latest'
+    variables:
+      apimPublicIP: $[ dependencies.FetchAPIMIP.outputs['FetchApimIp.apimPublicIP'] ]
     steps:
     - download: buildPipeline
       artifact: drop
@@ -54,6 +102,29 @@ stages:
         appName: '$(inventoryServiceApp)'
         package: '$(Pipeline.Workspace)/buildPipeline/drop/InventoryService/InventoryService.API.zip'
 
+    - task: AzureCLI@2
+      displayName: 'Restrict InventoryService to APIM IP'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          echo "Applying access restriction to InventoryService..."
+          az webapp config access-restriction add \
+            --resource-group $(resourceGroup) \
+            --name $(inventoryServiceApp) \
+            --rule-name allow-apim \
+            --action Allow \
+            --ip-address $(apimPublicIP)/32 \
+            --priority 100 \
+            --description "Allow access only from APIM"
+
+          az webapp config access-restriction set \
+            --resource-group $(resourceGroup) \
+            --name $(inventoryServiceApp) \
+            --use-same-restrictions-for-scm-site true
+
+  # Step 4 - Deploy Angular UI
   - job: DeployAngularUI
     displayName: 'Deploy Angular Product UI'
     dependsOn: DeployInventoryService
@@ -95,7 +166,7 @@ stages:
         scriptType: 'bash'
         scriptLocation: 'inlineScript'
         inlineScript: |
-          echo "Importing ProductService Swagger from local file..."
+          echo "Importing ProductService Swagger..."
           az apim api import --resource-group $(resourceGroup) \
             --service-name $(apimServiceName) \
             --api-id product-api \
@@ -118,7 +189,7 @@ stages:
         scriptType: 'bash'
         scriptLocation: 'inlineScript'
         inlineScript: |
-          echo "Importing InventoryService Swagger from local file..."
+          echo "Importing InventoryService Swagger..."
           az apim api import --resource-group $(resourceGroup) \
             --service-name $(apimServiceName) \
             --api-id inventory-api \
