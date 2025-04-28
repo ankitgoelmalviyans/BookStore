@@ -27,10 +27,10 @@ The **BookStore Project** is a real-world enterprise-grade cloud-native architec
 | Messaging Infrastructure         | Kafka (Confluent Cloud) setup + Azure Service Bus fallback support                            | ✅ Done     |
 | CI/CD Pipelines                  | Azure DevOps pipeline for Product SCS (build, release, deploy)                                | ✅ Done     |
 | API Management (APIM) Integration | APIM proxy setup + subscription key validation + Swagger import automated                    | ✅ Done     |
+| Kubernetes Migration             | Move to Docker & Azure Kubernetes Service (AKS) for scalable deployment                       | 🔜 Planned  |
 | JWT Validation at APIM Level     | JWT policy inbound validation (planned for Product/Inventory APIs)                            | 🔜 Planned  |
 | Retry + Dead-Letter for Kafka    | Retry logic and DLQ fallback strategy implementation                                           | 🔜 Planned  |
 | Remaining Services               | `OrderService`, `CustomerService`, and their respective Angular apps (`order-ui`, `customer-ui`) | 🔜 Planned  |
-| Kubernetes Migration             | Move to Docker & Azure Kubernetes Service (AKS) for scalable deployment                       | 🔜 Planned  |
 | Advanced Patterns                | Event Sourcing, CQRS (especially for Orders Domain)                                            | 🔜 Future Phase |
 
 ---
@@ -65,7 +65,7 @@ Each SCS has its own **frontend**, **microservices**, and **database**, and is i
 |------|------|--------|
 | Async Event Communication | ✅ **Kafka (Confluent Cloud)** | Enabled |
 | Azure Alternative | ✅ **Azure Service Bus** | Supported (Pluggable) |
-| Retry + DLQ + Logging | Kafka Retry + Fallback | 🔄 In Progress |
+| Retry + DLQ + Logging | Kafka Retry + Fallback | 🔄 Planned |
 
 ---
 
@@ -197,12 +197,12 @@ Product SCS Order SCS Customer SCS
 
 ## 🗓️ Upcoming / Future Plans
 
+- 🔜 Full APIM automation (rate-limiting, analytics)
+- 🔜 Switch deployment to Docker and Kubernetes
 - 🔜 JWT inbound validation in APIM
 - 🔜 Develop OrderService + `order-ui`
 - 🔜 Develop CustomerService + `customer-ui`
 - 🔜 Retry logic + DLQ for Kafka
-- 🔜 Full APIM automation (rate-limiting, analytics)
-- 🔜 Switch deployment to Docker and Kubernetes
 - 🔜 Explore Event Sourcing + CQRS
 
 ---
