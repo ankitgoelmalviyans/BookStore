@@ -78,3 +78,114 @@
 
 ---
 
+
+
+
+BookStore Project - 26th, 27th, and 28th April
+
+26th April 2025 - Setup and Initial Issues
+
+Configured Azure App Services for ProductService, InventoryService, and Product-UI.
+
+Published Angular dist/ folder and learned correct deployment structure for Azure Linux App Services.
+
+Learned how to check logs using Log Stream, SSH, and Advanced Tools (Kudu) in Azure App Service.
+
+Debugged Angular UI deployment issues (404 errors) and fixed proper dist/product-ui packaging.
+
+Identified missing default page setup in Linux Web App (fixed manually).
+
+Observed how deployment behaves differently between .NET Core apps and Angular static files.
+
+27th April 2025 - Azure API Management (APIM) Setup
+
+Created Azure API Management (APIM) instance bookstore-apim.
+
+Provisioned APIM using Azure CLI inside the pipeline.
+
+Imported ProductService and InventoryService into APIM through release pipeline.
+
+Discovered that Swagger import doesn't automatically set Web Service URL (backend URL) and found solution.
+
+Corrected Import Swagger command by adding --service-url.
+
+Understood APIM Developer Portal and added APIs manually to be visible there.
+
+Created Subscription and User (ankit) inside APIM for API access.
+
+Learned APIM enforces Ocp-Apim-Subscription-Key header during requests.
+
+Tested API calls via Developer Portal and Postman.
+
+28th April 2025 - Security and Testing Improvements
+
+Enabled JWT Validation Policies on ProductService API inside APIM.
+
+Understood difference between Service-side JWT Validation vs APIM-side JWT Validation.
+
+Finalized strategy: Let services validate JWT internally (APIM only forwards JWT).
+
+Understood that:
+
+ProductService requires JWT.
+
+InventoryService does not require JWT.
+
+Created a full Postman Collection to test APIs:
+
+AuthService call to get JWT Token.
+
+Call ProductService API with Authorization + Subscription-Key.
+
+Call InventoryService API with only Subscription-Key.
+
+Observed:
+
+Without JWT, ProductService returns 401 Unauthorized.
+
+Without Subscription Key in Developer Portal, APIM returns 401 Subscription Missing.
+
+Direct Postman calls to App Services work if JWT provided but Subscription Key missing (because App Service doesn't block that yet).
+
+Key Learnings
+
+Full understanding of Azure App Service deployment (for both .NET and Angular).
+
+Hands-on Azure API Management creation, configuration, import.
+
+Learned difference between OpenAPI import vs Backend Service configuration.
+
+Built automated provisioning and release pipelines.
+
+Learned Security Policies in APIM (JWT Validation, Subscription Key enforcement).
+
+Developed complete testing strategy using Postman.
+
+Next Goals (Moving Forward)
+
+Automate Swagger imports with --service-url set correctly in pipelines.
+
+Properly manage Subscription Plans and Products inside APIM.
+
+Tighten security further by restricting direct App Service access (optional).
+
+Finalize clean API Documentation inside Developer Portal.
+
+Personal Growth
+
+Improved Azure CLI, Azure DevOps YAML skills.
+
+Gained strong real-world experience with APIM lifecycle.
+
+Improved troubleshooting ability with Azure resources.
+
+Enhanced API security understanding (JWT, API Management, Gateway Security).
+
+Achievements
+
+✅ First successful pipeline-based APIM Import and Testing.
+✅ Secured APIs through Subscription Key and JWT.
+✅ No manual APIM setup required now except small tweaks (e.g., Developer Portal tweaks).
+
+
+
