@@ -236,8 +236,8 @@ PRs, issues, forks are welcome!
 ## 📨 Contact
 
 **Maintainer:** Ankit Goel  
-📧 ankitgoelmalviyans@gmail.com  
-🌐 [LinkedIn](https://linkedin.com/in/ankitgoelmalviyans)
+📧 ankitmalviyans@gmail.com  
+🌐 [LinkedIn](https://www.linkedin.com/in/ankit-goel-72722321/)
 
 ---
 
