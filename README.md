@@ -1,4 +1,3 @@
-
 # 📚 BookStore Microservices Project
 
 ---
@@ -8,7 +7,7 @@
 The **BookStore Project** is a real-world enterprise-grade cloud-native architecture built on:
 
 - ✅ ASP.NET Core 8 Web APIs with Clean Architecture
-- ✅ Angular 17 + for UI (per Self-Contained System)
+- ✅ Angular 17+ for UI (per Self-Contained System)
 - ✅ Kafka (Confluent Cloud) for Async Messaging
 - ✅ Azure Service Bus (Pluggable alternative to Kafka)
 - ✅ Azure Cosmos DB / In-Memory DB (switchable per environment)
@@ -19,18 +18,44 @@ The **BookStore Project** is a real-world enterprise-grade cloud-native architec
 
 ---
 
+## 🧹 Project Status Overview
+
+| Category                         | Items Covered                                                                                  | Status     |
+|----------------------------------|-----------------------------------------------------------------------------------------------|------------|
+| Core Services Completed          | `ProductService`, `InventoryService`, `AuthService`                                             | ✅ Done     |
+| Frontend Completed               | `product-ui` (Angular 17+ with Auth and Product Listing)                                       | ✅ Done     |
+| Messaging Infrastructure         | Kafka (Confluent Cloud) setup + Azure Service Bus fallback support                            | ✅ Done     |
+| CI/CD Pipelines                  | Azure DevOps pipeline for Product SCS (build, release, deploy)                                | ✅ Done     |
+| API Management (APIM) Integration | APIM proxy setup + subscription key validation + Swagger import automated                    | ✅ Done     |
+| JWT Validation at APIM Level     | JWT policy inbound validation (planned for Product/Inventory APIs)                            | 🔜 Planned  |
+| Retry + Dead-Letter for Kafka    | Retry logic and DLQ fallback strategy implementation                                           | 🔜 Planned  |
+| Remaining Services               | `OrderService`, `CustomerService`, and their respective Angular apps (`order-ui`, `customer-ui`) | 🔜 Planned  |
+| Kubernetes Migration             | Move to Docker & Azure Kubernetes Service (AKS) for scalable deployment                       | 🔜 Planned  |
+| Advanced Patterns                | Event Sourcing, CQRS (especially for Orders Domain)                                            | 🔜 Future Phase |
+
+---
+
+👉 **Current Position:**
+- Product SCS = **Fully Functional**
+- Core Infrastructure (Auth, Messaging, Pipelines, APIM) = **Ready**
+- Small Improvements Pending = **JWT enforcement at APIM inbound**, **Order SCS next**
+
+> 🔸 *Note:* Currently, Azure API Management (APIM) acts as a **secure proxy** with subscription key validation. JWT validation is performed by the microservices themselves. In the future, **APIM inbound policies** will handle **JWT validation**.
+
+---
+
 ## 🧱 Architecture Overview
 
 ### 🎯 Core Building Blocks
 
-| Domain Area       | Frontend        | Microservices                    | Status     |
-|------------------|------------------|----------------------------------|------------|
-| **Product SCS**   | `product-ui`     | `ProductService`, `InventoryService` | ✅ Complete |
+| Domain Area       | Frontend        | Microservices                        | Status         |
+|------------------|------------------|--------------------------------------|----------------|
+| **Product SCS**   | `product-ui`     | `ProductService`, `InventoryService` | ✅ Complete     |
 | **Order SCS**     | `order-ui`       | `OrderService`, `PaymentService (optional)` | 🚧 Planned |
-| **Customer SCS**  | `customer-ui`    | `CustomerService`                | 🚧 Planned |
-| **Auth Service**  | -                | `AuthService` (JWT Issuer)       | ✅ Complete |
+| **Customer SCS**  | `customer-ui`    | `CustomerService`                    | 🚧 Planned     |
+| **Auth Service**  | -                | `AuthService` (JWT Issuer)           | ✅ Complete     |
 
-Each SCS has its own **frontend**, **microservices**, and **database** and is independently deployable.
+Each SCS has its own **frontend**, **microservices**, and **database**, and is independently deployable.
 
 ---
 
@@ -40,7 +65,7 @@ Each SCS has its own **frontend**, **microservices**, and **database** and is in
 |------|------|--------|
 | Async Event Communication | ✅ **Kafka (Confluent Cloud)** | Enabled |
 | Azure Alternative | ✅ **Azure Service Bus** | Supported (Pluggable) |
-| Retry + DLQ + Logging | Kafka Retry + Fallback (Planned) | 🔄 |
+| Retry + DLQ + Logging | Kafka Retry + Fallback | 🔄 In Progress |
 
 ---
 
@@ -58,10 +83,10 @@ Each SCS has its own **frontend**, **microservices**, and **database** and is in
 |----------|------------|--------|
 | Auth Service | Azure App Service | ✅ Done |
 | ProductService + InventoryService | Azure App Service | ✅ Done |
-| Angular UI (Product SCS) | Local | ✅ Done |
-| Angular UI (Others) | Planned | 🔄 |
-| API Gateway | Azure API Management | 🔄 Planned |
-| CI/CD Pipeline | Azure Devops | ✅ Done for Product 🔄 Planned for other SCS |
+| Angular UI (Product SCS) | Local & Azure | ✅ Done |
+| Angular UI (Order & Customer) | Planned | 🔄 |
+| API Gateway (APIM) | Azure API Management | ✅ Done |
+| CI/CD Pipeline | Azure DevOps | ✅ Done for Product SCS 🔄 Planned for others |
 
 ---
 
@@ -73,14 +98,14 @@ Each SCS has its own **frontend**, **microservices**, and **database** and is in
 | Frontend     | Angular 17 + Angular Material           |
 | Messaging    | Kafka (Confluent) / Azure Service Bus   |
 | Auth         | JWT Token via Custom AuthService        |
-| Gateway      | Azure API Management (planned)          |
+| Gateway      | Azure API Management                    |
 | Database     | Cosmos DB or In-Memory DB               |
 | DevOps       | Azure Pipelines (CI/CD)                 |
 | Hosting      | Azure App Services                      |
 
 ---
 
-## 🗂 Folder Structure
+## 📂 Folder Structure
 
 ```plaintext
 BookStore/
@@ -103,124 +128,116 @@ BookStore/
 
 ---
 
-
 ## 🔀 Inter-Service Communication
 
 | Communication Type    | Approach                         | Description |
 |------------------------|----------------------------------|-------------|
-| Intra-SCS              | Kafka / Azure Service Bus/ REST  | Messaging between services **within the same SCS** (e.g., ProductService → InventoryService). Implemented using async messaging to ensure **loose coupling**. |
-| Inter-SCS              | Kafka / Azure Service Bus        | Messaging between services **across different SCSs** (e.g., ProductService → OrderService). Event-driven for loose coupling. |
-| External Access        | Azure API Management (APIM)      | Angular UIs access their SCS services via APIM. |
-| Auth                   | JWT Token via AuthService        | All clients must authenticate via AuthService and include tokens in API calls. |
+| Intra-SCS              | Kafka / Azure Service Bus / REST | Messaging within same SCS (e.g., ProductService → InventoryService). Asynchronous messaging ensures loose coupling. |
+| Inter-SCS              | Kafka / Azure Service Bus        | Messaging across different SCSs (e.g., ProductService → OrderService). Event-driven. |
+| External Access        | Azure API Management (APIM)      | UIs interact via APIM. |
+| Auth                   | JWT Token via AuthService        | Authentication via tokens in API calls. |
 
-> 🧠 Note: Even within the same SCS (e.g., Product), we use **asynchronous messaging** (Kafka or Azure Bus) for microservice communication, so it remains **loosely coupled**. Only UI components interact with services using HTTP REST via APIM.
+> 🧟 Note: Only UI interacts via HTTP REST. Services use async events internally.
+
 ---
 
 ## 🛡️ Azure API Management (APIM)
 
 ### ✅ Why APIM?
 
-- Acts as a secure **API Gateway** for external world
-- Applies **JWT validation** using AuthService metadata
-- Hides backend URLs, exposes only secure endpoints
-- Supports **versioning, rate-limiting, analytics, and monitoring**
+- Secure API Gateway for external users
+- Subscription key validation (Done)
+- JWT inbound validation (Planned)
+- Hide backend URLs
+- Support rate limiting, analytics, versioning
 
-### 🧩 Usage in BookStore
+### 🧹 Usage in BookStore
 
-Each Angular UI accesses its own SCS APIs via APIM:
+| UI App         | Routed SCS APIs    |
+|----------------|--------------------|
+| `product-ui`   | `/product`, `/inventory` |
+| `order-ui`     | `/order`            |
+| `customer-ui`  | `/customer`         |
 
-| UI App         | SCS API Routed via APIM               |
-|----------------|----------------------------------------|
-| `product-ui`   | `/product`, `/inventory`              |
-| `order-ui`     | `/order`                              |
-| `customer-ui`  | `/customer`                           |
-
-> All microservices are **private** — only accessible via APIM
+> Services are private and accessible only via APIM.
 
 ---
 
-## 🧠 Architecture Diagram
+## 🧐 Architecture Diagram
 
 ```
 [ Browser/Client ]
        ↓
 ┌───────────────────────────────┐
-│ Azure API Management (APIM)  │  ← Validates JWT via AuthService
-└────────────┬──────────────────┘
+│ Azure API Management (APIM)   │
+└────────────├─────────────┐
              ↓
-  ┌────────────────┬────────────┬─────────────┐
-  ↓                ↓            ↓             ↓
-Product UI    Order UI    Customer UI     (Hosted on Azure)
-  ↓                ↓            ↓
-Product SCS    Order SCS     Customer SCS
-(Prod + Inv)    (Order)       (Customer)
-   ↓             ↓               ↓
- Cosmos DB   Cosmos DB     Cosmos DB
-Kafka/Bus   Kafka/Bus     Kafka/Bus
+  ┌────────├──────────┐
+  ↓        ↓          ↓
+Product UI  Order UI  Customer UI
+  ↓        ↓          ↓
+Product SCS Order SCS Customer SCS
+(CosmosDB+Kafka)
 ```
 
 ---
 
 ## ✅ Completed Milestones
 
-- ✅ `ProductService` + `InventoryService` (Product SCS)
-- ✅ Event-driven communication using Kafka
-- ✅ Angular `product-ui` with authentication and product list
-- ✅ Custom `AuthService` for JWT token issuance
-- ✅ Azure DevOps pipeline: Build + Release setup for Product SCS
-- ✅ Kafka & Azure Bus interchangeable integration
-- ✅ In-memory DB and Cosmos DB support per service
+- ✅ ProductService + InventoryService developed
+- ✅ Kafka event-driven communication
+- ✅ Angular `product-ui` with JWT auth and product listing
+- ✅ AuthService for JWT issuance
+- ✅ Product SCS build + deploy pipeline (Azure DevOps)
+- ✅ Kafka/Azure Bus switchable design
+- ✅ Cosmos DB and In-Memory DB setup
+- ✅ Initial API Management integration
 
 ---
 
-## 📅 Upcoming Items
+## 🗓️ Upcoming / Future Plans
 
-- 🔜 `OrderService` & `order-ui`
-- 🔜 `CustomerService` & `customer-ui`
-- 🔜 Retry logic and DLQ for Kafka consumers
-- 🔜 APIM Swagger auto-import in pipeline
-- 🔜 Deploy APIM with route/policy templates
-- 🔜 Route Angular UIs through APIM
-- 🔜 Add rate-limiting and API analytics to APIM
-- 🔜 Visual flow diagrams created for full architecture
+- 🔜 JWT inbound validation in APIM
+- 🔜 Develop OrderService + `order-ui`
+- 🔜 Develop CustomerService + `customer-ui`
+- 🔜 Retry logic + DLQ for Kafka
+- 🔜 Full APIM automation (rate-limiting, analytics)
+- 🔜 Switch deployment to Docker and Kubernetes
+- 🔜 Explore Event Sourcing + CQRS
 
 ---
 
 ## 🔐 Security Practices
 
-- ✅ JWT tokens issued by AuthService
-- ✅ Angular UI sends tokens via HTTP Interceptors
-- ✅ Microservices validate JWT (or APIM does)
-- 🔒 Backend services restricted to APIM IP only
-- 🔒 No direct public access to microservices
+- ✅ JWT issued by AuthService
+- ✅ Angular Interceptors for token
+- ✅ Services validate JWT (currently)
+- 🔒 Backend restricted to APIM IPs
 
 ---
 
 ## 🚀 DevOps & Deployment
 
-- Azure DevOps used for CI/CD
-- All pipelines are YAML based
-- Product SCS pipeline deploys:
-  - ProductService
-  - InventoryService
-  - product-ui
-  - Publishes artifacts with Swagger for APIM
-- APIM integration will be automated via CLI in release pipeline
+- Full YAML pipelines (Azure DevOps)
+- Product SCS build and release automated
+- Swagger publishing automated
+- Future APIM config push via CLI
 
 ---
 
-## 🤝 Contributions & Improvements
+## 🧱 Contributions & Improvements
 
-> This is a learning and reference project for distributed architecture and scalable microservice practices on Azure.
+> This project is built for learning enterprise microservice design with Azure event-driven architectures.
 
-Feel free to fork, clone, raise issues, or submit PRs if you'd like to contribute!
+PRs, issues, forks are welcome!
 
 ---
 
-## 📬 Contact
+## 📨 Contact
 
 **Maintainer:** Ankit Goel  
 📧 ankitgoelmalviyans@gmail.com  
 🌐 [LinkedIn](https://linkedin.com/in/ankitgoelmalviyans)
 
 ---
+
