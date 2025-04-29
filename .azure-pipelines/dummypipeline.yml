@@ -14,7 +14,7 @@ variables:
   productServiceApp: 'bookstore-product-service'
   inventoryServiceApp: 'bookstore-inventory-service'
   productUiApp: 'bookstore-product-ui'
-  apimServiceName: 'bookstore-apim-new'
+  apimServiceName: 'bookstore-apim-new-1'
 
 stages:
 
