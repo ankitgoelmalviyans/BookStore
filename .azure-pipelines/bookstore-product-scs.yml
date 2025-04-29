@@ -21,7 +21,7 @@ variables:
 - name: subscriptionName
   value: 'inventory-subscription'
 - name: apimServiceName
-  value: 'bookstore-apim-new'
+  value: 'bookstore-apim-new-1'
 
 stages:
 - stage: Provision
