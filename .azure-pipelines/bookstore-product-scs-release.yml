@@ -3,7 +3,7 @@ trigger: none
 resources:
   pipelines:
   - pipeline: buildPipeline
-    source: ankitgoelmalviyans.BookStore
+    source: BookStore.ProductSCS-Build
     project: BookStore
     trigger: none
 
