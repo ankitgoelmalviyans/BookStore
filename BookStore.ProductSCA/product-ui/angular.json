@@ -21,8 +21,8 @@
               "src/assets",
               "src/web.config",  
               "src/server.js",
-              "package.json",
-              "package-lock.json"
+              "src/package.json",
+              "src/package-lock.json"
             ],
             "styles": [
               "src/styles.scss"
