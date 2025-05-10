@@ -64,7 +64,9 @@ stages:
         cd BookStore.ProductSCA/product-ui
         npm install
         npx ng build --configuration production
-      displayName: 'Build Angular UI'
+        cp package.json dist/product-ui/package.json
+        cp package-lock.json dist/product-ui/package-lock.json
+      displayName: 'Build Angular UI + Copy Package Files'
 
     - task: ArchiveFiles@2
       displayName: 'Zip Angular build output'
