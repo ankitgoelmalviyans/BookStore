@@ -63,6 +63,8 @@ stages:
     - script: |
         cd BookStore.ProductSCA/product-ui
         npm install
+        cp package.json src/package.json
+        cp package-lock.json src/package-lock.json
         npx ng build --configuration production
       displayName: 'Build Angular UI'
 
@@ -104,3 +106,16 @@ stages:
         appType: 'webAppLinux'
         WebAppName: '$(productUiApp)'
         packageForLinux: '$(Pipeline.Workspace)/drop/product-ui.zip'
+
+    - task: AzureCLI@2
+      displayName: 'Set npm start as startup command for Angular UI App'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          echo "Setting startup command to npm start for Angular UI App..."
+          az webapp config set \
+            --resource-group $(resourceGroup) \
+            --name $(productUiApp) \
+            --startup-file "npm start"
