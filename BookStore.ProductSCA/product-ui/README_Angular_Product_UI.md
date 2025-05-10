@@ -149,3 +149,9 @@ You may configure environment-specific files later if needed.
 - Separate environments for dev/prod
 - Add role-based access and guards
 - Polish layout with Material Toolbar, Sidenav, etc.
+- So far in pipeline we have to run manual these commands on bash but will take care in the pipeline in future 
+   #!/bin/bash
+    cd /home/site/wwwroot
+    npm install
+    npm start
+
