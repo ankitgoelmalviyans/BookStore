@@ -1,0 +1,121 @@
+# -----------------------
+# Angular UI Pipeline (Build + Release)
+# -----------------------
+
+trigger: none
+
+variables:
+- name: azureSubscription
+  value: 'AzureServiceConnectionName'
+- name: resourceGroup
+  value: 'BookStoreRG'
+- name: location
+  value: 'East US'
+- name: productUiApp
+  value: 'bookstore-product-ui'
+
+stages:
+
+# -----------------------
+# Provision App Service
+# -----------------------
+- stage: Provision
+  displayName: 'Provision Angular UI Web App'
+  jobs:
+  - job: CreateUIResources
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: AzureCLI@2
+      displayName: 'Create App Service Plan and Web App'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          az group create --name $(resourceGroup) --location "$(location)"
+
+          PLAN_NAME="$(productUiApp)-plan"
+          az appservice plan create --name $PLAN_NAME --resource-group $(resourceGroup) \
+            --sku B1 --is-linux --location "$(location)" || true
+
+          az webapp create --name $(productUiApp) --resource-group $(resourceGroup) \
+            --plan $PLAN_NAME --runtime "NODE|18-lts" || true
+
+          az webapp config appsettings set --name $(productUiApp) --resource-group $(resourceGroup) \
+            --settings "WEBSITES_PORT=80"
+
+# -----------------------
+# Build Angular & Publish Artifacts
+# -----------------------
+- stage: Build
+  displayName: 'Build Angular UI'
+  jobs:
+  - job: BuildAngular
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '18.x'
+      displayName: 'Install Node.js'
+
+    - script: |
+        cd BookStore.ProductSCA/product-ui
+        npm install
+        npx ng build --configuration production
+        cp package.json dist/product-ui/package.json
+        cp package-lock.json dist/product-ui/package-lock.json
+      displayName: 'Build Angular UI + Copy Package Files'
+
+    - task: ArchiveFiles@2
+      displayName: 'Zip Angular build output'
+      inputs:
+        rootFolderOrFile: 'BookStore.ProductSCA/product-ui/dist/product-ui'
+        includeRootFolder: false
+        archiveType: 'zip'
+        archiveFile: '$(Build.ArtifactStagingDirectory)/product-ui.zip'
+        replaceExistingArchive: true
+
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish Angular UI ZIP Artifact'
+      inputs:
+        pathToPublish: '$(Build.ArtifactStagingDirectory)/product-ui.zip'
+        artifactName: 'drop'
+        publishLocation: 'Container'
+
+# -----------------------
+# Release Angular UI to Web App
+# -----------------------
+- stage: Release
+  displayName: 'Deploy Angular UI to Azure'
+  dependsOn: Build
+  jobs:
+  - job: DeployAngularUI
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - download: current
+      artifact: drop
+
+    - task: AzureRmWebAppDeployment@4
+      displayName: 'Deploy Angular UI ZIP to WebApp'
+      inputs:
+        ConnectionType: 'AzureRM'
+        azureSubscription: '$(azureSubscription)'
+        appType: 'webAppLinux'
+        WebAppName: '$(productUiApp)'
+        packageForLinux: '$(Pipeline.Workspace)/drop/product-ui.zip'
+
+    - task: AzureCLI@2
+      displayName: 'Set npm start as startup command for Angular UI App'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          echo "Setting startup command to npm start for Angular UI App..."
+          az webapp config set \
+            --resource-group $(resourceGroup) \
+            --name $(productUiApp) \
+            --startup-file "npm start"
