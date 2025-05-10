@@ -12,8 +12,6 @@ variables:
   value: 'bookstore-product-service'
 - name: inventoryServiceApp
   value: 'bookstore-inventory-service'
-- name: productUiApp
-  value: 'bookstore-product-ui'
 - name: serviceBusNamespace
   value: 'bookstore-servicebus'
 - name: topicName
@@ -42,7 +40,7 @@ stages:
           az group create --name "$(resourceGroup)" --location "$(location)"
 
           echo "Creating App Service Plans and WebApps..."
-          for app in "$(productServiceApp)" "$(inventoryServiceApp)" "$(productUiApp)"; do
+          for app in "$(productServiceApp)" "$(inventoryServiceApp)"; do
             PLAN_NAME="${app}-plan"
             az appservice plan create --name "$PLAN_NAME" --resource-group "$(resourceGroup)" --sku B1 --is-linux --location "$(location)" || true
             az webapp create --name "$app" --resource-group "$(resourceGroup)" --plan "$PLAN_NAME" --runtime "DOTNETCORE|8.0" || true
@@ -149,34 +147,3 @@ stages:
         pathToPublish: '$(Build.ArtifactStagingDirectory)'
         artifactName: 'drop'
         publishLocation: 'Container'
-
-  - job: BuildAngular
-    displayName: 'Build Angular UI'
-    pool:
-      vmImage: 'ubuntu-latest'
-    steps:
-    - task: NodeTool@0
-      inputs:
-        versionSpec: '18.x'
-      displayName: 'Install Node.js'
-
-    - script: |
-        cd BookStore.ProductSCA/product-ui
-        npm install
-        npx ng build --configuration production
-      displayName: 'Build Angular App'
-
-    - task: CopyFiles@2
-      displayName: 'Copy Angular UI to Artifact Staging'
-      inputs:
-        SourceFolder: 'BookStore.ProductSCA/product-ui/dist/product-ui'
-        Contents: '**'
-        TargetFolder: '$(Build.ArtifactStagingDirectory)/ProductUI'
-
-    - task: PublishBuildArtifacts@1
-      displayName: 'Publish Angular UI Artifacts'
-      inputs:
-        pathToPublish: '$(Build.ArtifactStagingDirectory)'
-        artifactName: 'drop'
-        publishLocation: 'Container'
-
