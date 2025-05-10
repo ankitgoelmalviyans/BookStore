@@ -108,6 +108,42 @@ stages:
         packageForLinux: '$(Pipeline.Workspace)/drop/product-ui.zip'
 
     - task: AzureCLI@2
+      name: FetchKuduCreds
+      displayName: 'Fetch publishing credentials for Kudu'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          echo "Fetching Kudu publishing credentials..."
+          creds=$(az webapp deployment list-publishing-credentials \
+            --name $(productUiApp) \
+            --resource-group $(resourceGroup) \
+            --query "{user: publishingUserName, pass: publishingPassword}" \
+            -o tsv)
+
+          user=$(echo $creds | awk '{print $1}')
+          pass=$(echo $creds | awk '{print $2}')
+
+          echo "##vso[task.setvariable variable=kuduUsername;issecret=true]$user"
+          echo "##vso[task.setvariable variable=kuduPassword;issecret=true]$pass"
+
+    - task: AzureCLI@2
+      displayName: 'Run npm install after deployment via Kudu'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          echo "Running npm install using Kudu API..."
+          kuduApi=https://$(productUiApp).scm.azurewebsites.net/api/command
+          commandJson='{ "command": "npm install", "dir": "/home/site/wwwroot" }'
+          curl -X POST $kuduApi \
+            -u "$(kuduUsername):$(kuduPassword)" \
+            -H "Content-Type: application/json" \
+            -d "$commandJson"
+
+    - task: AzureCLI@2
       displayName: 'Set npm start as startup command for Angular UI App'
       inputs:
         azureSubscription: '$(azureSubscription)'
