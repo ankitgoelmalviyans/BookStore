@@ -60,6 +60,12 @@ stages:
         versionSpec: '18.x'
       displayName: 'Install Node.js'
 
+    - script: |
+        cd BookStore.ProductSCA/product-ui
+        npm install
+        npx ng build --configuration production
+      displayName: 'Build Angular UI'
+
     - task: ArchiveFiles@2
       displayName: 'Zip Angular build output'
       inputs:
