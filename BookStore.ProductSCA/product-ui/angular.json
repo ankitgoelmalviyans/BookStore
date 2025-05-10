@@ -20,9 +20,7 @@
               "src/favicon.ico",
               "src/assets",
               "src/web.config",  
-              "src/server.js",
-              "src/package.json",
-              "src/package-lock.json"
+              "src/server.js"
             ],
             "styles": [
               "src/styles.scss"
