@@ -1,0 +1,32 @@
+trigger:
+  branches:
+    include:
+      - main
+
+variables:
+  # ACR connection & image details
+  dockerRegistryServiceConnection: 'MyACRConnection'
+  imageRepository: 'productservice'
+  containerRegistry: 'bookstoreaure.azurecr.io'
+  dockerfilePath: 'ProductService/Dockerfile'
+  tag: '$(Build.BuildId)'
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+- stage: BuildAndPush
+  displayName: 'Build and Push Docker Image to ACR'
+  jobs:
+  - job: Build
+    steps:
+
+    - task: Docker@2
+      displayName: 'Build and Push Image'
+      inputs:
+        command: buildAndPush
+        containerRegistry: $(dockerRegistryServiceConnection)
+        repository: $(imageRepository)
+        dockerfile: $(dockerfilePath)
+        tags: |
+          $(tag)
