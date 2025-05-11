@@ -8,7 +8,7 @@ variables:
   dockerRegistryServiceConnection: 'MyACRConnection'
   imageRepository: 'productservice'
   containerRegistry: 'bookstoreaure.azurecr.io'
-  dockerfilePath: 'ProductService/Dockerfile'
+  dockerfilePath: 'BookStore.ProductSCA/BookStore.ProductService/src/BookStore.ProductService.API/Dockerfile'
   tag: '$(Build.BuildId)'
 
 pool:
