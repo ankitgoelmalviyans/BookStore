@@ -1,1 +1,65 @@
 
+trigger: none
+
+variables:
+- group: BookStoreSecrets
+- name: azureSubscription
+  value: 'AzureServiceConnectionName'
+- name: resourceGroup
+  value: 'BookStoreRG'
+- name: location
+  value: 'East US'
+- name: productServiceApp
+  value: 'bookstore-product-service'
+- name: inventoryServiceApp
+  value: 'bookstore-inventory-service'
+- name: serviceBusNamespace
+  value: 'bookstore-servicebus'
+- name: topicName
+  value: 'product-events'
+- name: subscriptionName
+  value: 'inventory-subscription'
+- name: apimServiceName
+  value: 'bookstore-apim-new'
+
+stages:
+- stage: Provision
+  displayName: 'Provision Azure Resources'
+  jobs:
+  - job: CreateResources
+    displayName: 'Create Resources'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: AzureCLI@2
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          echo "Creating resource group if not exists..."
+          az group create --name "$(resourceGroup)" --location "$(location)"         
+
+          echo "Creating Service Bus namespace, topic, and subscription..."
+          az servicebus namespace create --name "$(serviceBusNamespace)" --resource-group "$(resourceGroup)" --location "$(location)" || true
+          az servicebus topic create --name "$(topicName)" --namespace-name "$(serviceBusNamespace)" --resource-group "$(resourceGroup)" || true
+          az servicebus topic subscription create --name "$(subscriptionName)" --topic-name "$(topicName)" --namespace-name "$(serviceBusNamespace)" --resource-group "$(resourceGroup)" || true
+
+          echo "Fetching Service Bus primary connection string..."
+          serviceBusConnectionString=$(az servicebus namespace authorization-rule keys list \
+            --resource-group "$(resourceGroup)" \
+            --namespace-name "$(serviceBusNamespace)" \
+            --name RootManageSharedAccessKey \
+            --query "primaryConnectionString" --output tsv)        
+
+          echo "Creating APIM instance if not exists..."
+          az apim show --resource-group "$(resourceGroup)" --name "$(apimServiceName)" || \
+          az apim create --name "$(apimServiceName)" --resource-group "$(resourceGroup)" --location "$(location)" --publisher-email "admin@bookstore.com" --publisher-name "BookStore Admin" --sku-name Developer
+      env:
+        JWT_KEY: $(JwtKey)
+        KAFKA_BOOTSTRAP: $(KafkaBootstrapServers)
+        KAFKA_USER: $(KafkaUsername)
+        KAFKA_PASS: $(KafkaPassword)
+        COSMOS_ENDPOINT: $(CosmosEndpoint)
+        COSMOS_KEY: $(CosmosKey)
+
