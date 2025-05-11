@@ -5,6 +5,7 @@ variables:
   imageRepository: 'productservice'
   containerRegistry: 'bookstoreaure.azurecr.io'
   dockerfilePath: 'BookStore.ProductSCA/BookStore.ProductService/src/BookStore.ProductService.API/Dockerfile'
+  buildContext: 'BookStore.ProductSCA/BookStore.ProductService/src'  # FIX: set parent folder as context
   tag: '$(Build.BuildId)'
 
 pool:
@@ -15,6 +16,7 @@ stages:
   displayName: 'Build and Push Docker Image to ACR'
   jobs:
   - job: Build
+    displayName: 'Docker Build and Push'
     steps:
     - task: Docker@2
       displayName: 'Build and Push Image'
@@ -23,5 +25,6 @@ stages:
         containerRegistry: $(dockerRegistryServiceConnection)
         repository: $(imageRepository)
         dockerfile: $(dockerfilePath)
+        buildContext: $(buildContext)  #  KEY LINE
         tags: |
           $(tag)
