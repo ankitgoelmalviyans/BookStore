@@ -4,7 +4,6 @@ trigger:
       - main
 
 variables:
-  # ACR connection & image details
   dockerRegistryServiceConnection: 'MyACRConnection'
   imageRepository: 'productservice'
   containerRegistry: 'bookstoreaure.azurecr.io'
@@ -20,7 +19,6 @@ stages:
   jobs:
   - job: Build
     steps:
-
     - task: Docker@2
       displayName: 'Build and Push Image'
       inputs:
