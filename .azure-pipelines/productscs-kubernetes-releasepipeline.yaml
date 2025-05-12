@@ -102,4 +102,3 @@ stages:
                       secretKeyRef:
                         name: productservice-secrets
                         key: ServiceBusConnection
-EOF
