@@ -1,4 +1,3 @@
-
 trigger: none
 
 variables:
@@ -9,10 +8,12 @@ variables:
   value: 'BookStoreRG'
 - name: location
   value: 'East US'
-- name: productServiceApp
-  value: 'bookstore-product-service'
-- name: inventoryServiceApp
-  value: 'bookstore-inventory-service'
+- name: aksClusterName
+  value: 'bookstore-aks'
+- name: aksNodeCount
+  value: '2'
+- name: aksNodeSize
+  value: 'Standard_B2s'
 - name: serviceBusNamespace
   value: 'bookstore-servicebus'
 - name: topicName
@@ -20,7 +21,7 @@ variables:
 - name: subscriptionName
   value: 'inventory-subscription'
 - name: apimServiceName
-  value: 'bookstore-apim-new'
+  value: 'bookstore-apim-new-1'
 
 stages:
 - stage: Provision
@@ -38,28 +39,27 @@ stages:
         scriptLocation: 'inlineScript'
         inlineScript: |
           echo "Creating resource group if not exists..."
-          az group create --name "$(resourceGroup)" --location "$(location)"         
+          az group create --name "$(resourceGroup)" --location "$(location)"
+
+          echo "Creating AKS cluster if not exists..."
+          az aks show --name "$(aksClusterName)" --resource-group "$(resourceGroup)" 2>/dev/null || \
+          az aks create --name "$(aksClusterName)" \
+                        --resource-group "$(resourceGroup)" \
+                        --location "$(location)" \
+                        --node-count "$(aksNodeCount)" \
+                        --node-vm-size "$(aksNodeSize)" \
+                        --generate-ssh-keys
 
           echo "Creating Service Bus namespace, topic, and subscription..."
           az servicebus namespace create --name "$(serviceBusNamespace)" --resource-group "$(resourceGroup)" --location "$(location)" || true
           az servicebus topic create --name "$(topicName)" --namespace-name "$(serviceBusNamespace)" --resource-group "$(resourceGroup)" || true
           az servicebus topic subscription create --name "$(subscriptionName)" --topic-name "$(topicName)" --namespace-name "$(serviceBusNamespace)" --resource-group "$(resourceGroup)" || true
 
-          echo "Fetching Service Bus primary connection string..."
-          serviceBusConnectionString=$(az servicebus namespace authorization-rule keys list \
-            --resource-group "$(resourceGroup)" \
-            --namespace-name "$(serviceBusNamespace)" \
-            --name RootManageSharedAccessKey \
-            --query "primaryConnectionString" --output tsv)        
-
           echo "Creating APIM instance if not exists..."
           az apim show --resource-group "$(resourceGroup)" --name "$(apimServiceName)" || \
-          az apim create --name "$(apimServiceName)" --resource-group "$(resourceGroup)" --location "$(location)" --publisher-email "admin@bookstore.com" --publisher-name "BookStore Admin" --sku-name Developer
-      env:
-        JWT_KEY: $(JwtKey)
-        KAFKA_BOOTSTRAP: $(KafkaBootstrapServers)
-        KAFKA_USER: $(KafkaUsername)
-        KAFKA_PASS: $(KafkaPassword)
-        COSMOS_ENDPOINT: $(CosmosEndpoint)
-        COSMOS_KEY: $(CosmosKey)
-
+          az apim create --name "$(apimServiceName)" \
+                         --resource-group "$(resourceGroup)" \
+                         --location "$(location)" \
+                         --publisher-email "admin@bookstore.com" \
+                         --publisher-name "BookStore Admin" \
+                         --sku-name Developer
