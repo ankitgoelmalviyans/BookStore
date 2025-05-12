@@ -41,14 +41,21 @@ stages:
           echo "Creating resource group if not exists..."
           az group create --name "$(resourceGroup)" --location "$(location)"
 
-          echo "Creating AKS cluster if not exists..."
-          az aks show --name "$(aksClusterName)" --resource-group "$(resourceGroup)" 2>/dev/null || \
-          az aks create --name "$(aksClusterName)" \
-                        --resource-group "$(resourceGroup)" \
-                        --location "$(location)" \
-                        --node-count "$(aksNodeCount)" \
-                        --node-vm-size "$(aksNodeSize)" \
-                        --generate-ssh-keys
+          echo "Checking if AKS cluster exists..."
+          aksExists=$(az aks show --name "$(aksClusterName)" --resource-group "$(resourceGroup)" --query "name" -o tsv 2>/dev/null || echo "notfound")
+
+          if [ "$aksExists" = "notfound" ]; then
+            echo "Creating AKS cluster..."
+            az aks create \
+              --name "$(aksClusterName)" \
+              --resource-group "$(resourceGroup)" \
+              --location "$(location)" \
+              --node-count "$(aksNodeCount)" \
+              --node-vm-size "$(aksNodeSize)" \
+              --generate-ssh-keys
+          else
+            echo "AKS cluster already exists: $aksExists"
+          fi
 
           echo "Creating Service Bus namespace, topic, and subscription..."
           az servicebus namespace create --name "$(serviceBusNamespace)" --resource-group "$(resourceGroup)" --location "$(location)" || true
