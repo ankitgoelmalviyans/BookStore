@@ -17,7 +17,7 @@ variables:
 - name: containerRegistry
   value: 'bookstoreaure.azurecr.io'
 - name: imageTag
-  value: '$(Build.BuildId)'
+  value: 84
 
 stages:
 - stage: Deploy
