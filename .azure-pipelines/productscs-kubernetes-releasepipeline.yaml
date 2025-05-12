@@ -1,3 +1,5 @@
+# Azure DevOps Release Pipeline YAML for Kubernetes Deployment with dynamic BuildId tag
+
 trigger: none
 
 variables:
@@ -10,47 +12,52 @@ variables:
   value: 'BookStoreRG'
 - name: namespace
   value: 'bookstore'
+- name: imageRepository
+  value: 'productservice'
+- name: containerRegistry
+  value: 'bookstoreaure.azurecr.io'
+- name: imageTag
+  value: '$(Build.BuildId)'
 
 stages:
-- stage: DeployToAKS
-  displayName: 'Deploy ProductService to AKS'
+- stage: Deploy
+  displayName: 'Deploy to AKS'
   jobs:
-  - job: Deploy
-    displayName: 'Deploy to Kubernetes'
+  - job: DeployToKubernetes
+    displayName: 'Create Kubernetes Secret & Deploy ProductService'
     pool:
       vmImage: 'ubuntu-latest'
-
     steps:
     - task: AzureCLI@2
-      displayName: 'Create Kubernetes Secret & Deploy'
+      displayName: 'Create Secret & Apply Deployment'
       inputs:
         azureSubscription: '$(azureSubscription)'
         scriptType: 'bash'
         scriptLocation: 'inlineScript'
         inlineScript: |
           echo "Getting AKS credentials..."
-          az aks get-credentials --name $(aksClusterName) --resource-group $(aksResourceGroup) --overwrite-existing
+          az aks get-credentials --resource-group $(aksResourceGroup) --name $(aksClusterName) --overwrite-existing
 
           echo "Creating namespace if not exists..."
-          kubectl create namespace $(namespace) --dry-run=client -o yaml | kubectl apply -f -
+          kubectl get namespace $(namespace) || kubectl create namespace $(namespace)
 
-          echo "Creating Kubernetes Secret..."
-          kubectl delete secret productservice-secrets -n $(namespace) --ignore-not-found
-          kubectl create secret generic productservice-secrets -n $(namespace) \
+          echo "Creating Kubernetes Secret dynamically..."
+          kubectl create secret generic productservice-secrets \
             --from-literal=JwtKey=$(JwtKey) \
             --from-literal=KafkaBootstrapServers=$(KafkaBootstrapServers) \
             --from-literal=KafkaUsername=$(KafkaUsername) \
             --from-literal=KafkaPassword=$(KafkaPassword) \
             --from-literal=CosmosEndpoint=$(CosmosEndpoint) \
             --from-literal=CosmosKey=$(CosmosKey) \
-            --from-literal=ServiceBusConnection=$(ServiceBusConnection)
+            --namespace=$(namespace) --dry-run=client -o yaml | kubectl apply -f -
 
-          echo "Deploying ProductService..."
-          cat <<EOF | kubectl apply -n $(namespace) -f -
+          echo "Deploying ProductService with image tag $(imageTag)..."
+          cat <<EOF | kubectl apply -f -
           apiVersion: apps/v1
           kind: Deployment
           metadata:
             name: productservice
+            namespace: $(namespace)
           spec:
             replicas: 1
             selector:
@@ -63,42 +70,24 @@ stages:
               spec:
                 containers:
                 - name: productservice
-                  image: bookstoreaure.azurecr.io/productservice:$(Build.BuildId)
+                  image: $(containerRegistry)/$(imageRepository):$(imageTag)
                   ports:
                   - containerPort: 80
-                  env:
-                  - name: JwtKey
-                    valueFrom:
-                      secretKeyRef:
-                        name: productservice-secrets
-                        key: JwtKey
-                  - name: KafkaBootstrapServers
-                    valueFrom:
-                      secretKeyRef:
-                        name: productservice-secrets
-                        key: KafkaBootstrapServers
-                  - name: KafkaUsername
-                    valueFrom:
-                      secretKeyRef:
-                        name: productservice-secrets
-                        key: KafkaUsername
-                  - name: KafkaPassword
-                    valueFrom:
-                      secretKeyRef:
-                        name: productservice-secrets
-                        key: KafkaPassword
-                  - name: CosmosEndpoint
-                    valueFrom:
-                      secretKeyRef:
-                        name: productservice-secrets
-                        key: CosmosEndpoint
-                  - name: CosmosKey
-                    valueFrom:
-                      secretKeyRef:
-                        name: productservice-secrets
-                        key: CosmosKey
-                  - name: ServiceBusConnection
-                    valueFrom:
-                      secretKeyRef:
-                        name: productservice-secrets
-                        key: ServiceBusConnection
+                  envFrom:
+                  - secretRef:
+                      name: productservice-secrets
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: productservice
+            namespace: $(namespace)
+          spec:
+            selector:
+              app: productservice
+            ports:
+              - protocol: TCP
+                port: 80
+                targetPort: 80
+            type: LoadBalancer
+          EOF
