@@ -43,12 +43,13 @@ stages:
 
           echo "Creating Kubernetes Secret dynamically..."
           kubectl create secret generic productservice-secrets \
-            --from-literal=JwtKey=$(JwtKey) \
-            --from-literal=KafkaBootstrapServers=$(KafkaBootstrapServers) \
-            --from-literal=KafkaUsername=$(KafkaUsername) \
-            --from-literal=KafkaPassword=$(KafkaPassword) \
-            --from-literal=CosmosEndpoint=$(CosmosEndpoint) \
-            --from-literal=CosmosKey=$(CosmosKey) \
+            --from-literal=Jwt__Key=$(JwtKey) \
+            --from-literal=Kafka__BootstrapServers=$(KafkaBootstrapServers) \
+            --from-literal=Kafka__Username=$(KafkaUsername) \
+            --from-literal=Kafka__Password=$(KafkaPassword) \
+            --from-literal=Cosmos__Endpoint=$(CosmosEndpoint) \
+            --from-literal=Cosmos__Key=$(CosmosKey) \
+            --from-literal=ServiceBus__Connection=$(ServiceBusConnection) \
             --namespace=$(namespace) --dry-run=client -o yaml | kubectl apply -f -
 
           echo "Deploying ProductService with image tag $(imageTag)..."
