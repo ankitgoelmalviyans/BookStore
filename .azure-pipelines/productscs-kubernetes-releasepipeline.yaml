@@ -19,7 +19,7 @@ variables:
 - name: apimResourceGroup
   value: 'BookStoreRG'  # Replace if different
 - name: apimInstance
-  value: 'bookstore-apim'  # Your APIM instance name
+  value: 'bookstore-apim-new-1'  # Your APIM instance name
 
 stages:
 # -----------------------------
