@@ -74,6 +74,9 @@ stages:
                   image: $(containerRegistry)/$(imageRepository):$(imageTag)
                   ports:
                   - containerPort: 80
+                  env:
+                  - name: ASPNETCORE_URLS
+                    value: http://+:80
                   envFrom:
                   - secretRef:
                       name: productservice-secrets
