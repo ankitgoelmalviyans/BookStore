@@ -12,29 +12,28 @@ variables:
   value: 'bookstore'
 - name: imageRepository
   value: 'productservice'
+- name: imageRepositoryInventory
+  value: 'inventoryservice'
 - name: containerRegistry
   value: 'bookstoreaure.azurecr.io'
 - name: imageTag
-  value: 84
+  value: 98
 - name: apimResourceGroup
-  value: 'BookStoreRG'  # Replace if different
+  value: 'BookStoreRG'
 - name: apimInstance
-  value: 'bookstore-apim-new-1'  # Your APIM instance name
+  value: 'bookstore-apim-new-1'
 
 stages:
-# -----------------------------
-# Stage 1: Deploy to AKS
-# -----------------------------
 - stage: Deploy
-  displayName: 'Deploy ProductService to AKS'
+  displayName: 'Deploy Product & Inventory Services to AKS'
   jobs:
   - job: DeployToKubernetes
-    displayName: 'Deploy ProductService to Kubernetes'
+    displayName: 'Deploy to AKS'
     pool:
       vmImage: 'ubuntu-latest'
     steps:
     - task: AzureCLI@2
-      displayName: 'Create Secret & Apply Deployment'
+      displayName: 'Create Secret and Deploy Services'
       inputs:
         azureSubscription: '$(azureSubscription)'
         scriptType: 'bash'
@@ -46,8 +45,8 @@ stages:
           echo "Creating namespace if not exists..."
           kubectl get namespace $(namespace) || kubectl create namespace $(namespace)
 
-          echo "Creating Kubernetes Secret dynamically..."
-          kubectl create secret generic productservice-secrets \
+          echo "Creating shared secret..."
+          kubectl create secret generic bookstore-common-secrets \
             --from-literal=Jwt__Key=$(JwtKey) \
             --from-literal=Kafka__BootstrapServers=$(KafkaBootstrapServers) \
             --from-literal=Kafka__Username=$(KafkaUsername) \
@@ -57,7 +56,7 @@ stages:
             --from-literal=ServiceBus__Connection=$(ServiceBusConnection) \
             --namespace=$(namespace) --dry-run=client -o yaml | kubectl apply -f -
 
-          echo "Deploying ProductService with image tag $(imageTag)..."
+          echo "Deploying ProductService..."
           cat <<EOF | kubectl apply -f -
           apiVersion: apps/v1
           kind: Deployment
@@ -84,7 +83,7 @@ stages:
                     value: http://+:80
                   envFrom:
                   - secretRef:
-                      name: productservice-secrets
+                      name: bookstore-common-secrets
           ---
           apiVersion: v1
           kind: Service
@@ -101,11 +100,52 @@ stages:
             type: LoadBalancer
           EOF
 
-# -----------------------------
-# Stage 2: Import to APIM
-# -----------------------------
+          echo "Deploying InventoryService..."
+          cat <<EOF | kubectl apply -f -
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: inventoryservice
+            namespace: $(namespace)
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: inventoryservice
+            template:
+              metadata:
+                labels:
+                  app: inventoryservice
+              spec:
+                containers:
+                - name: inventoryservice
+                  image: $(containerRegistry)/$(imageRepositoryInventory):$(imageTag)
+                  ports:
+                  - containerPort: 80
+                  env:
+                  - name: ASPNETCORE_URLS
+                    value: http://+:80
+                  envFrom:
+                  - secretRef:
+                      name: bookstore-common-secrets
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: inventoryservice
+            namespace: $(namespace)
+          spec:
+            selector:
+              app: inventoryservice
+            ports:
+              - protocol: TCP
+                port: 80
+                targetPort: 80
+            type: LoadBalancer
+          EOF
+
 - stage: ImportToAPIM
-  displayName: 'Import ProductService API to APIM'
+  displayName: 'Import Product & Inventory APIs to APIM'
   dependsOn: Deploy
   condition: succeeded()
   jobs:
@@ -115,21 +155,18 @@ stages:
       vmImage: 'ubuntu-latest'
     steps:
     - task: AzureCLI@2
-      displayName: 'Import API into APIM with retries'
+      displayName: 'Import APIs'
       inputs:
         azureSubscription: '$(azureSubscription)'
         scriptType: 'bash'
         scriptLocation: 'inlineScript'
         inlineScript: |
-          echo "Getting AKS credentials..."
           az aks get-credentials --resource-group $(aksResourceGroup) --name $(aksClusterName) --overwrite-existing
 
-          echo "Trying to retrieve External IP for ProductService..."
-          EXTERNAL_IP=""
+          echo "Waiting for ProductService External IP..."
           RETRIES=10
-
+          EXTERNAL_IP=""
           while [ -z "$EXTERNAL_IP" ] && [ $RETRIES -gt 0 ]; do
-            echo "Waiting for External IP... ($RETRIES attempts left)"
             EXTERNAL_IP=$(kubectl get svc productservice -n $(namespace) -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
             if [ -z "$EXTERNAL_IP" ]; then
               sleep 15
@@ -138,14 +175,11 @@ stages:
           done
 
           if [ -z "$EXTERNAL_IP" ]; then
-            echo "Failed to get External IP after multiple retries."
+            echo "Could not fetch ProductService IP."
             exit 1
           fi
 
-          echo "External IP obtained: $EXTERNAL_IP"
-          echo "Swagger URL: http://$EXTERNAL_IP/swagger/v1/swagger.json"
-
-          echo "Importing ProductService API into APIM..."
+          echo "Importing ProductService API to APIM..."
           az apim api import \
             --resource-group $(apimResourceGroup) \
             --service-name $(apimInstance) \
@@ -155,4 +189,28 @@ stages:
             --specification-url "http://$EXTERNAL_IP/swagger/v1/swagger.json" \
             --specification-format OpenApi
 
-          echo "API imported successfully to APIM!"
+          echo "Waiting for InventoryService External IP..."
+          INVENTORY_IP=""
+          RETRIES=10
+          while [ -z "$INVENTORY_IP" ] && [ $RETRIES -gt 0 ]; do
+            INVENTORY_IP=$(kubectl get svc inventoryservice -n $(namespace) -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+            if [ -z "$INVENTORY_IP" ]; then
+              sleep 15
+              RETRIES=$((RETRIES - 1))
+            fi
+          done
+
+          if [ -z "$INVENTORY_IP" ]; then
+            echo " Could not fetch InventoryService IP."
+            exit 1
+          fi
+
+          echo "Importing InventoryService API to APIM..."
+          az apim api import \
+            --resource-group $(apimResourceGroup) \
+            --service-name $(apimInstance) \
+            --api-id inventoryservice-api \
+            --path inventory \
+            --display-name "InventoryService API" \
+            --specification-url "http://$INVENTORY_IP/swagger/v1/swagger.json" \
+            --specification-format OpenApi
