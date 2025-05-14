@@ -1,149 +1,3 @@
-trigger: none
-
-variables:
-- group: BookStoreSecrets
-- name: azureSubscription
-  value: 'AzureServiceConnectionName'
-- name: aksClusterName
-  value: 'bookstore-aks'
-- name: aksResourceGroup
-  value: 'BookStoreRG'
-- name: namespace
-  value: 'bookstore'
-- name: imageRepository
-  value: 'productservice'
-- name: imageRepositoryInventory
-  value: 'inventoryservice'
-- name: containerRegistry
-  value: 'bookstoreaure.azurecr.io'
-- name: imageTag
-  value: 98
-- name: apimResourceGroup
-  value: 'BookStoreRG'
-- name: apimInstance
-  value: 'bookstore-apim-new-1'
-
-stages:
-- stage: Deploy
-  displayName: 'Deploy Product & Inventory Services to AKS'
-  jobs:
-  - job: DeployToKubernetes
-    displayName: 'Deploy to AKS'
-    pool:
-      vmImage: 'ubuntu-latest'
-    steps:
-    - task: AzureCLI@2
-      displayName: 'Create Secret and Deploy Services'
-      inputs:
-        azureSubscription: '$(azureSubscription)'
-        scriptType: 'bash'
-        scriptLocation: 'inlineScript'
-        inlineScript: |
-          echo "Getting AKS credentials..."
-          az aks get-credentials --resource-group $(aksResourceGroup) --name $(aksClusterName) --overwrite-existing
-
-          echo "Creating namespace if not exists..."
-          kubectl get namespace $(namespace) || kubectl create namespace $(namespace)
-
-          echo "Creating shared secret..."
-          kubectl create secret generic bookstore-common-secrets \
-            --from-literal=Jwt__Key=$(JwtKey) \
-            --from-literal=Kafka__BootstrapServers=$(KafkaBootstrapServers) \
-            --from-literal=Kafka__Username=$(KafkaUsername) \
-            --from-literal=Kafka__Password=$(KafkaPassword) \
-            --from-literal=Cosmos__Endpoint=$(CosmosEndpoint) \
-            --from-literal=Cosmos__Key=$(CosmosKey) \
-            --from-literal=ServiceBus__Connection=$(ServiceBusConnection) \
-            --namespace=$(namespace) --dry-run=client -o yaml | kubectl apply -f -
-
-          echo "Deploying ProductService..."
-          cat <<EOF | kubectl apply -f -
-          apiVersion: apps/v1
-          kind: Deployment
-          metadata:
-            name: productservice
-            namespace: $(namespace)
-          spec:
-            replicas: 1
-            selector:
-              matchLabels:
-                app: productservice
-            template:
-              metadata:
-                labels:
-                  app: productservice
-              spec:
-                containers:
-                - name: productservice
-                  image: $(containerRegistry)/$(imageRepository):$(imageTag)
-                  ports:
-                  - containerPort: 80
-                  env:
-                  - name: ASPNETCORE_URLS
-                    value: http://+:80
-                  envFrom:
-                  - secretRef:
-                      name: bookstore-common-secrets
-          ---
-          apiVersion: v1
-          kind: Service
-          metadata:
-            name: productservice
-            namespace: $(namespace)
-          spec:
-            selector:
-              app: productservice
-            ports:
-              - protocol: TCP
-                port: 80
-                targetPort: 80
-            type: LoadBalancer
-          EOF
-
-          echo "Deploying InventoryService..."
-          cat <<EOF | kubectl apply -f -
-          apiVersion: apps/v1
-          kind: Deployment
-          metadata:
-            name: inventoryservice
-            namespace: $(namespace)
-          spec:
-            replicas: 1
-            selector:
-              matchLabels:
-                app: inventoryservice
-            template:
-              metadata:
-                labels:
-                  app: inventoryservice
-              spec:
-                containers:
-                - name: inventoryservice
-                  image: $(containerRegistry)/$(imageRepositoryInventory):$(imageTag)
-                  ports:
-                  - containerPort: 80
-                  env:
-                  - name: ASPNETCORE_URLS
-                    value: http://+:80
-                  envFrom:
-                  - secretRef:
-                      name: bookstore-common-secrets
-          ---
-          apiVersion: v1
-          kind: Service
-          metadata:
-            name: inventoryservice
-            namespace: $(namespace)
-          spec:
-            selector:
-              app: inventoryservice
-            ports:
-              - protocol: TCP
-                port: 80
-                targetPort: 80
-            type: LoadBalancer
-          EOF
-
 - stage: ImportToAPIM
   displayName: 'Import Product & Inventory APIs to APIM'
   dependsOn: Deploy
@@ -189,6 +43,13 @@ stages:
             --specification-url "http://$EXTERNAL_IP/swagger/v1/swagger.json" \
             --specification-format OpenApi
 
+          echo "Updating ProductService API backend URL..."
+          az apim api update \
+            --resource-group $(apimResourceGroup) \
+            --service-name $(apimInstance) \
+            --api-id productservice-api \
+            --set serviceUrl=http://$EXTERNAL_IP
+
           echo "Waiting for InventoryService External IP..."
           INVENTORY_IP=""
           RETRIES=10
@@ -201,7 +62,7 @@ stages:
           done
 
           if [ -z "$INVENTORY_IP" ]; then
-            echo " Could not fetch InventoryService IP."
+            echo "Could not fetch InventoryService IP."
             exit 1
           fi
 
@@ -214,3 +75,10 @@ stages:
             --display-name "InventoryService API" \
             --specification-url "http://$INVENTORY_IP/swagger/v1/swagger.json" \
             --specification-format OpenApi
+
+          echo "Updating InventoryService API backend URL..."
+          az apim api update \
+            --resource-group $(apimResourceGroup) \
+            --service-name $(apimInstance) \
+            --api-id inventoryservice-api \
+            --set serviceUrl=http://$INVENTORY_IP
