@@ -15,7 +15,7 @@ variables:
 - name: aksNodeSize
   value: 'Standard_B2s'
 - name: containerRegistryName
-  value: 'bookstoreaure'  # NOTE: this is just the ACR name (not .azurecr.io)
+  value: 'bookstoreaure'  # just ACR name
 - name: serviceBusNamespace
   value: 'bookstore-servicebus'
 - name: topicName
@@ -40,20 +40,17 @@ stages:
         scriptType: 'bash'
         scriptLocation: 'inlineScript'
         inlineScript: |
-          echo "Creating resource group if not exists..."
+          echo "Creating resource group..."
           az group create --name "$(resourceGroup)" --location "$(location)"
 
-          echo "Registering Microsoft.ContainerService if not already..."
+          echo "Registering Microsoft.ContainerService..."
           az provider register --namespace Microsoft.ContainerService
 
           echo "Waiting for Microsoft.ContainerService registration to complete..."
           for i in {1..10}; do
             state=$(az provider show --namespace Microsoft.ContainerService --query "registrationState" -o tsv)
-            echo "Current registration state: $state"
-            if [ "$state" == "Registered" ]; then
-              break
-            fi
-            echo "Waiting 10s for registration..."
+            echo "State: $state"
+            if [ "$state" == "Registered" ]; then break; fi
             sleep 10
           done
 
@@ -77,7 +74,7 @@ stages:
           az servicebus topic create --name "$(topicName)" --namespace-name "$(serviceBusNamespace)" --resource-group "$(resourceGroup)" || true
           az servicebus topic subscription create --name "$(subscriptionName)" --topic-name "$(topicName)" --namespace-name "$(serviceBusNamespace)" --resource-group "$(resourceGroup)" || true
 
-          echo "Creating APIM instance if not exists..."
+          echo "Creating APIM instance..."
           az apim show --resource-group "$(resourceGroup)" --name "$(apimServiceName)" || \
           az apim create --name "$(apimServiceName)" \
                          --resource-group "$(resourceGroup)" \
@@ -85,3 +82,43 @@ stages:
                          --publisher-email "admin@bookstore.com" \
                          --publisher-name "BookStore Admin" \
                          --sku-name Developer
+
+          echo "Getting AKS credentials..."
+          az aks get-credentials --resource-group "$(resourceGroup)" --name "$(aksClusterName)" --overwrite-existing
+
+          echo "Installing NGINX Ingress Controller..."
+          kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.1/deploy/static/provider/cloud/deploy.yaml
+
+          echo "Waiting for ingress-nginx-controller external IP..."
+          for i in {1..20}; do
+            IP=$(kubectl get svc ingress-nginx-controller -n ingress-nginx -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+            echo "Current IP: $IP"
+            if [ -n "$IP" ]; then break; fi
+            sleep 15
+          done
+
+          echo "Installing cert-manager..."
+          kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+
+          echo "Waiting for cert-manager pods to be ready..."
+          kubectl rollout status deployment/cert-manager -n cert-manager --timeout=180s
+          kubectl rollout status deployment/cert-manager-webhook -n cert-manager --timeout=180s
+          kubectl rollout status deployment/cert-manager-cainjector -n cert-manager --timeout=180s
+
+          echo "Creating Let's Encrypt ClusterIssuer..."
+          cat <<EOF | kubectl apply -f -
+          apiVersion: cert-manager.io/v1
+          kind: ClusterIssuer
+          metadata:
+            name: letsencrypt-prod
+          spec:
+            acme:
+              server: https://acme-v02.api.letsencrypt.org/directory
+              email: admin@bookstore.com
+              privateKeySecretRef:
+                name: letsencrypt-prod
+              solvers:
+              - http01:
+                  ingress:
+                    class: nginx
+        
