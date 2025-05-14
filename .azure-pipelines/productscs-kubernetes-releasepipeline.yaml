@@ -24,20 +24,16 @@ variables:
   value: 'bookstore-apim-new-1'
 
 stages:
-
-# -----------------------------
-# Stage 1: Deploy to AKS
-# -----------------------------
 - stage: Deploy
   displayName: 'Deploy Services to AKS'
   jobs:
   - job: DeployToKubernetes
-    displayName: 'Deploy and Expose Product & Inventory Services via Ingress'
+    displayName: 'Deploy ProductService and InventoryService'
     pool:
       vmImage: 'ubuntu-latest'
     steps:
     - task: AzureCLI@2
-      displayName: 'Create Secrets, Deploy Services, Create Ingress'
+      displayName: 'Create Secrets, Deploy Services, and Create Ingress'
       inputs:
         azureSubscription: '$(azureSubscription)'
         scriptType: 'bash'
@@ -48,29 +44,28 @@ stages:
 
           echo "Creating productservice secrets..."
           kubectl create secret generic productservice-secrets \
-            --from-literal=Jwt__Key=$(JwtKey) \
-            --from-literal=Kafka__BootstrapServers=$(KafkaBootstrapServers) \
-            --from-literal=Kafka__Username=$(KafkaUsername) \
-            --from-literal=Kafka__Password=$(KafkaPassword) \
-            --from-literal=Cosmos__Endpoint=$(CosmosEndpoint) \
-            --from-literal=Cosmos__Key=$(CosmosKey) \
-            --from-literal=ServiceBus__Connection=$(ServiceBusConnection) \
-            --namespace=$(namespace) --dry-run=client -o yaml | kubectl apply -f -
+            --from-literal=Jwt__Key="$(JwtKey)" \
+            --from-literal=Kafka__BootstrapServers="$(KafkaBootstrapServers)" \
+            --from-literal=Kafka__Username="$(KafkaUsername)" \
+            --from-literal=Kafka__Password="$(KafkaPassword)" \
+            --from-literal=Cosmos__Endpoint="$(CosmosEndpoint)" \
+            --from-literal=Cosmos__Key="$(CosmosKey)" \
+            --from-literal=ServiceBus__Connection="$(ServiceBusConnection)" \
+            --namespace="$(namespace)" --dry-run=client -o yaml | kubectl apply -f -
 
           echo "Creating inventoryservice secrets..."
           kubectl create secret generic inventoryservice-secrets \
-            --from-literal=Jwt__Key=$(JwtKey) \
-            --from-literal=Kafka__KafkaBootstrapServers=$(KafkaBootstrapServers) \
-            --from-literal=Kafka__KafkaUsername=$(KafkaUsername) \
-            --from-literal=Kafka__KafkaPassword=$(KafkaPassword) \
-            --from-literal=Cosmos__Endpoint=$(CosmosEndpoint) \
-            --from-literal=Cosmos__Key=$(CosmosKey) \
-            --from-literal=ServiceBus__Connection=$(ServiceBusConnection) \
-            --namespace=$(namespace) --dry-run=client -o yaml | kubectl apply -f -
+            --from-literal=Jwt__Key="$(JwtKey)" \
+            --from-literal=Kafka__KafkaBootstrapServers="$(KafkaBootstrapServers)" \
+            --from-literal=Kafka__KafkaUsername="$(KafkaUsername)" \
+            --from-literal=Kafka__KafkaPassword="$(KafkaPassword)" \
+            --from-literal=Cosmos__Endpoint="$(CosmosEndpoint)" \
+            --from-literal=Cosmos__Key="$(CosmosKey)" \
+            --from-literal=ServiceBus__Connection="$(ServiceBusConnection)" \
+            --namespace="$(namespace)" --dry-run=client -o yaml | kubectl apply -f -
 
           echo "Deploying ProductService and InventoryService..."
           cat <<EOF | kubectl apply -f -
-          ---
           apiVersion: apps/v1
           kind: Deployment
           metadata:
@@ -156,6 +151,9 @@ stages:
 
           echo "Creating Ingress for productservice and inventoryservice..."
           IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')
+          PRODUCT_DNS="product.${IP}.nip.io"
+          INVENTORY_DNS="inventory.${IP}.nip.io"
+
           cat <<EOF | kubectl apply -f -
           apiVersion: networking.k8s.io/v1
           kind: Ingress
@@ -169,11 +167,11 @@ stages:
           spec:
             tls:
             - hosts:
-              - product.\$IP.nip.io
-              - inventory.\$IP.nip.io
+              - ${PRODUCT_DNS}
+              - ${INVENTORY_DNS}
               secretName: bookstore-tls
             rules:
-            - host: product.\$IP.nip.io
+            - host: ${PRODUCT_DNS}
               http:
                 paths:
                 - path: /swagger
@@ -190,7 +188,7 @@ stages:
                       name: productservice
                       port:
                         number: 80
-            - host: inventory.\$IP.nip.io
+            - host: ${INVENTORY_DNS}
               http:
                 paths:
                 - path: /swagger
@@ -210,7 +208,7 @@ stages:
           EOF
 
 # -----------------------------
-# Stage 2: Import to APIM
+# Stage: Import to APIM
 # -----------------------------
 - stage: ImportToAPIM
   displayName: 'Import APIs to APIM'
@@ -218,12 +216,12 @@ stages:
   condition: succeeded()
   jobs:
   - job: ImportAPI
-    displayName: 'Import Swagger to APIM with HTTPS'
+    displayName: 'Import Swagger to APIM and Set serviceUrl'
     pool:
       vmImage: 'ubuntu-latest'
     steps:
     - task: AzureCLI@2
-      displayName: 'Import and Update APIs'
+      displayName: 'Import Product & Inventory APIs'
       inputs:
         azureSubscription: '$(azureSubscription)'
         scriptType: 'bash'
@@ -232,37 +230,37 @@ stages:
           az aks get-credentials --resource-group $(aksResourceGroup) --name $(aksClusterName) --overwrite-existing
 
           IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')
-          PRODUCT_DNS="product.\$IP.nip.io"
-          INVENTORY_DNS="inventory.\$IP.nip.io"
+          PRODUCT_DNS="product.${IP}.nip.io"
+          INVENTORY_DNS="inventory.${IP}.nip.io"
 
-          echo "Importing ProductService API into APIM..."
+          echo "Importing ProductService API..."
           az apim api import \
             --resource-group $(apimResourceGroup) \
             --service-name $(apimInstance) \
             --api-id productservice-api \
             --path product \
             --display-name "ProductService API" \
-            --specification-url "https://\$PRODUCT_DNS/swagger/v1/swagger.json" \
+            --specification-url "https://${PRODUCT_DNS}/swagger/v1/swagger.json" \
             --specification-format OpenApi
 
           az apim api update \
             --resource-group $(apimResourceGroup) \
             --service-name $(apimInstance) \
             --api-id productservice-api \
-            --set serviceUrl=https://\$PRODUCT_DNS
+            --set serviceUrl=https://${PRODUCT_DNS}
 
-          echo "Importing InventoryService API into APIM..."
+          echo "Importing InventoryService API..."
           az apim api import \
             --resource-group $(apimResourceGroup) \
             --service-name $(apimInstance) \
             --api-id inventoryservice-api \
             --path inventory \
             --display-name "InventoryService API" \
-            --specification-url "https://\$INVENTORY_DNS/swagger/v1/swagger.json" \
+            --specification-url "https://${INVENTORY_DNS}/swagger/v1/swagger.json" \
             --specification-format OpenApi
 
           az apim api update \
             --resource-group $(apimResourceGroup) \
             --service-name $(apimInstance) \
             --api-id inventoryservice-api \
-            --set serviceUrl=https://\$INVENTORY_DNS
+            --set serviceUrl=https://${INVENTORY_DNS}
