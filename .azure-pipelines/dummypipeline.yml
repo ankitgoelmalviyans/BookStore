@@ -1,202 +1,258 @@
 trigger: none
 
-resources:
-  pipelines:
-  - pipeline: buildPipeline
-    source: ankitgoelmalviyans.BookStore
-    project: BookStore
-    trigger: none
-
 variables:
-  azureSubscription: 'AzureServiceConnectionName'
-  resourceGroup: 'BookStoreRG'
-  location: 'East US'
-  productServiceApp: 'bookstore-product-service'
-  inventoryServiceApp: 'bookstore-inventory-service'
-  productUiApp: 'bookstore-product-ui'
-  apimServiceName: 'bookstore-apim-new-1'
+- group: BookStoreSecrets
+- name: azureSubscription
+  value: 'AzureServiceConnectionName'
+- name: aksClusterName
+  value: 'bookstore-aks'
+- name: aksResourceGroup
+  value: 'BookStoreRG'
+- name: namespace
+  value: 'bookstore'
+- name: imageRepository
+  value: 'productservice'
+- name: imageRepositoryInventory
+  value: 'inventoryservice'
+- name: containerRegistry
+  value: 'bookstoreaure.azurecr.io'
+- name: imageTag
+  value: 98
+- name: apimResourceGroup
+  value: 'BookStoreRG'
+- name: apimInstance
+  value: 'bookstore-apim-new-1'
 
 stages:
-
-- stage: Release
-  displayName: 'Deploy to Azure App Services'
+- stage: Deploy
+  displayName: 'Deploy Services to AKS'
   jobs:
-
-  - job: FetchAPIMIP
-    displayName: 'Fetch APIM Public Outbound IP'
+  - job: DeployToKubernetes
+    displayName: 'Deploy ProductService and InventoryService'
     pool:
       vmImage: 'ubuntu-latest'
     steps:
     - task: AzureCLI@2
-      name: FetchApimIp
-      displayName: 'Get APIM Public IP'
+      displayName: 'Create Secrets, Deploy Services, and Create Ingress'
       inputs:
         azureSubscription: '$(azureSubscription)'
         scriptType: 'bash'
         scriptLocation: 'inlineScript'
         inlineScript: |
-          echo "Fetching APIM Public Outbound IP..."
-          ip=$(az apim show \
-            --name $(apimServiceName) \
-            --resource-group $(resourceGroup) \
-            --query "publicIPAddresses[0]" -o tsv)
-          echo "Fetched IP: $ip"
-          echo "##vso[task.setvariable variable=apimPublicIP;isOutput=true]$ip"
+          az aks get-credentials --resource-group $(aksResourceGroup) --name $(aksClusterName) --overwrite-existing
+          kubectl get namespace $(namespace) || kubectl create namespace $(namespace)
 
-  - job: DeployProductService
-    displayName: 'Deploy ProductService'
-    dependsOn: FetchAPIMIP
-    pool:
-      vmImage: 'ubuntu-latest'
-    variables:
-      apimPublicIP: $[ dependencies.FetchAPIMIP.outputs['FetchApimIp.apimPublicIP'] ]
-    steps:
-    - download: buildPipeline
-      artifact: drop
+          echo "Creating productservice secrets..."
+          kubectl create secret generic productservice-secrets \
+            --from-literal=Jwt__Key="$(JwtKey)" \
+            --from-literal=Kafka__BootstrapServers="$(KafkaBootstrapServers)" \
+            --from-literal=Kafka__Username="$(KafkaUsername)" \
+            --from-literal=Kafka__Password="$(KafkaPassword)" \
+            --from-literal=Cosmos__Endpoint="$(CosmosEndpoint)" \
+            --from-literal=Cosmos__Key="$(CosmosKey)" \
+            --from-literal=ServiceBus__Connection="$(ServiceBusConnection)" \
+            --namespace="$(namespace)" --dry-run=client -o yaml | kubectl apply -f -
 
-    - task: AzureWebApp@1
-      displayName: 'Deploy ProductService'
-      inputs:
-        azureSubscription: '$(azureSubscription)'
-        appName: '$(productServiceApp)'
-        package: '$(Pipeline.Workspace)/buildPipeline/drop/ProductService/BookStore.ProductService.API.zip'
+          echo "Creating inventoryservice secrets..."
+          kubectl create secret generic inventoryservice-secrets \
+            --from-literal=Jwt__Key="$(JwtKey)" \
+            --from-literal=Kafka__KafkaBootstrapServers="$(KafkaBootstrapServers)" \
+            --from-literal=Kafka__KafkaUsername="$(KafkaUsername)" \
+            --from-literal=Kafka__KafkaPassword="$(KafkaPassword)" \
+            --from-literal=Cosmos__Endpoint="$(CosmosEndpoint)" \
+            --from-literal=Cosmos__Key="$(CosmosKey)" \
+            --from-literal=ServiceBus__Connection="$(ServiceBusConnection)" \
+            --namespace="$(namespace)" --dry-run=client -o yaml | kubectl apply -f -
 
-    - task: AzureCLI@2
-      displayName: 'Restrict ProductService to APIM IP'
-      inputs:
-        azureSubscription: '$(azureSubscription)'
-        scriptType: 'bash'
-        scriptLocation: 'inlineScript'
-        inlineScript: |
-          echo "Applying access restriction to ProductService..."
-          echo "Using APIM IP: $(apimPublicIP)"
+          echo "Deploying ProductService and InventoryService..."
+          cat <<EOF | kubectl apply -f -
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: productservice
+            namespace: $(namespace)
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: productservice
+            template:
+              metadata:
+                labels:
+                  app: productservice
+              spec:
+                containers:
+                - name: productservice
+                  image: $(containerRegistry)/$(imageRepository):$(imageTag)
+                  ports:
+                  - containerPort: 80
+                  env:
+                  - name: ASPNETCORE_URLS
+                    value: http://+:80
+                  envFrom:
+                  - secretRef:
+                      name: productservice-secrets
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: productservice
+            namespace: $(namespace)
+          spec:
+            selector:
+              app: productservice
+            ports:
+              - protocol: TCP
+                port: 80
+                targetPort: 80
+            type: ClusterIP
+          ---
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: inventoryservice
+            namespace: $(namespace)
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: inventoryservice
+            template:
+              metadata:
+                labels:
+                  app: inventoryservice
+              spec:
+                containers:
+                - name: inventoryservice
+                  image: $(containerRegistry)/$(imageRepositoryInventory):$(imageTag)
+                  ports:
+                  - containerPort: 80
+                  env:
+                  - name: ASPNETCORE_URLS
+                    value: http://+:80
+                  envFrom:
+                  - secretRef:
+                      name: inventoryservice-secrets
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: inventoryservice
+            namespace: $(namespace)
+          spec:
+            selector:
+              app: inventoryservice
+            ports:
+              - protocol: TCP
+                port: 80
+                targetPort: 80
+            type: ClusterIP
+          EOF
 
-          az webapp config access-restriction add \
-            --resource-group $(resourceGroup) \
-            --name $(productServiceApp) \
-            --rule-name allow-apim \
-            --action Allow \
-            --ip-address $(apimPublicIP)/32 \
-            --priority 100 \
-            --description "Allow access only from APIM"
+          echo "Creating Ingress for productservice and inventoryservice..."
+          cat <<EOF | kubectl apply -f -
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: bookstore-ingress
+            namespace: $(namespace)
+            annotations:
+              kubernetes.io/ingress.class: nginx
+              cert-manager.io/cluster-issuer: letsencrypt-prod
+              nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+          spec:
+            tls:
+            - hosts:
+              - $(productHost)
+              - $(inventoryHost)
+              secretName: bookstore-tls
+            rules:
+            - host: $(productHost)
+              http:
+                paths:
+                - path: /swagger
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: productservice
+                      port:
+                        number: 80
+                - path: /api
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: productservice
+                      port:
+                        number: 80
+            - host: $(inventoryHost)
+              http:
+                paths:
+                - path: /swagger
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: inventoryservice
+                      port:
+                        number: 80
+                - path: /api
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: inventoryservice
+                      port:
+                        number: 80
+          EOF
 
-          az webapp config access-restriction set \
-            --resource-group $(resourceGroup) \
-            --name $(productServiceApp) \
-            --use-same-restrictions-for-scm-site true
-
-  - job: DeployInventoryService
-    displayName: 'Deploy InventoryService'
-    dependsOn: DeployProductService
-    pool:
-      vmImage: 'ubuntu-latest'
-    variables:
-      apimPublicIP: $[ dependencies.FetchAPIMIP.outputs['FetchApimIp.apimPublicIP'] ]
-    steps:
-    - download: buildPipeline
-      artifact: drop
-
-    - task: AzureWebApp@1
-      displayName: 'Deploy InventoryService'
-      inputs:
-        azureSubscription: '$(azureSubscription)'
-        appName: '$(inventoryServiceApp)'
-        package: '$(Pipeline.Workspace)/buildPipeline/drop/InventoryService/InventoryService.API.zip'
-
-    - task: AzureCLI@2
-      displayName: 'Restrict InventoryService to APIM IP'
-      inputs:
-        azureSubscription: '$(azureSubscription)'
-        scriptType: 'bash'
-        scriptLocation: 'inlineScript'
-        inlineScript: |
-          echo "Applying access restriction to InventoryService..."
-          echo "Using APIM IP: $(apimPublicIP)"
-
-          az webapp config access-restriction add \
-            --resource-group $(resourceGroup) \
-            --name $(inventoryServiceApp) \
-            --rule-name allow-apim \
-            --action Allow \
-            --ip-address $(apimPublicIP)/32 \
-            --priority 100 \
-            --description "Allow access only from APIM"
-
-          az webapp config access-restriction set \
-            --resource-group $(resourceGroup) \
-            --name $(inventoryServiceApp) \
-            --use-same-restrictions-for-scm-site true
-
-  - job: DeployAngularUI
-    displayName: 'Deploy Angular Product UI'
-    dependsOn: DeployInventoryService
-    pool:
-      vmImage: 'ubuntu-latest'
-    steps:
-    - download: buildPipeline
-      artifact: drop
-
-    - task: AzureRmWebAppDeployment@4
-      displayName: 'Deploy Angular UI to WebApp'
-      inputs:
-        ConnectionType: 'AzureRM'
-        azureSubscription: '$(azureSubscription)'
-        appType: 'webAppLinux'
-        WebAppName: '$(productUiApp)'
-        packageForLinux: '$(Pipeline.Workspace)/buildPipeline/drop/ProductUI'
-
-- stage: ImportSwagger
-  displayName: 'Import Swagger into APIM'
-  dependsOn: Release
+- stage: ImportToAPIM
+  displayName: 'Import APIs to APIM'
+  dependsOn: Deploy
+  condition: succeeded()
   jobs:
-  - job: ImportSwaggerFiles
-    displayName: 'Import Swagger for Product and Inventory APIs'
+  - job: ImportAPI
+    displayName: 'Import Swagger to APIM and Set serviceUrl'
     pool:
       vmImage: 'ubuntu-latest'
     steps:
-
-    - script: |
-        echo "Downloading ProductService Swagger..."
-        curl -o product-swagger.json https://$(productServiceApp).azurewebsites.net/swagger/v1/swagger.json
-      displayName: 'Download ProductService Swagger'
-
     - task: AzureCLI@2
-      displayName: 'Import ProductService Swagger'
+      displayName: 'Import Product & Inventory APIs'
       inputs:
         azureSubscription: '$(azureSubscription)'
         scriptType: 'bash'
         scriptLocation: 'inlineScript'
         inlineScript: |
-          echo "Importing ProductService Swagger..."
-          az apim api import --resource-group $(resourceGroup) \
-            --service-name $(apimServiceName) \
-            --api-id product-api \
-            --path product-api \
-            --specification-format OpenApi \
-            --specification-path product-swagger.json \
-            --service-url "https://$(productServiceApp).azurewebsites.net" \
-            --display-name "Product Service API" \
-            --protocols https
+          az aks get-credentials --resource-group $(aksResourceGroup) --name $(aksClusterName) --overwrite-existing
 
-    - script: |
-        echo "Downloading InventoryService Swagger..."
-        curl -o inventory-swagger.json https://$(inventoryServiceApp).azurewebsites.net/swagger/v1/swagger.json
-      displayName: 'Download InventoryService Swagger'
+          PRODUCT_DNS="$(productHost)"
+          INVENTORY_DNS="$(inventoryHost)"
 
-    - task: AzureCLI@2
-      displayName: 'Import InventoryService Swagger'
-      inputs:
-        azureSubscription: '$(azureSubscription)'
-        scriptType: 'bash'
-        scriptLocation: 'inlineScript'
-        inlineScript: |
-          echo "Importing InventoryService Swagger..."
-          az apim api import --resource-group $(resourceGroup) \
-            --service-name $(apimServiceName) \
-            --api-id inventory-api \
-            --path inventory-api \
-            --specification-format OpenApi \
-            --specification-path inventory-swagger.json \
-            --service-url "https://$(inventoryServiceApp).azurewebsites.net" \
-            --display-name "Inventory Service API" \
-            --protocols https
+          echo "Importing ProductService API..."
+          az apim api import \
+            --resource-group $(apimResourceGroup) \
+            --service-name $(apimInstance) \
+            --api-id productservice-api \
+            --path product \
+            --display-name "ProductService API" \
+            --specification-url "https://${PRODUCT_DNS}/swagger/v1/swagger.json" \
+            --specification-format OpenApi
+
+          az apim api update \
+            --resource-group $(apimResourceGroup) \
+            --service-name $(apimInstance) \
+            --api-id productservice-api \
+            --set serviceUrl=https://${PRODUCT_DNS}
+
+          echo "Importing InventoryService API..."
+          az apim api import \
+            --resource-group $(apimResourceGroup) \
+            --service-name $(apimInstance) \
+            --api-id inventoryservice-api \
+            --path inventory \
+            --display-name "InventoryService API" \
+            --specification-url "https://${INVENTORY_DNS}/swagger/v1/swagger.json" \
+            --specification-format OpenApi
+
+          az apim api update \
+            --resource-group $(apimResourceGroup) \
+            --service-name $(apimInstance) \
+            --api-id inventoryservice-api \
+            --set serviceUrl=https://${INVENTORY_DNS}
