@@ -3,9 +3,12 @@ trigger: none
 variables:
   dockerRegistryServiceConnection: 'MyACRConnection'
   imageRepository: 'productservice'
+  imageRepositoryInventory: 'inventoryservice'
   containerRegistry: 'bookstoreaure.azurecr.io'
   dockerfilePath: 'BookStore.ProductSCA/BookStore.ProductService/src/BookStore.ProductService.API/Dockerfile'
+  dockerfilePathInventory: 'BookStore.ProductSCA/BookStore.InventoryService/InventoryService.API/Dockerfile'
   buildContext: 'BookStore.ProductSCA/BookStore.ProductService/src'  # FIX: set parent folder as context
+  buildContextInventory: 'BookStore.ProductSCA/BookStore.InventoryService'  # FIX: set parent folder as context
   tag: '$(Build.BuildId)'
 
 pool:
@@ -19,12 +22,22 @@ stages:
     displayName: 'Docker Build and Push'
     steps:
     - task: Docker@2
-      displayName: 'Build and Push Image'
+      displayName: 'Build and Push Image Product'
       inputs:
         command: buildAndPush
         containerRegistry: $(dockerRegistryServiceConnection)
         repository: $(imageRepository)
         dockerfile: $(dockerfilePath)
         buildContext: $(buildContext)  #  KEY LINE
-        tags: |
-          $(tag)
+        tags: | 
+         $(tag)
+    - task: Docker@2
+      displayName: 'Build and Push Image Inventory'
+      inputs:
+        command: buildAndPush
+        containerRegistry: $(dockerRegistryServiceConnection)
+        repository: $(imageRepositoryInventory)
+        dockerfile: $(dockerfilePathInventory)
+        buildContext: $(buildContextInventory)  #  KEY LINE
+        tags: | 
+         $(tag)
