@@ -24,6 +24,9 @@ variables:
   value: 'bookstore-apim-new-1'
 
 stages:
+# -----------------------------
+# Stage 1: Deploy to AKS
+# -----------------------------
 - stage: Deploy
   displayName: 'Deploy Services to AKS'
   jobs:
@@ -33,7 +36,7 @@ stages:
       vmImage: 'ubuntu-latest'
     steps:
     - task: AzureCLI@2
-      displayName: 'Create Shared Secret and Deploy Services'
+      displayName: 'Create Secrets and Deploy Services'
       inputs:
         azureSubscription: '$(azureSubscription)'
         scriptType: 'bash'
@@ -42,12 +45,23 @@ stages:
           az aks get-credentials --resource-group $(aksResourceGroup) --name $(aksClusterName) --overwrite-existing
           kubectl get namespace $(namespace) || kubectl create namespace $(namespace)
 
-          echo "Creating shared Kubernetes secret..."
-          kubectl create secret generic bookstore-common-secrets \
+          echo "Creating secret for ProductService..."
+          kubectl create secret generic productservice-secrets \
             --from-literal=Jwt__Key=$(JwtKey) \
             --from-literal=Kafka__BootstrapServers=$(KafkaBootstrapServers) \
             --from-literal=Kafka__Username=$(KafkaUsername) \
             --from-literal=Kafka__Password=$(KafkaPassword) \
+            --from-literal=Cosmos__Endpoint=$(CosmosEndpoint) \
+            --from-literal=Cosmos__Key=$(CosmosKey) \
+            --from-literal=ServiceBus__Connection=$(ServiceBusConnection) \
+            --namespace=$(namespace) --dry-run=client -o yaml | kubectl apply -f -
+
+          echo "Creating secret for InventoryService..."
+          kubectl create secret generic inventoryservice-secrets \
+            --from-literal=Jwt__Key=$(JwtKey) \
+            --from-literal=Kafka__KafkaBootstrapServers=$(KafkaBootstrapServers) \
+            --from-literal=Kafka__KafkaUsername=$(KafkaUsername) \
+            --from-literal=Kafka__KafkaPassword=$(KafkaPassword) \
             --from-literal=Cosmos__Endpoint=$(CosmosEndpoint) \
             --from-literal=Cosmos__Key=$(CosmosKey) \
             --from-literal=ServiceBus__Connection=$(ServiceBusConnection) \
@@ -80,7 +94,7 @@ stages:
                     value: http://+:80
                   envFrom:
                   - secretRef:
-                      name: bookstore-common-secrets
+                      name: productservice-secrets
           ---
           apiVersion: v1
           kind: Service
@@ -124,7 +138,7 @@ stages:
                     value: http://+:80
                   envFrom:
                   - secretRef:
-                      name: bookstore-common-secrets
+                      name: inventoryservice-secrets
           ---
           apiVersion: v1
           kind: Service
@@ -141,18 +155,21 @@ stages:
             type: LoadBalancer
           EOF
 
+# -----------------------------
+# Stage 2: Import to APIM
+# -----------------------------
 - stage: ImportToAPIM
   displayName: 'Import APIs to APIM'
   dependsOn: Deploy
   condition: succeeded()
   jobs:
   - job: ImportAPI
-    displayName: 'Import Swagger to APIM and Update serviceUrl'
+    displayName: 'Import Swagger to APIM and Set serviceUrl'
     pool:
       vmImage: 'ubuntu-latest'
     steps:
     - task: AzureCLI@2
-      displayName: 'Import and Update APIs'
+      displayName: 'Import Product & Inventory APIs'
       inputs:
         azureSubscription: '$(azureSubscription)'
         scriptType: 'bash'
@@ -162,36 +179,30 @@ stages:
 
           echo "Fetching ProductService External IP..."
           RETRIES=10
-          EXTERNAL_IP=""
-          while [ -z "$EXTERNAL_IP" ] && [ $RETRIES -gt 0 ]; do
-            EXTERNAL_IP=$(kubectl get svc productservice -n $(namespace) -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-            if [ -z "$EXTERNAL_IP" ]; then
+          PRODUCT_IP=""
+          while [ -z "$PRODUCT_IP" ] && [ $RETRIES -gt 0 ]; do
+            PRODUCT_IP=$(kubectl get svc productservice -n $(namespace) -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+            if [ -z "$PRODUCT_IP" ]; then
               sleep 15
               RETRIES=$((RETRIES - 1))
             fi
           done
 
-          if [ -z "$EXTERNAL_IP" ]; then
-            echo "Could not fetch ProductService IP."
-            exit 1
-          fi
-
-          echo "Importing ProductService API..."
+          echo "Importing ProductService API into APIM..."
           az apim api import \
             --resource-group $(apimResourceGroup) \
             --service-name $(apimInstance) \
             --api-id productservice-api \
             --path product \
             --display-name "ProductService API" \
-            --specification-url "http://$EXTERNAL_IP/swagger/v1/swagger.json" \
+            --specification-url "http://$PRODUCT_IP/swagger/v1/swagger.json" \
             --specification-format OpenApi
 
-          echo "Updating ProductService API serviceUrl..."
           az apim api update \
             --resource-group $(apimResourceGroup) \
             --service-name $(apimInstance) \
             --api-id productservice-api \
-            --set serviceUrl=http://$EXTERNAL_IP
+            --set serviceUrl=http://$PRODUCT_IP
 
           echo "Fetching InventoryService External IP..."
           RETRIES=10
@@ -204,12 +215,7 @@ stages:
             fi
           done
 
-          if [ -z "$INVENTORY_IP" ]; then
-            echo "Could not fetch InventoryService IP."
-            exit 1
-          fi
-
-          echo "Importing InventoryService API..."
+          echo "Importing InventoryService API into APIM..."
           az apim api import \
             --resource-group $(apimResourceGroup) \
             --service-name $(apimInstance) \
@@ -219,7 +225,6 @@ stages:
             --specification-url "http://$INVENTORY_IP/swagger/v1/swagger.json" \
             --specification-format OpenApi
 
-          echo "Updating InventoryService API serviceUrl..."
           az apim api update \
             --resource-group $(apimResourceGroup) \
             --service-name $(apimInstance) \
