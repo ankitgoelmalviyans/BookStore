@@ -24,6 +24,7 @@ variables:
   value: 'bookstore-apim-new-1'
 
 stages:
+
 # -----------------------------
 # Stage 1: Deploy to AKS
 # -----------------------------
@@ -31,12 +32,12 @@ stages:
   displayName: 'Deploy Services to AKS'
   jobs:
   - job: DeployToKubernetes
-    displayName: 'Deploy ProductService and InventoryService'
+    displayName: 'Deploy and Expose Product & Inventory Services via Ingress'
     pool:
       vmImage: 'ubuntu-latest'
     steps:
     - task: AzureCLI@2
-      displayName: 'Create Secrets and Deploy Services'
+      displayName: 'Create Secrets, Deploy Services, Create Ingress'
       inputs:
         azureSubscription: '$(azureSubscription)'
         scriptType: 'bash'
@@ -45,7 +46,7 @@ stages:
           az aks get-credentials --resource-group $(aksResourceGroup) --name $(aksClusterName) --overwrite-existing
           kubectl get namespace $(namespace) || kubectl create namespace $(namespace)
 
-          echo "Creating secret for ProductService..."
+          echo "Creating productservice secrets..."
           kubectl create secret generic productservice-secrets \
             --from-literal=Jwt__Key=$(JwtKey) \
             --from-literal=Kafka__BootstrapServers=$(KafkaBootstrapServers) \
@@ -56,7 +57,7 @@ stages:
             --from-literal=ServiceBus__Connection=$(ServiceBusConnection) \
             --namespace=$(namespace) --dry-run=client -o yaml | kubectl apply -f -
 
-          echo "Creating secret for InventoryService..."
+          echo "Creating inventoryservice secrets..."
           kubectl create secret generic inventoryservice-secrets \
             --from-literal=Jwt__Key=$(JwtKey) \
             --from-literal=Kafka__KafkaBootstrapServers=$(KafkaBootstrapServers) \
@@ -67,8 +68,9 @@ stages:
             --from-literal=ServiceBus__Connection=$(ServiceBusConnection) \
             --namespace=$(namespace) --dry-run=client -o yaml | kubectl apply -f -
 
-          echo "Deploying ProductService..."
+          echo "Deploying ProductService and InventoryService..."
           cat <<EOF | kubectl apply -f -
+          ---
           apiVersion: apps/v1
           kind: Deployment
           metadata:
@@ -108,11 +110,8 @@ stages:
               - protocol: TCP
                 port: 80
                 targetPort: 80
-            type: LoadBalancer
-          EOF
-
-          echo "Deploying InventoryService..."
-          cat <<EOF | kubectl apply -f -
+            type: ClusterIP
+          ---
           apiVersion: apps/v1
           kind: Deployment
           metadata:
@@ -152,7 +151,62 @@ stages:
               - protocol: TCP
                 port: 80
                 targetPort: 80
-            type: LoadBalancer
+            type: ClusterIP
+          EOF
+
+          echo "Creating Ingress for productservice and inventoryservice..."
+          IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')
+          cat <<EOF | kubectl apply -f -
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: bookstore-ingress
+            namespace: $(namespace)
+            annotations:
+              kubernetes.io/ingress.class: nginx
+              cert-manager.io/cluster-issuer: letsencrypt-prod
+              nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+          spec:
+            tls:
+            - hosts:
+              - product.\$IP.nip.io
+              - inventory.\$IP.nip.io
+              secretName: bookstore-tls
+            rules:
+            - host: product.\$IP.nip.io
+              http:
+                paths:
+                - path: /swagger
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: productservice
+                      port:
+                        number: 80
+                - path: /api
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: productservice
+                      port:
+                        number: 80
+            - host: inventory.\$IP.nip.io
+              http:
+                paths:
+                - path: /swagger
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: inventoryservice
+                      port:
+                        number: 80
+                - path: /api
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: inventoryservice
+                      port:
+                        number: 80
           EOF
 
 # -----------------------------
@@ -164,12 +218,12 @@ stages:
   condition: succeeded()
   jobs:
   - job: ImportAPI
-    displayName: 'Import Swagger to APIM and Set serviceUrl'
+    displayName: 'Import Swagger to APIM with HTTPS'
     pool:
       vmImage: 'ubuntu-latest'
     steps:
     - task: AzureCLI@2
-      displayName: 'Import Product & Inventory APIs'
+      displayName: 'Import and Update APIs'
       inputs:
         azureSubscription: '$(azureSubscription)'
         scriptType: 'bash'
@@ -177,16 +231,9 @@ stages:
         inlineScript: |
           az aks get-credentials --resource-group $(aksResourceGroup) --name $(aksClusterName) --overwrite-existing
 
-          echo "Fetching ProductService External IP..."
-          RETRIES=10
-          PRODUCT_IP=""
-          while [ -z "$PRODUCT_IP" ] && [ $RETRIES -gt 0 ]; do
-            PRODUCT_IP=$(kubectl get svc productservice -n $(namespace) -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-            if [ -z "$PRODUCT_IP" ]; then
-              sleep 15
-              RETRIES=$((RETRIES - 1))
-            fi
-          done
+          IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')
+          PRODUCT_DNS="product.\$IP.nip.io"
+          INVENTORY_DNS="inventory.\$IP.nip.io"
 
           echo "Importing ProductService API into APIM..."
           az apim api import \
@@ -195,25 +242,14 @@ stages:
             --api-id productservice-api \
             --path product \
             --display-name "ProductService API" \
-            --specification-url "http://$PRODUCT_IP/swagger/v1/swagger.json" \
+            --specification-url "https://\$PRODUCT_DNS/swagger/v1/swagger.json" \
             --specification-format OpenApi
 
           az apim api update \
             --resource-group $(apimResourceGroup) \
             --service-name $(apimInstance) \
             --api-id productservice-api \
-            --set serviceUrl=http://$PRODUCT_IP
-
-          echo "Fetching InventoryService External IP..."
-          RETRIES=10
-          INVENTORY_IP=""
-          while [ -z "$INVENTORY_IP" ] && [ $RETRIES -gt 0 ]; do
-            INVENTORY_IP=$(kubectl get svc inventoryservice -n $(namespace) -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-            if [ -z "$INVENTORY_IP" ]; then
-              sleep 15
-              RETRIES=$((RETRIES - 1))
-            fi
-          done
+            --set serviceUrl=https://\$PRODUCT_DNS
 
           echo "Importing InventoryService API into APIM..."
           az apim api import \
@@ -222,11 +258,11 @@ stages:
             --api-id inventoryservice-api \
             --path inventory \
             --display-name "InventoryService API" \
-            --specification-url "http://$INVENTORY_IP/swagger/v1/swagger.json" \
+            --specification-url "https://\$INVENTORY_DNS/swagger/v1/swagger.json" \
             --specification-format OpenApi
 
           az apim api update \
             --resource-group $(apimResourceGroup) \
             --service-name $(apimInstance) \
             --api-id inventoryservice-api \
-            --set serviceUrl=http://$INVENTORY_IP
+            --set serviceUrl=https://\$INVENTORY_DNS
