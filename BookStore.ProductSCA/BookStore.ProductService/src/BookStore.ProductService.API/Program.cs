@@ -6,11 +6,12 @@ using BookStore.ProductService.API.Middleware;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using Serilog;
-using Confluent.Kafka;
 using System;
+using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Load environment-specific config
 if (builder.Environment.IsDevelopment())
 {
     builder.Configuration
@@ -29,37 +30,48 @@ else
     Console.WriteLine($"Loaded {builder.Environment.EnvironmentName} configuration");
 }
 
-
-// Add Services
+// Add services
 builder.Services.AddApplicationServices(builder.Configuration);
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
 
-//without Auth Service or custom IDP
-//var jwtSettings = builder.Configuration.GetSection("Jwt");
+// Add environment-based Swagger URL prefix
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new() { Title = "BookStore.ProductService", Version = "v1" });
 
-//builder.Services.AddAuthentication("Bearer")
-//    .AddJwtBearer("Bearer", options =>
-//    {
-//        options.TokenValidationParameters = new TokenValidationParameters
-//        {
-//            ValidateIssuer = true,
-//            ValidIssuer = jwtSettings["Issuer"],
+    if (!builder.Environment.IsDevelopment())
+    {
+        c.AddServer(new OpenApiServer { Url = "/product" });
+    }
 
-//            ValidateAudience = true,
-//            ValidAudience = jwtSettings["Audience"],
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "Bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "Enter 'Bearer' [space] and then your valid token.\nExample: Bearer eyJhbGciOi..."
+    });
 
-//            ValidateIssuerSigningKey = true,
-//            IssuerSigningKey = new SymmetricSecurityKey(
-//                Encoding.UTF8.GetBytes(jwtSettings["Key"])),
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
 
-//            ValidateLifetime = true,
-//            ClockSkew = TimeSpan.Zero
-//        };
-//    });
-
-
+// Add authentication
 builder.Services.AddAuthentication("Bearer")
     .AddJwtBearer("Bearer", options =>
     {
@@ -74,42 +86,13 @@ builder.Services.AddAuthentication("Bearer")
         };
     });
 
-
-builder.Services.AddSwaggerGen(c =>
-{
-    c.SwaggerDoc("v1", new() { Title = "BookStore.ProductService", Version = "v1" });
-
-    
-    c.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
-    {
-        Name = "Authorization",
-        Type = Microsoft.OpenApi.Models.SecuritySchemeType.Http,
-        Scheme = "Bearer",
-        BearerFormat = "JWT",
-        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
-        Description = "Enter 'Bearer' [space] and then your valid token.\nExample: Bearer eyJhbGciOi..."
-    });
-
-    c.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
-    {
-        {
-            new Microsoft.OpenApi.Models.OpenApiSecurityScheme
-            {
-                Reference = new Microsoft.OpenApi.Models.OpenApiReference
-                {
-                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
-                    Id = "Bearer"
-                }
-            },
-            new string[] {}
-        }
-    });
-});
-
+// Serilog
 builder.Host.UseSerilog((context, services, configuration) =>
 {
     configuration.ReadFrom.Configuration(context.Configuration);
 });
+
+// CORS
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
@@ -123,7 +106,7 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// Configure Middleware
+// Configure middleware
 app.UseMiddleware<ExceptionMiddleware>();
 app.UseMiddleware<SerilogEnrichingMiddleware>();
 app.UseCors("AllowFrontend");
@@ -132,10 +115,8 @@ app.UseAuthorization();
 
 app.UseSwagger();
 app.UseSwaggerUI();
+
 app.MapHealthChecks("/health");
 app.MapControllers();
-
-
-
 
 app.Run();
