@@ -86,16 +86,16 @@ stages:
                   app: productservice
               spec:
                 containers:
-                - name: productservice
-                  image: $(containerRegistry)/$(imageRepository):$(imageTag)
-                  ports:
-                  - containerPort: 80
-                  env:
-                  - name: ASPNETCORE_URLS
-                    value: http://+:80
-                  envFrom:
-                  - secretRef:
-                      name: productservice-secrets
+                  - name: productservice
+                    image: $(containerRegistry)/$(imageRepository):$(imageTag)
+                    ports:
+                      - containerPort: 80
+                    env:
+                      - name: ASPNETCORE_URLS
+                        value: http://+:80
+                    envFrom:
+                      - secretRef:
+                          name: productservice-secrets
           ---
           apiVersion: v1
           kind: Service
@@ -127,16 +127,16 @@ stages:
                   app: inventoryservice
               spec:
                 containers:
-                - name: inventoryservice
-                  image: $(containerRegistry)/$(imageRepositoryInventory):$(imageTag)
-                  ports:
-                  - containerPort: 80
-                  env:
-                  - name: ASPNETCORE_URLS
-                    value: http://+:80
-                  envFrom:
-                  - secretRef:
-                      name: inventoryservice-secrets
+                  - name: inventoryservice
+                    image: $(containerRegistry)/$(imageRepositoryInventory):$(imageTag)
+                    ports:
+                      - containerPort: 80
+                    env:
+                      - name: ASPNETCORE_URLS
+                        value: http://+:80
+                    envFrom:
+                      - secretRef:
+                          name: inventoryservice-secrets
           ---
           apiVersion: v1
           kind: Service
@@ -164,31 +164,34 @@ stages:
               kubernetes.io/ingress.class: nginx
               cert-manager.io/cluster-issuer: letsencrypt-prod
               nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+              nginx.ingress.kubernetes.io/rewrite-target: /$2
+              nginx.ingress.kubernetes.io/use-regex: "true"
           spec:
             ingressClassName: nginx
             tls:
-            - hosts:
-              - $(productHost)
-              secretName: bookstore-tls
+              - hosts:
+                  - $(productHost)
+                secretName: bookstore-tls
             rules:
-            - host: $(productHost)
-              http:
-                paths:
-                - path: /product
-                  pathType: Prefix
-                  backend:
-                    service:
-                      name: productservice
-                      port:
-                        number: 80
-                - path: /inventory
-                  pathType: Prefix
-                  backend:
-                    service:
-                      name: inventoryservice
-                      port:
-                        number: 80
+              - host: $(productHost)
+                http:
+                  paths:
+                    - path: /product(/|$)(.*)
+                      pathType: ImplementationSpecific
+                      backend:
+                        service:
+                          name: productservice
+                          port:
+                            number: 80
+                    - path: /inventory(/|$)(.*)
+                      pathType: ImplementationSpecific
+                      backend:
+                        service:
+                          name: inventoryservice
+                          port:
+                            number: 80
           EOF
+
 - stage: ImportToAPIM
   displayName: 'Import APIs to APIM'
   dependsOn: Deploy
