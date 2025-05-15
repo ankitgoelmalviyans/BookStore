@@ -164,7 +164,6 @@ stages:
               kubernetes.io/ingress.class: nginx
               cert-manager.io/cluster-issuer: letsencrypt-prod
               nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-              nginx.ingress.kubernetes.io/rewrite-target: /
           spec:
             ingressClassName: nginx
             tls:
@@ -175,14 +174,14 @@ stages:
             - host: $(productHost)
               http:
                 paths:
-                - path: /product(/|$)(.*)
+                - path: /product
                   pathType: Prefix
                   backend:
                     service:
                       name: productservice
                       port:
                         number: 80
-                - path: /inventory(/|$)(.*)
+                - path: /inventory
                   pathType: Prefix
                   backend:
                     service:
@@ -190,7 +189,6 @@ stages:
                       port:
                         number: 80
           EOF
-
 - stage: ImportToAPIM
   displayName: 'Import APIs to APIM'
   dependsOn: Deploy
