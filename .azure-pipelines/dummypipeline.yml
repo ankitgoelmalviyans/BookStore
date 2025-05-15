@@ -149,7 +149,7 @@ stages:
             type: ClusterIP
           EOF
 
-          echo "Creating Ingress for productservice and inventoryservice..."
+          echo "Creating Ingress for bookstoremicro.duckdns.org with path-based routing..."
           cat <<EOF | kubectl apply -f -
           apiVersion: networking.k8s.io/v1
           kind: Ingress
@@ -164,37 +164,33 @@ stages:
             tls:
             - hosts:
               - $(productHost)
-              - $(inventoryHost)
               secretName: bookstore-tls
             rules:
             - host: $(productHost)
               http:
                 paths:
-                - path: /swagger
+                - path: /product/swagger
                   pathType: Prefix
                   backend:
                     service:
                       name: productservice
                       port:
                         number: 80
-                - path: /api
+                - path: /product/api
                   pathType: Prefix
                   backend:
                     service:
                       name: productservice
                       port:
                         number: 80
-            - host: $(inventoryHost)
-              http:
-                paths:
-                - path: /swagger
+                - path: /inventory/swagger
                   pathType: Prefix
                   backend:
                     service:
                       name: inventoryservice
                       port:
                         number: 80
-                - path: /api
+                - path: /inventory/api
                   pathType: Prefix
                   backend:
                     service:
@@ -223,7 +219,6 @@ stages:
           az aks get-credentials --resource-group $(aksResourceGroup) --name $(aksClusterName) --overwrite-existing
 
           PRODUCT_DNS="$(productHost)"
-          INVENTORY_DNS="$(inventoryHost)"
 
           echo "Importing ProductService API..."
           az apim api import \
@@ -232,14 +227,14 @@ stages:
             --api-id productservice-api \
             --path product \
             --display-name "ProductService API" \
-            --specification-url "https://${PRODUCT_DNS}/swagger/v1/swagger.json" \
+            --specification-url "https://${PRODUCT_DNS}/product/swagger/v1/swagger.json" \
             --specification-format OpenApi
 
           az apim api update \
             --resource-group $(apimResourceGroup) \
             --service-name $(apimInstance) \
             --api-id productservice-api \
-            --set serviceUrl=https://${PRODUCT_DNS}
+            --set serviceUrl=https://${PRODUCT_DNS}/product
 
           echo "Importing InventoryService API..."
           az apim api import \
@@ -248,11 +243,11 @@ stages:
             --api-id inventoryservice-api \
             --path inventory \
             --display-name "InventoryService API" \
-            --specification-url "https://${INVENTORY_DNS}/swagger/v1/swagger.json" \
+            --specification-url "https://${PRODUCT_DNS}/inventory/swagger/v1/swagger.json" \
             --specification-format OpenApi
 
           az apim api update \
             --resource-group $(apimResourceGroup) \
             --service-name $(apimInstance) \
             --api-id inventoryservice-api \
-            --set serviceUrl=https://${INVENTORY_DNS}
+            --set serviceUrl=https://${PRODUCT_DNS}/inventory
