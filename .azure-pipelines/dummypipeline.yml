@@ -17,7 +17,7 @@ variables:
 - name: containerRegistry
   value: 'bookstoreaure.azurecr.io'
 - name: imageTag
-  value: 98
+  value: 118
 - name: apimResourceGroup
   value: 'BookStoreRG'
 - name: apimInstance
