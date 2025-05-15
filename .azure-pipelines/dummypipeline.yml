@@ -37,7 +37,7 @@ stages:
       vmImage: 'ubuntu-latest'
     steps:
     - task: AzureCLI@2
-      displayName: 'Create Secrets, Deploy Services, and Create Ingress'
+      displayName: 'Create Secrets, Deploy Services, Create Ingress, Patch Annotations'
       inputs:
         azureSubscription: '$(azureSubscription)'
         scriptType: 'bash'
@@ -86,16 +86,16 @@ stages:
                   app: productservice
               spec:
                 containers:
-                  - name: productservice
-                    image: $(containerRegistry)/$(imageRepository):$(imageTag)
-                    ports:
-                      - containerPort: 80
-                    env:
-                      - name: ASPNETCORE_URLS
-                        value: http://+:80
-                    envFrom:
-                      - secretRef:
-                          name: productservice-secrets
+                - name: productservice
+                  image: $(containerRegistry)/$(imageRepository):$(imageTag)
+                  ports:
+                  - containerPort: 80
+                  env:
+                  - name: ASPNETCORE_URLS
+                    value: http://+:80
+                  envFrom:
+                  - secretRef:
+                      name: productservice-secrets
           ---
           apiVersion: v1
           kind: Service
@@ -127,16 +127,16 @@ stages:
                   app: inventoryservice
               spec:
                 containers:
-                  - name: inventoryservice
-                    image: $(containerRegistry)/$(imageRepositoryInventory):$(imageTag)
-                    ports:
-                      - containerPort: 80
-                    env:
-                      - name: ASPNETCORE_URLS
-                        value: http://+:80
-                    envFrom:
-                      - secretRef:
-                          name: inventoryservice-secrets
+                - name: inventoryservice
+                  image: $(containerRegistry)/$(imageRepositoryInventory):$(imageTag)
+                  ports:
+                  - containerPort: 80
+                  env:
+                  - name: ASPNETCORE_URLS
+                    value: http://+:80
+                  envFrom:
+                  - secretRef:
+                      name: inventoryservice-secrets
           ---
           apiVersion: v1
           kind: Service
@@ -153,9 +153,6 @@ stages:
             type: ClusterIP
           EOF
 
-          echo "Deleting old ingress if exists..."
-          kubectl delete ingress bookstore-ingress -n $(namespace) --ignore-not-found
-
           echo "Creating Ingress for productservice and inventoryservice..."
           cat <<EOF | kubectl apply -f -
           apiVersion: networking.k8s.io/v1
@@ -166,34 +163,41 @@ stages:
             annotations:
               kubernetes.io/ingress.class: nginx
               cert-manager.io/cluster-issuer: letsencrypt-prod
-              nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-              nginx.ingress.kubernetes.io/rewrite-target: /$2
-              nginx.ingress.kubernetes.io/use-regex: "true"
           spec:
             ingressClassName: nginx
             tls:
-              - hosts:
-                  - $(productHost)
-                secretName: bookstore-tls
+            - hosts:
+              - $(productHost)
+              secretName: bookstore-tls
             rules:
-              - host: $(productHost)
-                http:
-                  paths:
-                    - path: /product(/|$)(.*)
-                      pathType: ImplementationSpecific
-                      backend:
-                        service:
-                          name: productservice
-                          port:
-                            number: 80
-                    - path: /inventory(/|$)(.*)
-                      pathType: ImplementationSpecific
-                      backend:
-                        service:
-                          name: inventoryservice
-                          port:
-                            number: 80
+            - host: $(productHost)
+              http:
+                paths:
+                - path: /product(/|$)(.*)
+                  pathType: ImplementationSpecific
+                  backend:
+                    service:
+                      name: productservice
+                      port:
+                        number: 80
+                - path: /inventory(/|$)(.*)
+                  pathType: ImplementationSpecific
+                  backend:
+                    service:
+                      name: inventoryservice
+                      port:
+                        number: 80
           EOF
+
+          echo "Patching ingress with rewrite annotations..."
+          kubectl patch ingress bookstore-ingress -n $(namespace) --type='merge' -p '{
+            "metadata": {
+              "annotations": {
+                "nginx.ingress.kubernetes.io/rewrite-target": "/$2",
+                "nginx.ingress.kubernetes.io/use-regex": "true"
+              }
+            }
+          }'
 
 - stage: ImportToAPIM
   displayName: 'Import APIs to APIM'
