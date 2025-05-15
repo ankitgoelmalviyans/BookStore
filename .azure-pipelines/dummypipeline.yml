@@ -153,6 +153,9 @@ stages:
             type: ClusterIP
           EOF
 
+          echo "Deleting old ingress if exists..."
+          kubectl delete ingress bookstore-ingress -n $(namespace) --ignore-not-found
+
           echo "Creating Ingress for productservice and inventoryservice..."
           cat <<EOF | kubectl apply -f -
           apiVersion: networking.k8s.io/v1
