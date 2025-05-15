@@ -31,7 +31,7 @@ else
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-// ✅ Add Swagger path prefix logic for Dev vs Production
+// Add Swagger path prefix logic for Dev vs Production
 builder.Services.AddSwaggerGen(c =>
 {
     var environment = builder.Environment.EnvironmentName;
