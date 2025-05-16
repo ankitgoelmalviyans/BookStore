@@ -21,7 +21,7 @@ variables:
 - name: apimResourceGroup
   value: 'BookStoreRG'
 - name: apimInstance
-  value: 'bookstore-apim-new-1'
+  value: 'bookstore-apim-new'
 - name: productHost
   value: 'bookstoremicro.duckdns.org'
 - name: inventoryHost
