@@ -15,7 +15,7 @@ variables:
 - name: aksNodeSize
   value: 'Standard_B2s'
 - name: containerRegistryName
-  value: 'bookstoreaure'  # just ACR name
+  value: 'bookstoreaure'
 - name: serviceBusNamespace
   value: 'bookstore-servicebus'
 - name: topicName
@@ -24,6 +24,12 @@ variables:
   value: 'inventory-subscription'
 - name: apimServiceName
   value: 'bookstore-apim-new'
+- name: functionAppName
+  value: 'bookstore-proxy'
+- name: storageAccountName
+  value: 'bookstorestorageacct'
+- name: appServicePlanName
+  value: 'bookstore-plan'
 
 stages:
 - stage: Provision
@@ -83,6 +89,32 @@ stages:
                          --publisher-name "BookStore Admin" \
                          --sku-name Developer
 
+          echo "Creating Storage Account for Azure Function..."
+          az storage account create \
+            --name "$(storageAccountName)" \
+            --location "$(location)" \
+            --resource-group "$(resourceGroup)" \
+            --sku Standard_LRS || true
+
+          echo "Creating App Service Plan for Azure Function..."
+          az functionapp plan create \
+            --name "$(appServicePlanName)" \
+            --resource-group "$(resourceGroup)" \
+            --location "$(location)" \
+            --number-of-workers 1 \
+            --sku B1 \
+            --is-linux true || true
+
+          echo "Creating Azure Function App for Proxy..."
+          az functionapp create \
+            --name "$(functionAppName)" \
+            --storage-account "$(storageAccountName)" \
+            --resource-group "$(resourceGroup)" \
+            --plan "$(appServicePlanName)" \
+            --runtime dotnet \
+            --functions-version 4 \
+            --os-type Linux || true
+
           echo "Getting AKS credentials..."
           az aks get-credentials --resource-group "$(resourceGroup)" --name "$(aksClusterName)" --overwrite-existing
 
@@ -121,4 +153,4 @@ stages:
               - http01:
                   ingress:
                     class: nginx
-        
+          
