@@ -26,10 +26,14 @@ variables:
   value: 'bookstoremicro.duckdns.org'
 - name: inventoryHost
   value: 'bookstoremicro.duckdns.org'
+- name: functionAppName
+  value: 'bookstoreproxyfunction'
+- name: functionAppZipPath
+  value: '$(Pipeline.Workspace)/drop/azure-function-proxy.zip'
 
 stages:
 - stage: Deploy
-  displayName: 'Deploy Services to AKS'
+  displayName: 'Deploy Services to AKS and Azure Function'
   jobs:
   - job: DeployToKubernetes
     displayName: 'Deploy ProductService and InventoryService'
@@ -199,6 +203,24 @@ stages:
             }
           }'
 
+  - job: DeployFunctionApp
+    displayName: 'Deploy Azure Function Proxy'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: AzureCLI@2
+      displayName: 'Deploy Azure Function Zip'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          echo "Deploying Azure Function Proxy..."
+          az functionapp deployment source config-zip \
+            --resource-group $(apimResourceGroup) \
+            --name $(functionAppName) \
+            --src $(functionAppZipPath)
+
 - stage: ImportToAPIM
   displayName: 'Import APIs to APIM'
   dependsOn: Deploy
@@ -216,8 +238,6 @@ stages:
         scriptType: 'bash'
         scriptLocation: 'inlineScript'
         inlineScript: |
-          az aks get-credentials --resource-group $(aksResourceGroup) --name $(aksClusterName) --overwrite-existing
-
           echo "Importing ProductService API..."
           az apim api import \
             --resource-group $(apimResourceGroup) \
@@ -225,14 +245,14 @@ stages:
             --api-id productservice-api \
             --path product \
             --display-name "ProductService API" \
-            --specification-url "https://$(productHost)/product/swagger/v1/swagger.json" \
+            --specification-url "https://$(functionAppName).azurewebsites.net/api/product/swagger/v1/swagger.json" \
             --specification-format OpenApi
 
           az apim api update \
             --resource-group $(apimResourceGroup) \
             --service-name $(apimInstance) \
             --api-id productservice-api \
-            --set serviceUrl=https://$(productHost)/product
+            --set serviceUrl=https://$(functionAppName).azurewebsites.net/api/product
 
           echo "Importing InventoryService API..."
           az apim api import \
@@ -241,11 +261,11 @@ stages:
             --api-id inventoryservice-api \
             --path inventory \
             --display-name "InventoryService API" \
-            --specification-url "https://$(inventoryHost)/inventory/swagger/v1/swagger.json" \
+            --specification-url "https://$(functionAppName).azurewebsites.net/api/inventory/swagger/v1/swagger.json" \
             --specification-format OpenApi
 
           az apim api update \
             --resource-group $(apimResourceGroup) \
             --service-name $(apimInstance) \
             --api-id inventoryservice-api \
-            --set serviceUrl=https://$(inventoryHost)/inventory
+            --set serviceUrl=https://$(functionAppName).azurewebsites.net/api/inventory
