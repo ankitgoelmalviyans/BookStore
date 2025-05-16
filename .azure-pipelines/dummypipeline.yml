@@ -204,22 +204,34 @@ stages:
           }'
 
   - job: DeployFunctionApp
-    displayName: 'Deploy Azure Function Proxy'
-    pool:
-      vmImage: 'ubuntu-latest'
-    steps:
-    - task: AzureCLI@2
-      displayName: 'Deploy Azure Function Zip'
-      inputs:
-        azureSubscription: '$(azureSubscription)'
-        scriptType: 'bash'
-        scriptLocation: 'inlineScript'
-        inlineScript: |
-          echo "Deploying Azure Function Proxy..."
+  displayName: 'Deploy Azure Function Proxy'
+  pool:
+    vmImage: 'ubuntu-latest'
+  steps:
+  - task: AzureCLI@2
+    displayName: 'Retryable Azure Function Zip Deployment'
+    inputs:
+      azureSubscription: '$(azureSubscription)'
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      inlineScript: |
+        echo "Warming up Kudu endpoint..."
+        for i in {1..3}; do
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://$(functionAppName).scm.azurewebsites.net)
+          echo "Attempt $i - Status: $STATUS"
+          if [ "$STATUS" == "200" ] || [ "$STATUS" == "403" ]; then break; fi
+          sleep 10
+        done
+
+        echo "Deploying Azure Function Zip with retry..."
+        for i in {1..3}; do
+          echo "Zip deploy attempt $i..."
           az functionapp deployment source config-zip \
             --resource-group $(apimResourceGroup) \
             --name $(functionAppName) \
-            --src $(functionAppZipPath)
+            --src $(functionAppZipPath) && break || sleep 30
+        done
+
 
 - stage: ImportToAPIM
   displayName: 'Import APIs to APIM'
