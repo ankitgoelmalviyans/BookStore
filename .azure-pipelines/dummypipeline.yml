@@ -27,7 +27,7 @@ variables:
 - name: inventoryHost
   value: 'bookstoremicro.duckdns.org'
 - name: functionAppName
-  value: 'bookstoreproxyfunction'
+  value: 'bookstore-proxy'
 - name: functionAppZipPath
   value: '$(Pipeline.Workspace)/drop/azure-function-proxy.zip'
 
