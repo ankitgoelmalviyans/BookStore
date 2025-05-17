@@ -241,6 +241,12 @@ stages:
               --name $(functionAppName) \
               --src $(functionAppZipPath) && break || sleep 30
           done
+          echo "Adding AzureWebJobsFeatureFlags=EnableProxies setting..."
+            az functionapp config appsettings set \
+              --name $(functionAppName) \
+              --resource-group $(apimResourceGroup) \
+              --settings AzureWebJobsFeatureFlags=EnableProxies  
+
 
 - stage: ImportToAPIM
   displayName: 'Import APIs to APIM'
