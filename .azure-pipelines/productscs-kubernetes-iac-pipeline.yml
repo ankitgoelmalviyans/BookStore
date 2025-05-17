@@ -23,7 +23,7 @@ variables:
 - name: subscriptionName
   value: 'inventory-subscription'
 - name: apimServiceName
-  value: 'bookstore-apim-new'
+  value: 'bookstore-apim'
 - name: functionAppName
   value: 'bookstore-proxy'
 - name: storageAccountName
