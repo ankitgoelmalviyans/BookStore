@@ -2,15 +2,27 @@
   "proxies": {
     "product-swagger": {
       "matchCondition": {
-        "route": "/api/product/swagger/v1/swagger.json"
+        "route": "/product/swagger/v1/swagger.json"
       },
       "backendUri": "https://bookstoremicro.duckdns.org/product/swagger/v1/swagger.json"
     },
     "inventory-swagger": {
       "matchCondition": {
-        "route": "/api/inventory/swagger/v1/swagger.json"
+        "route": "/inventory/swagger/v1/swagger.json"
       },
       "backendUri": "https://bookstoremicro.duckdns.org/inventory/swagger/v1/swagger.json"
+    },
+    "product-api": {
+      "matchCondition": {
+        "route": "/product/{*path}"
+      },
+      "backendUri": "https://bookstoremicro.duckdns.org/product/{path}"
+    },
+    "inventory-api": {
+      "matchCondition": {
+        "route": "/inventory/{*path}"
+      },
+      "backendUri": "https://bookstoremicro.duckdns.org/inventory/{path}"
     }
   }
 }
