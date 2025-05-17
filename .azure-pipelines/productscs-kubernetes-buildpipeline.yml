@@ -51,3 +51,10 @@ stages:
         archiveType: 'zip'
         archiveFile: '$(Pipeline.Workspace)/drop/azure-function-proxy.zip'
         replaceExistingArchive: true
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish Function Proxy ZIP'
+      inputs:
+        PathtoPublish: '$(Pipeline.Workspace)/drop/azure-function-proxy.zip'
+        ArtifactName: 'functionproxyzip'
+        publishLocation: 'Container'
+
