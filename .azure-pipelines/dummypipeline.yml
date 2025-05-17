@@ -266,14 +266,14 @@ stages:
             --api-id productservice-api \
             --path product \
             --display-name "ProductService API" \
-            --specification-url "https://$(functionAppName).azurewebsites.net/api/product/swagger/v1/swagger.json" \
+            --specification-url "https://$(productHost)/product/swagger/v1/swagger.json" \
             --specification-format OpenApi
 
           az apim api update \
             --resource-group $(apimResourceGroup) \
             --service-name $(apimInstance) \
             --api-id productservice-api \
-            --set serviceUrl=https://$(functionAppName).azurewebsites.net/api/product
+            --set serviceUrl=https://$(productHost)/product
 
           echo "Importing InventoryService API..."
           az apim api import \
@@ -282,11 +282,11 @@ stages:
             --api-id inventoryservice-api \
             --path inventory \
             --display-name "InventoryService API" \
-            --specification-url "https://$(functionAppName).azurewebsites.net/api/inventory/swagger/v1/swagger.json" \
+            --specification-url "https://$(inventoryHost)/inventory/swagger/v1/swagger.json" \
             --specification-format OpenApi
 
           az apim api update \
             --resource-group $(apimResourceGroup) \
             --service-name $(apimInstance) \
             --api-id inventoryservice-api \
-            --set serviceUrl=https://$(functionAppName).azurewebsites.net/api/inventory
+            --set serviceUrl=https://$(inventoryHost)/inventory
