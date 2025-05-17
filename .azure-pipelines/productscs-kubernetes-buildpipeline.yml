@@ -7,8 +7,8 @@ variables:
   containerRegistry: 'bookstoreaure.azurecr.io'
   dockerfilePath: 'BookStore.ProductSCA/BookStore.ProductService/src/BookStore.ProductService.API/Dockerfile'
   dockerfilePathInventory: 'BookStore.ProductSCA/BookStore.InventoryService/InventoryService.API/Dockerfile'
-  buildContext: 'BookStore.ProductSCA/BookStore.ProductService/src'  # FIX: set parent folder as context
-  buildContextInventory: 'BookStore.ProductSCA/BookStore.InventoryService'  # FIX: set parent folder as context
+  buildContext: 'BookStore.ProductSCA/BookStore.ProductService/src'
+  buildContextInventory: 'BookStore.ProductSCA/BookStore.InventoryService'
   tag: '$(Build.BuildId)'
 
 pool:
@@ -28,9 +28,10 @@ stages:
         containerRegistry: $(dockerRegistryServiceConnection)
         repository: $(imageRepository)
         dockerfile: $(dockerfilePath)
-        buildContext: $(buildContext)  #  KEY LINE
-        tags: | 
-         $(tag)
+        buildContext: $(buildContext)
+        tags: |
+          $(tag)
+
     - task: Docker@2
       displayName: 'Build and Push Image Inventory'
       inputs:
@@ -38,6 +39,15 @@ stages:
         containerRegistry: $(dockerRegistryServiceConnection)
         repository: $(imageRepositoryInventory)
         dockerfile: $(dockerfilePathInventory)
-        buildContext: $(buildContextInventory)  #  KEY LINE
-        tags: | 
-         $(tag)
+        buildContext: $(buildContextInventory)
+        tags: |
+          $(tag)
+
+    - task: ArchiveFiles@2
+      displayName: 'Zip Azure Function Proxy'
+      inputs:
+        rootFolderOrFile: '$(Build.SourcesDirectory)/BookStore.FunctionProxy'
+        includeRootFolder: false
+        archiveType: 'zip'
+        archiveFile: '$(Pipeline.Workspace)/drop/azure-function-proxy.zip'
+        replaceExistingArchive: true
