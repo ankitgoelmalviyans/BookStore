@@ -208,6 +208,12 @@ stages:
     pool:
       vmImage: 'ubuntu-latest'
     steps:
+    - task: DownloadPipelineArtifact@2
+      displayName: 'Download Function Proxy ZIP Artifact'
+      inputs:
+        buildType: 'current'
+        artifactName: 'functionproxyzip'
+        targetPath: '$(Pipeline.Workspace)/functionproxyzip'
     - task: AzureCLI@2
       displayName: 'Retryable Azure Function Zip Deployment'
       inputs:
