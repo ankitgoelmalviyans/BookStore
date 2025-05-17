@@ -29,7 +29,7 @@ variables:
 - name: functionAppName
   value: 'bookstore-proxy'
 - name: functionAppZipPath
-  value: '$(Pipeline.Workspace)/drop/azure-function-proxy.zip'
+  value: '$(Pipeline.Workspace)/functionproxyzip/azure-function-proxy.zip'
 
 stages:
 - stage: Deploy
