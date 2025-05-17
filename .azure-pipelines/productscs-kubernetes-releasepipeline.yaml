@@ -17,15 +17,23 @@ variables:
 - name: containerRegistry
   value: 'bookstoreaure.azurecr.io'
 - name: imageTag
-  value: 98
+  value: 118
 - name: apimResourceGroup
   value: 'BookStoreRG'
 - name: apimInstance
-  value: 'bookstore-apim-new-1'
+  value: 'bookstore-apim'
+- name: productHost
+  value: 'bookstoremicro.duckdns.org'
+- name: inventoryHost
+  value: 'bookstoremicro.duckdns.org'
+- name: functionAppName
+  value: 'bookstore-proxy'
+- name: functionAppZipPath
+  value: '$(Pipeline.Workspace)/functionproxyzip/azure-function-proxy.zip'
 
 stages:
 - stage: Deploy
-  displayName: 'Deploy Services to AKS'
+  displayName: 'Deploy Services to AKS and Azure Function'
   jobs:
   - job: DeployToKubernetes
     displayName: 'Deploy ProductService and InventoryService'
@@ -33,7 +41,7 @@ stages:
       vmImage: 'ubuntu-latest'
     steps:
     - task: AzureCLI@2
-      displayName: 'Create Secrets, Deploy Services, and Create Ingress'
+      displayName: 'Create Secrets, Deploy Services, Create Ingress, Patch Annotations'
       inputs:
         azureSubscription: '$(azureSubscription)'
         scriptType: 'bash'
@@ -150,10 +158,6 @@ stages:
           EOF
 
           echo "Creating Ingress for productservice and inventoryservice..."
-          IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')
-          PRODUCT_DNS="product.${IP}.nip.io"
-          INVENTORY_DNS="inventory.${IP}.nip.io"
-
           cat <<EOF | kubectl apply -f -
           apiVersion: networking.k8s.io/v1
           kind: Ingress
@@ -163,43 +167,25 @@ stages:
             annotations:
               kubernetes.io/ingress.class: nginx
               cert-manager.io/cluster-issuer: letsencrypt-prod
-              nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
           spec:
+            ingressClassName: nginx
             tls:
             - hosts:
-              - ${PRODUCT_DNS}
-              - ${INVENTORY_DNS}
+              - $(productHost)
               secretName: bookstore-tls
             rules:
-            - host: ${PRODUCT_DNS}
+            - host: $(productHost)
               http:
                 paths:
-                - path: /swagger
-                  pathType: Prefix
+                - path: /product(/|$)(.*)
+                  pathType: ImplementationSpecific
                   backend:
                     service:
                       name: productservice
                       port:
                         number: 80
-                - path: /api
-                  pathType: Prefix
-                  backend:
-                    service:
-                      name: productservice
-                      port:
-                        number: 80
-            - host: ${INVENTORY_DNS}
-              http:
-                paths:
-                - path: /swagger
-                  pathType: Prefix
-                  backend:
-                    service:
-                      name: inventoryservice
-                      port:
-                        number: 80
-                - path: /api
-                  pathType: Prefix
+                - path: /inventory(/|$)(.*)
+                  pathType: ImplementationSpecific
                   backend:
                     service:
                       name: inventoryservice
@@ -207,9 +193,55 @@ stages:
                         number: 80
           EOF
 
-# -----------------------------
-# Stage: Import to APIM
-# -----------------------------
+          echo "Patching ingress with rewrite annotations..."
+          kubectl patch ingress bookstore-ingress -n $(namespace) --type='merge' -p '{
+            "metadata": {
+              "annotations": {
+                "nginx.ingress.kubernetes.io/rewrite-target": "/$2",
+                "nginx.ingress.kubernetes.io/use-regex": "true"
+              }
+            }
+          }'
+
+  - job: DeployFunctionApp
+    displayName: 'Deploy Azure Function Proxy'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: DownloadPipelineArtifact@2
+      displayName: 'Download Function Proxy ZIP Artifact'
+      inputs:
+        source: 'specific'
+        project: 'BookStore'
+        pipeline: 'Bookstore.Kubernetes.Build'
+        runVersion: 'latest'
+        artifact: 'functionproxyzip'
+        path: '$(Pipeline.Workspace)/functionproxyzip'
+
+    - task: AzureCLI@2
+      displayName: 'Retryable Azure Function Zip Deployment'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          echo "Warming up Kudu endpoint..."
+          for i in {1..3}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://$(functionAppName).scm.azurewebsites.net)
+            echo "Attempt $i - Status: $STATUS"
+            if [ "$STATUS" == "200" ] || [ "$STATUS" == "403" ]; then break; fi
+            sleep 10
+          done
+
+          echo "Deploying Azure Function Zip with retry..."
+          for i in {1..3}; do
+            echo "Zip deploy attempt $i..."
+            az functionapp deployment source config-zip \
+              --resource-group $(apimResourceGroup) \
+              --name $(functionAppName) \
+              --src $(functionAppZipPath) && break || sleep 30
+          done
+
 - stage: ImportToAPIM
   displayName: 'Import APIs to APIM'
   dependsOn: Deploy
@@ -227,12 +259,6 @@ stages:
         scriptType: 'bash'
         scriptLocation: 'inlineScript'
         inlineScript: |
-          az aks get-credentials --resource-group $(aksResourceGroup) --name $(aksClusterName) --overwrite-existing
-
-          IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')
-          PRODUCT_DNS="product.${IP}.nip.io"
-          INVENTORY_DNS="inventory.${IP}.nip.io"
-
           echo "Importing ProductService API..."
           az apim api import \
             --resource-group $(apimResourceGroup) \
@@ -240,14 +266,14 @@ stages:
             --api-id productservice-api \
             --path product \
             --display-name "ProductService API" \
-            --specification-url "https://${PRODUCT_DNS}/swagger/v1/swagger.json" \
+            --specification-url "https://$(functionAppName).azurewebsites.net/api/product/swagger/v1/swagger.json" \
             --specification-format OpenApi
 
           az apim api update \
             --resource-group $(apimResourceGroup) \
             --service-name $(apimInstance) \
             --api-id productservice-api \
-            --set serviceUrl=https://${PRODUCT_DNS}
+            --set serviceUrl=https://$(functionAppName).azurewebsites.net/api/product
 
           echo "Importing InventoryService API..."
           az apim api import \
@@ -256,11 +282,11 @@ stages:
             --api-id inventoryservice-api \
             --path inventory \
             --display-name "InventoryService API" \
-            --specification-url "https://${INVENTORY_DNS}/swagger/v1/swagger.json" \
+            --specification-url "https://$(functionAppName).azurewebsites.net/api/inventory/swagger/v1/swagger.json" \
             --specification-format OpenApi
 
           az apim api update \
             --resource-group $(apimResourceGroup) \
             --service-name $(apimInstance) \
             --api-id inventoryservice-api \
-            --set serviceUrl=https://${INVENTORY_DNS}
+            --set serviceUrl=https://$(functionAppName).azurewebsites.net/api/inventory
