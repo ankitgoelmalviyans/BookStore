@@ -1,43 +1,51 @@
 trigger: none
+# 🛑 This pipeline does NOT trigger automatically on code push.
+# Manual or YAML-referenced run is required.
 
 variables:
-  dockerRegistryServiceConnection: 'MyACRConnection'
-  imageRepository: 'productservice'
-  imageRepositoryInventory: 'inventoryservice'
-  containerRegistry: 'bookstoreaure.azurecr.io'
-  dockerfilePath: 'BookStore.ProductSCA/BookStore.ProductService/src/BookStore.ProductService.API/Dockerfile'
-  dockerfilePathInventory: 'BookStore.ProductSCA/BookStore.InventoryService/InventoryService.API/Dockerfile'
-  buildContext: 'BookStore.ProductSCA/BookStore.ProductService/src'
-  buildContextInventory: 'BookStore.ProductSCA/BookStore.InventoryService'
-  tag: '$(Build.BuildId)'
+  dockerRegistryServiceConnection: 'MyACRConnection'  # 🔐 Azure DevOps service connection to authenticate with Azure Container Registry (ACR)
+  imageRepository: 'productservice'  # 📦 Repository name for ProductService Docker image inside ACR
+  imageRepositoryInventory: 'inventoryservice'  # 📦 Repository name for InventoryService image
+  containerRegistry: 'bookstoreaure.azurecr.io'  # 🌐 FQDN of ACR instance
+  dockerfilePath: 'BookStore.ProductSCA/BookStore.ProductService/src/BookStore.ProductService.API/Dockerfile'  # 📄 Location of Dockerfile for ProductService
+  dockerfilePathInventory: 'BookStore.ProductSCA/BookStore.InventoryService/InventoryService.API/Dockerfile'  # 📄 Location of Dockerfile for InventoryService
+  buildContext: 'BookStore.ProductSCA/BookStore.ProductService/src'  # 📁 Build context directory for ProductService (root where Dockerfile can access all needed code)
+  buildContextInventory: 'BookStore.ProductSCA/BookStore.InventoryService'  # 📁 Build context for InventoryService
+  tag: '$(Build.BuildId)'  # 🔖 Automatically uses Azure DevOps build ID as Docker tag (ensures unique tag for each build)
 
 pool:
-  vmImage: 'ubuntu-latest'
+  vmImage: 'ubuntu-latest'  # 🧱 Uses latest Ubuntu VM image to run this job (Docker compatible)
 
 stages:
 - stage: BuildAndPush
   displayName: 'Build and Push Docker Image to ACR'
+  # 🚀 This stage builds and pushes Docker images for both services, then prepares Azure Function Proxy ZIP
+
   jobs:
   - job: Build
     displayName: 'Docker Build and Push'
+    # 🔧 This job handles building both Docker images and preparing function zip artifact
+
     steps:
     - task: Docker@2
       displayName: 'Build and Push Image Product'
+      # 🏗️ Builds ProductService Docker image using Dockerfile and pushes it to ACR
       inputs:
-        command: buildAndPush
-        containerRegistry: $(dockerRegistryServiceConnection)
-        repository: $(imageRepository)
-        dockerfile: $(dockerfilePath)
-        buildContext: $(buildContext)
+        command: buildAndPush  # 🔁 Performs both build and push in a single task
+        containerRegistry: $(dockerRegistryServiceConnection)  # 🔐 Uses service connection for ACR auth
+        repository: $(imageRepository)  # 📦 Target repo in ACR: productservice
+        dockerfile: $(dockerfilePath)  # 📄 Path to ProductService Dockerfile
+        buildContext: $(buildContext)  # 📁 Folder where build context starts
         tags: |
-          $(tag)
+          $(tag)  # 🏷️ Uses current build ID as the tag
 
     - task: Docker@2
       displayName: 'Build and Push Image Inventory'
+      # 🏗️ Builds InventoryService Docker image and pushes to ACR
       inputs:
         command: buildAndPush
         containerRegistry: $(dockerRegistryServiceConnection)
-        repository: $(imageRepositoryInventory)
+        repository: $(imageRepositoryInventory)  # 📦 ACR repo: inventoryservice
         dockerfile: $(dockerfilePathInventory)
         buildContext: $(buildContextInventory)
         tags: |
@@ -45,16 +53,18 @@ stages:
 
     - task: ArchiveFiles@2
       displayName: 'Zip Azure Function Proxy'
+      # 📦 Archives (ZIPs) the Azure Function proxy folder so it can be deployed later via release pipeline
       inputs:
-        rootFolderOrFile: '$(Build.SourcesDirectory)/BookStore.FunctionProxy'
-        includeRootFolder: false
+        rootFolderOrFile: '$(Build.SourcesDirectory)/BookStore.FunctionProxy'  # 📁 Source folder to zip
+        includeRootFolder: false  # 📦 Only include contents of folder, not folder itself
         archiveType: 'zip'
-        archiveFile: '$(Pipeline.Workspace)/drop/azure-function-proxy.zip'
-        replaceExistingArchive: true
+        archiveFile: '$(Pipeline.Workspace)/drop/azure-function-proxy.zip'  # 📌 Output zip path
+        replaceExistingArchive: true  # ♻️ Overwrite if zip already exists
+
     - task: PublishBuildArtifacts@1
       displayName: 'Publish Function Proxy ZIP'
+      # ☁️ Publishes the zip file to DevOps so it can be picked up by release pipeline
       inputs:
-        PathtoPublish: '$(Pipeline.Workspace)/drop/azure-function-proxy.zip'
-        ArtifactName: 'functionproxyzip'
-        publishLocation: 'Container'
-
+        PathtoPublish: '$(Pipeline.Workspace)/drop/azure-function-proxy.zip'  # 📍 Path of ZIP file
+        ArtifactName: 'functionproxyzip'  # 🏷️ Name of published artifact
+        publishLocation: 'Container'  # 📦 Stores in DevOps artifact container
