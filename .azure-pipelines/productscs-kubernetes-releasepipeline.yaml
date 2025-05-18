@@ -1,34 +1,34 @@
-trigger: none
+trigger: none  # 🔁 Manual trigger only
 
 variables:
-- group: BookStoreSecrets
+- group: BookStoreSecrets  # 🔐 Secret values used in deployments
 - name: azureSubscription
   value: 'AzureServiceConnectionName'
-- name: aksClusterName
+- name: aksClusterName  # ☸️ Target AKS cluster
   value: 'bookstore-aks'
-- name: aksResourceGroup
+- name: aksResourceGroup  # 📦 Resource group for AKS cluster
   value: 'BookStoreRG'
-- name: namespace
+- name: namespace  # 📂 Kubernetes namespace used for the services
   value: 'bookstore'
 - name: imageRepository
   value: 'productservice'
 - name: imageRepositoryInventory
   value: 'inventoryservice'
-- name: containerRegistry
+- name: containerRegistry  # 🧱 Fully qualified domain of ACR
   value: 'bookstoreaure.azurecr.io'
-- name: imageTag
+- name: imageTag  # 🏷️ Tag of Docker image to deploy
   value: 118
 - name: apimResourceGroup
   value: 'BookStoreRG'
 - name: apimInstance
   value: 'bookstore-apim'
-- name: productHost
+- name: productHost  # 🌐 DuckDNS domain mapped to ingress IP
   value: 'bookstoremicro.duckdns.org'
-- name: inventoryHost
+- name: inventoryHost  # 🌐 DuckDNS domain mapped to ingress IP
   value: 'bookstoremicro.duckdns.org'
-- name: functionAppName
+- name: functionAppName  # ⚙️ Azure Function name for APIM proxy
   value: 'bookstore-proxy'
-- name: functionAppZipPath
+- name: functionAppZipPath  # 📦 Path of zipped function proxy artifact
   value: '$(Pipeline.Workspace)/functionproxyzip/azure-function-proxy.zip'
 
 stages:
@@ -47,11 +47,11 @@ stages:
         scriptType: 'bash'
         scriptLocation: 'inlineScript'
         inlineScript: |
-          az aks get-credentials --resource-group $(aksResourceGroup) --name $(aksClusterName) --overwrite-existing
-          kubectl get namespace $(namespace) || kubectl create namespace $(namespace)
+          az aks get-credentials --resource-group $(aksResourceGroup) --name $(aksClusterName) --overwrite-existing  # ☸️ Target AKS cluster
+          kubectl get namespace $(namespace) || kubectl create namespace $(namespace)  # 📂 Kubernetes namespace used for the services
 
           echo "Creating productservice secrets..."
-          kubectl create secret generic productservice-secrets \
+          kubectl create secret generic productservice-secrets \  # 🔐 Create secret for ProductService
             --from-literal=Jwt__Key="$(JwtKey)" \
             --from-literal=Kafka__BootstrapServers="$(KafkaBootstrapServers)" \
             --from-literal=Kafka__Username="$(KafkaUsername)" \
@@ -59,10 +59,10 @@ stages:
             --from-literal=Cosmos__Endpoint="$(CosmosEndpoint)" \
             --from-literal=Cosmos__Key="$(CosmosKey)" \
             --from-literal=ServiceBus__Connection="$(ServiceBusConnection)" \
-            --namespace="$(namespace)" --dry-run=client -o yaml | kubectl apply -f -
+            --namespace="$(namespace)" --dry-run=client -o yaml | kubectl apply -f -  # 📂 Kubernetes namespace used for the services
 
           echo "Creating inventoryservice secrets..."
-          kubectl create secret generic inventoryservice-secrets \
+          kubectl create secret generic inventoryservice-secrets \  # 🔐 Create secret for InventoryService
             --from-literal=Jwt__Key="$(JwtKey)" \
             --from-literal=Kafka__KafkaBootstrapServers="$(KafkaBootstrapServers)" \
             --from-literal=Kafka__KafkaUsername="$(KafkaUsername)" \
@@ -70,15 +70,15 @@ stages:
             --from-literal=Cosmos__Endpoint="$(CosmosEndpoint)" \
             --from-literal=Cosmos__Key="$(CosmosKey)" \
             --from-literal=ServiceBus__Connection="$(ServiceBusConnection)" \
-            --namespace="$(namespace)" --dry-run=client -o yaml | kubectl apply -f -
+            --namespace="$(namespace)" --dry-run=client -o yaml | kubectl apply -f -  # 📂 Kubernetes namespace used for the services
 
           echo "Deploying ProductService and InventoryService..."
-          cat <<EOF | kubectl apply -f -
+          cat <<EOF | kubectl apply -f -  # 🚀 Apply deployment/service/ingress YAMLs inline
           apiVersion: apps/v1
           kind: Deployment
           metadata:
             name: productservice
-            namespace: $(namespace)
+            namespace: $(namespace)  # 📂 Kubernetes namespace used for the services
           spec:
             replicas: 1
             selector:
@@ -91,7 +91,7 @@ stages:
               spec:
                 containers:
                 - name: productservice
-                  image: $(containerRegistry)/$(imageRepository):$(imageTag)
+                  image: $(containerRegistry)/$(imageRepository):$(imageTag)  # 🧱 Fully qualified domain of ACR
                   ports:
                   - containerPort: 80
                   env:
@@ -99,13 +99,13 @@ stages:
                     value: http://+:80
                   envFrom:
                   - secretRef:
-                      name: productservice-secrets
+                      name: productservice-secrets  # 🔐 Create secret for ProductService
           ---
           apiVersion: v1
           kind: Service
           metadata:
             name: productservice
-            namespace: $(namespace)
+            namespace: $(namespace)  # 📂 Kubernetes namespace used for the services
           spec:
             selector:
               app: productservice
@@ -119,7 +119,7 @@ stages:
           kind: Deployment
           metadata:
             name: inventoryservice
-            namespace: $(namespace)
+            namespace: $(namespace)  # 📂 Kubernetes namespace used for the services
           spec:
             replicas: 1
             selector:
@@ -132,7 +132,7 @@ stages:
               spec:
                 containers:
                 - name: inventoryservice
-                  image: $(containerRegistry)/$(imageRepositoryInventory):$(imageTag)
+                  image: $(containerRegistry)/$(imageRepositoryInventory):$(imageTag)  # 🧱 Fully qualified domain of ACR
                   ports:
                   - containerPort: 80
                   env:
@@ -140,13 +140,13 @@ stages:
                     value: http://+:80
                   envFrom:
                   - secretRef:
-                      name: inventoryservice-secrets
+                      name: inventoryservice-secrets  # 🔐 Create secret for InventoryService
           ---
           apiVersion: v1
           kind: Service
           metadata:
             name: inventoryservice
-            namespace: $(namespace)
+            namespace: $(namespace)  # 📂 Kubernetes namespace used for the services
           spec:
             selector:
               app: inventoryservice
@@ -158,12 +158,12 @@ stages:
           EOF
 
           echo "Creating Ingress for productservice and inventoryservice..."
-          cat <<EOF | kubectl apply -f -
+          cat <<EOF | kubectl apply -f -  # 🚀 Apply deployment/service/ingress YAMLs inline
           apiVersion: networking.k8s.io/v1
           kind: Ingress
           metadata:
             name: bookstore-ingress
-            namespace: $(namespace)
+            namespace: $(namespace)  # 📂 Kubernetes namespace used for the services
             annotations:
               kubernetes.io/ingress.class: nginx
               cert-manager.io/cluster-issuer: letsencrypt-prod
@@ -171,10 +171,10 @@ stages:
             ingressClassName: nginx
             tls:
             - hosts:
-              - $(productHost)
+              - $(productHost)  # 🌐 DuckDNS domain mapped to ingress IP
               secretName: bookstore-tls
             rules:
-            - host: $(productHost)
+            - host: $(productHost)  # 🌐 DuckDNS domain mapped to ingress IP
               http:
                 paths:
                 - path: /product(/|$)(.*)
@@ -194,7 +194,7 @@ stages:
           EOF
 
           echo "Patching ingress with rewrite annotations..."
-          kubectl patch ingress bookstore-ingress -n $(namespace) --type='merge' -p '{
+          kubectl patch ingress bookstore-ingress -n $(namespace) --type='merge' -p '{  # 📂 Kubernetes namespace used for the services
             "metadata": {
               "annotations": {
                 "nginx.ingress.kubernetes.io/rewrite-target": "/$2",
@@ -208,7 +208,7 @@ stages:
     pool:
       vmImage: 'ubuntu-latest'
     steps:
-    - task: DownloadPipelineArtifact@2
+    - task: DownloadPipelineArtifact@2  # 📥 Download Azure Function ZIP from Build pipeline
       displayName: 'Download Function Proxy ZIP Artifact'
       inputs:
         source: 'specific'
@@ -227,7 +227,7 @@ stages:
         inlineScript: |
           echo "Warming up Kudu endpoint..."
           for i in {1..3}; do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://$(functionAppName).scm.azurewebsites.net)
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://$(functionAppName).scm.azurewebsites.net)  # ⚙️ Azure Function name for APIM proxy
             echo "Attempt $i - Status: $STATUS"
             if [ "$STATUS" == "200" ] || [ "$STATUS" == "403" ]; then break; fi
             sleep 10
@@ -236,16 +236,16 @@ stages:
           echo "Deploying Azure Function Zip with retry..."
           for i in {1..3}; do
             echo "Zip deploy attempt $i..."
-            az functionapp deployment source config-zip \
+            az functionapp deployment source config-zip \  # ☁️ Deploy Azure Function ZIP file
               --resource-group $(apimResourceGroup) \
-              --name $(functionAppName) \
-              --src $(functionAppZipPath) && break || sleep 30
+              --name $(functionAppName) \  # ⚙️ Azure Function name for APIM proxy
+              --src $(functionAppZipPath) && break || sleep 30  # 📦 Path of zipped function proxy artifact
           done
-          echo "Adding AzureWebJobsFeatureFlags=EnableProxies setting..."
+          echo "Adding AzureWebJobsFeatureFlags=EnableProxies setting..."  # ⚙️ Enable proxy feature in Function App
             az functionapp config appsettings set \
-              --name $(functionAppName) \
+              --name $(functionAppName) \  # ⚙️ Azure Function name for APIM proxy
               --resource-group $(apimResourceGroup) \
-              --settings AzureWebJobsFeatureFlags=EnableProxies  
+              --settings AzureWebJobsFeatureFlags=EnableProxies    # ⚙️ Enable proxy feature in Function App
 
 
 - stage: ImportToAPIM
@@ -266,33 +266,33 @@ stages:
         scriptLocation: 'inlineScript'
         inlineScript: |
           echo "Importing ProductService API..."
-          az apim api import \
+          az apim api import \  # 📤 Import API into Azure API Management
             --resource-group $(apimResourceGroup) \
             --service-name $(apimInstance) \
             --api-id productservice-api \
             --path product \
             --display-name "ProductService API" \
-            --specification-url "https://$(functionAppName).azurewebsites.net/product/swagger/v1/swagger.json" \
+            --specification-url "https://$(functionAppName).azurewebsites.net/product/swagger/v1/swagger.json" \  # ⚙️ Azure Function name for APIM proxy
             --specification-format OpenApi
 
-          az apim api update \
+          az apim api update \  # 🔗 Update API backend URL to use Function Proxy
             --resource-group $(apimResourceGroup) \
             --service-name $(apimInstance) \
             --api-id productservice-api \
-            --set serviceUrl=https://$(functionAppName).azurewebsites.net/product
+            --set serviceUrl=https://$(functionAppName).azurewebsites.net/product  # ⚙️ Azure Function name for APIM proxy
 
           echo "Importing InventoryService API..."
-          az apim api import \
+          az apim api import \  # 📤 Import API into Azure API Management
             --resource-group $(apimResourceGroup) \
             --service-name $(apimInstance) \
             --api-id inventoryservice-api \
             --path inventory \
             --display-name "InventoryService API" \
-            --specification-url "https://$(functionAppName).azurewebsites.net/inventory/swagger/v1/swagger.json" \
+            --specification-url "https://$(functionAppName).azurewebsites.net/inventory/swagger/v1/swagger.json" \  # ⚙️ Azure Function name for APIM proxy
             --specification-format OpenApi
 
-          az apim api update \
+          az apim api update \  # 🔗 Update API backend URL to use Function Proxy
             --resource-group $(apimResourceGroup) \
             --service-name $(apimInstance) \
             --api-id inventoryservice-api \
-            --set serviceUrl=https://$(functionAppName).azurewebsites.net/inventory
+            --set serviceUrl=https://$(functionAppName).azurewebsites.net/inventory  # ⚙️ Azure Function name for APIM proxy
