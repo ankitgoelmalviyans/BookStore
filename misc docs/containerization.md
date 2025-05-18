@@ -64,20 +64,68 @@ kubectl describe pod <pod-name>
 
 # Delete resources
 kubectl delete -f deployment.yaml
+
+# Create secret with Kafka/Cosmos keys
+kubectl create secret generic mysecrets   --from-literal=Kafka__BootstrapServers=xyz   --from-literal=Cosmos__Endpoint=abc   -n bookstore
+
+# Port forward a service for local testing
+kubectl port-forward svc/productservice 8091:80 -n bookstore
+
+# Check cluster events
+kubectl get events -n bookstore
+```
+
+---
+
+## ✅ PART 3: Ingress + TLS (NGINX + DuckDNS)
+
+### What is Ingress?
+Ingress is an API object that manages external access to services in a cluster, typically via HTTP/HTTPS.
+
+### Key Concepts:
+- Route external traffic to internal services
+- Supports path and host-based routing
+- TLS termination via cert-manager
+
+### Useful Commands:
+```bash
+# Get ingress and TLS info
+kubectl get ingress -n bookstore
+kubectl describe ingress bookstore-ingress -n bookstore
+
+# Check cert-manager logs
+kubectl logs -l app=cert-manager -n cert-manager
+
+# Validate TLS certificates
+kubectl get certificates -A
+kubectl get certificaterequests -A
+
+# Validate DNS
+nslookup bookstoremicro.duckdns.org
 ```
 
 ### In Bookstore:
-- ProductService will be deployed on AKS using a deployment and service YAML
-- InventoryService stays on Azure Web App (hybrid setup)
+- NGINX Ingress + cert-manager
+- TLS certificates via Let's Encrypt (ClusterIssuer)
+- DuckDNS used to map Ingress External IP (fetched during provisioning) to domain
+- Single DuckDNS domain (e.g., `bookstoremicro.duckdns.org`) used for both ProductService and InventoryService
+- Routing follows path-based pattern:
+  - `https://bookstoremicro.duckdns.org/product/api/product`
+  - `https://bookstoremicro.duckdns.org/inventory/api/inventory`
+- Ingress annotations for CORS:
+```yaml
+nginx.ingress.kubernetes.io/enable-cors: "true"
+nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+```
 
 ---
 
 ## ✅ Bookstore Migration to AKS – Key Interview Talking Points
 
-### 1. Hybrid Setup
+### 1. Unified AKS Deployment
 - ProductService → Deployed on AKS
-- InventoryService → Stays on Azure App Service (Web App)
-- Routed through Azure API Management (APIM)
+- InventoryService → Also migrated to AKS
+- Both services routed securely via Azure API Management (APIM)
 
 ### 2. Configuration Strategy
 - Kafka and Azure Service Bus are external services
@@ -107,7 +155,7 @@ kubectl delete -f deployment.yaml
 
 ## ✅ Interview Soundbites (Say These!)
 
-- "We migrated one service (ProductService) to AKS to adopt microservice scaling flexibility while keeping the other on Web App to reduce complexity."
+- "We migrated both ProductService and InventoryService to AKS to gain full control over deployment, scaling, and network security."
 - "Kafka and Azure Service Bus remained external — containerization didn’t require code change, just proper configuration."
 - "AKS allows us to use KEDA to scale based on Kafka topic lag or Service Bus queue depth — not possible in Web Apps."
 - "We use Azure API Management as the single entry point, routing to both AKS and App Services — providing a secure and unified API surface."
@@ -152,9 +200,24 @@ kubectl delete -f deployment.yaml
 
 ---
 
-## ✅ What’s Next?
-- Deploy ProductService YAMLs
-- Install KEDA if you want event-based autoscaling
-- Consider Ingress Controller for internal DNS and SSL
-- Migrate InventoryService later if needed
+## ✅ Note on IP Configuration
+- We currently use a dynamic external IP assigned by AKS Ingress Controller
+- After provisioning Ingress, the external IP is retrieved via:
+  ```bash
+  kubectl get ingress bookstore-ingress -n bookstore
+  ```
+- This IP is then manually set as A-record in DuckDNS for `bookstoremicro.duckdns.org`
+- Static IP is **not** yet configured; pipeline re-runs may require updating DuckDNS
 
+---
+
+## ✅ CI/CD Pipeline Summary
+- Infrastructure-as-Code (IAC), Build, and Release pipelines handle automated versioning and deployment of YAMLs for both ProductService and InventoryService
+- These pipelines also apply secrets, configure ingress, and ensure deployments are consistent across environments
+
+---
+
+## ✅ What’s Next?
+- Use KEDA for scaling based on Kafka or Service Bus metrics (if needed)
+- Monitor Ingress health; update DuckDNS if external IP changes
+- Plan to configure a static IP to avoid manual DNS updates
