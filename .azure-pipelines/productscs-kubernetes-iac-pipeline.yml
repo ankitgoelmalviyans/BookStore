@@ -1,9 +1,10 @@
 trigger: none
 
+# 🔐 Variables and Secrets
 variables:
-- group: BookStoreSecrets
+- group: BookStoreSecrets  # Contains all sensitive values like keys, connection strings, etc.
 - name: azureSubscription
-  value: 'AzureServiceConnectionName'
+  value: 'AzureServiceConnectionName'  # Azure DevOps service connection name
 - name: resourceGroup
   value: 'BookStoreRG'
 - name: location
@@ -11,9 +12,9 @@ variables:
 - name: aksClusterName
   value: 'bookstore-aks'
 - name: aksNodeCount
-  value: '2'
+  value: '2'  # Number of nodes in AKS
 - name: aksNodeSize
-  value: 'Standard_B2s'
+  value: 'Standard_B2s'  # Cost-effective node size
 - name: containerRegistryName
   value: 'bookstoreaure'
 - name: serviceBusNamespace
@@ -31,6 +32,7 @@ variables:
 - name: appServicePlanName
   value: 'bookstore-plan'
 
+# 🏗️ Pipeline Stage: Provision Resources
 stages:
 - stage: Provision
   displayName: 'Provision Azure Resources'
@@ -46,9 +48,11 @@ stages:
         scriptType: 'bash'
         scriptLocation: 'inlineScript'
         inlineScript: |
+          # 📁 Create Resource Group
           echo "Creating resource group..."
           az group create --name "$(resourceGroup)" --location "$(location)"
 
+          # ✅ Register ContainerService Provider (required for AKS)
           echo "Registering Microsoft.ContainerService..."
           az provider register --namespace Microsoft.ContainerService
 
@@ -60,6 +64,7 @@ stages:
             sleep 10
           done
 
+          # ☸️ Create AKS Cluster if not exists
           echo "Creating AKS cluster if not exists..."
           az aks show --name "$(aksClusterName)" --resource-group "$(resourceGroup)" 2>/dev/null || \
           az aks create --name "$(aksClusterName)" \
@@ -69,17 +74,20 @@ stages:
                         --node-vm-size "$(aksNodeSize)" \
                         --generate-ssh-keys
 
+          # 🔗 Attach ACR to AKS for image pulls
           echo "Attaching ACR to AKS..."
           az aks update \
             --name "$(aksClusterName)" \
             --resource-group "$(resourceGroup)" \
             --attach-acr "$(containerRegistryName)"
 
+          # 📩 Create Service Bus resources
           echo "Creating Service Bus namespace, topic, and subscription..."
           az servicebus namespace create --name "$(serviceBusNamespace)" --resource-group "$(resourceGroup)" --location "$(location)" || true
           az servicebus topic create --name "$(topicName)" --namespace-name "$(serviceBusNamespace)" --resource-group "$(resourceGroup)" || true
           az servicebus topic subscription create --name "$(subscriptionName)" --topic-name "$(topicName)" --namespace-name "$(serviceBusNamespace)" --resource-group "$(resourceGroup)" || true
 
+          # 🌐 Create API Management (APIM) instance
           echo "Creating APIM instance..."
           az apim show --resource-group "$(resourceGroup)" --name "$(apimServiceName)" || \
           az apim create --name "$(apimServiceName)" \
@@ -89,6 +97,7 @@ stages:
                          --publisher-name "BookStore Admin" \
                          --sku-name Developer
 
+          # ☁️ Create Storage Account for Azure Function
           echo "Creating Storage Account for Azure Function..."
           az storage account create \
             --name "$(storageAccountName)" \
@@ -96,6 +105,7 @@ stages:
             --resource-group "$(resourceGroup)" \
             --sku Standard_LRS || true
 
+          # ⚙️ Create App Service Plan for the Function
           echo "Creating App Service Plan for Azure Function..."
           az functionapp plan create \
             --name "$(appServicePlanName)" \
@@ -105,6 +115,7 @@ stages:
             --sku B1 \
             --is-linux true || true
 
+          # 🔁 Create Azure Function App (used as APIM Proxy)
           echo "Creating Azure Function App for Proxy..."
           az functionapp create \
             --name "$(functionAppName)" \
@@ -115,12 +126,15 @@ stages:
             --functions-version 4 \
             --os-type Linux || true
 
+          # 🔐 Get AKS credentials locally for kubectl
           echo "Getting AKS credentials..."
           az aks get-credentials --resource-group "$(resourceGroup)" --name "$(aksClusterName)" --overwrite-existing
 
+          # 🌍 Install NGINX Ingress Controller
           echo "Installing NGINX Ingress Controller..."
           kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.1/deploy/static/provider/cloud/deploy.yaml
 
+          # 🕸️ Wait for Ingress External IP to be assigned
           echo "Waiting for ingress-nginx-controller external IP..."
           for i in {1..20}; do
             IP=$(kubectl get svc ingress-nginx-controller -n ingress-nginx -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
@@ -129,14 +143,17 @@ stages:
             sleep 15
           done
 
+          # 🔐 Install cert-manager for TLS
           echo "Installing cert-manager..."
           kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
 
+          # ⏳ Wait for cert-manager pods to become ready
           echo "Waiting for cert-manager pods to be ready..."
           kubectl rollout status deployment/cert-manager -n cert-manager --timeout=180s
           kubectl rollout status deployment/cert-manager-webhook -n cert-manager --timeout=180s
           kubectl rollout status deployment/cert-manager-cainjector -n cert-manager --timeout=180s
 
+          # 🔑 Create Let's Encrypt ClusterIssuer (for automatic TLS)
           echo "Creating Let's Encrypt ClusterIssuer..."
           cat <<EOF | kubectl apply -f -
           apiVersion: cert-manager.io/v1
@@ -153,4 +170,4 @@ stages:
               - http01:
                   ingress:
                     class: nginx
-          
+          EOF
