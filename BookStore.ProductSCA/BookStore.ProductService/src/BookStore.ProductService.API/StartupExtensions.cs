@@ -8,7 +8,6 @@ using BookStore.ProductService.Application.Interfaces;
 using BookStore.ProductService.Core.Messaging;
 using Azure.Messaging.ServiceBus;
 using Infrastructure.Messaging;
-using Confluent.Kafka;
 
 
 namespace BookStore.ProductService.Extensions
@@ -67,12 +66,7 @@ namespace BookStore.ProductService.Extensions
             services.AddScoped<IProductService, BookStore.ProductService.Application.Services.ProductService>();
 
 
-            var provider = config["Messaging:Provider"];
-
-            if (provider == "Azure")
-                services.AddScoped<IEventProducer, AzureServiceBusProducer>();
-            else
-                services.AddScoped<IEventProducer, KafkaProducer>();
+            services.AddScoped<IEventProducer, AzureServiceBusProducer>();
 
             services.AddHealthChecks();
             services.AddAutoMapper(typeof(StartupExtensions).Assembly);
@@ -80,28 +74,10 @@ namespace BookStore.ProductService.Extensions
             services.AddSingleton<ExceptionMiddleware>();
             services.AddSingleton<SerilogEnrichingMiddleware>();
 
-            if (provider == "Azure")
-                services.AddSingleton<ServiceBusClient>(provider =>
-                 {
-                     var config = provider.GetRequiredService<IConfiguration>();
-                     var connectionString = config["ServiceBus:ConnectionString"];
-                     return new ServiceBusClient(connectionString);
-                 });
-            else
-            services.AddSingleton<IProducer<string, string>>(sp =>
+            services.AddSingleton<ServiceBusClient>(sp =>
             {
-                var configuration = sp.GetRequiredService<IConfiguration>();
-
-                var config = new ProducerConfig
-                {
-                    BootstrapServers = configuration["Kafka:BootstrapServers"],
-                    SaslUsername = configuration["Kafka:Username"],
-                    SaslPassword = configuration["Kafka:Password"],
-                    SecurityProtocol = SecurityProtocol.SaslSsl,
-                    SaslMechanism = SaslMechanism.Plain
-                };
-
-                return new ProducerBuilder<string, string>(config).Build();
+                var connectionString = sp.GetRequiredService<IConfiguration>()["ServiceBus:ConnectionString"];
+                return new ServiceBusClient(connectionString);
             });
 
             return services;

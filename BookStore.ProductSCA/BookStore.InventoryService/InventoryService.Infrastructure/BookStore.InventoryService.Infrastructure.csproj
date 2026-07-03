@@ -7,7 +7,6 @@
 
   <ItemGroup>
     <PackageReference Include="Azure.Messaging.ServiceBus" Version="7.19.0" />
-    <PackageReference Include="Confluent.Kafka" Version="2.10.0" />
     <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.48.1" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.4" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="9.0.4" />
