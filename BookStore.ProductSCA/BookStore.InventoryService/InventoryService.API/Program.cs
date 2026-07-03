@@ -1,11 +1,13 @@
 using BookStore.InventoryService.Application.Interfaces;
 using BookStore.InventoryService.Infrastructure;
+using BookStore.InventoryService.API.Middleware;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using System;
 using Microsoft.OpenApi.Models;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,6 +17,7 @@ if (builder.Environment.IsDevelopment())
     builder.Configuration
         .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
         .AddJsonFile("appsettings.Development.json", optional: true, reloadOnChange: true)
+        .AddJsonFile("serilog.json", optional: true, reloadOnChange: true)
         .AddEnvironmentVariables();
 
     Console.WriteLine("Loaded Development configuration");
@@ -23,10 +26,16 @@ else
 {
     builder.Configuration
         .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+        .AddJsonFile("serilog.json", optional: true, reloadOnChange: true)
         .AddEnvironmentVariables();
 
     Console.WriteLine($"Loaded {builder.Environment.EnvironmentName} configuration");
 }
+
+builder.Host.UseSerilog((context, services, configuration) =>
+{
+    configuration.ReadFrom.Configuration(context.Configuration);
+});
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -78,6 +87,7 @@ app.UseSwaggerUI();
 
 app.UseHttpsRedirection();
 app.UseCors("AllowFrontend");
+app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseAuthorization();
 
 app.MapControllers();

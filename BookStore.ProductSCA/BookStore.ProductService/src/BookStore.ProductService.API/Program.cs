@@ -17,6 +17,7 @@ if (builder.Environment.IsDevelopment())
     builder.Configuration
         .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
         .AddJsonFile("appsettings.Development.json", optional: true, reloadOnChange: true)
+        .AddJsonFile("serilog.json", optional: true, reloadOnChange: true)
         .AddEnvironmentVariables();
 
     Console.WriteLine("Loaded Development configuration");
@@ -25,6 +26,7 @@ else
 {
     builder.Configuration
         .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+        .AddJsonFile("serilog.json", optional: true, reloadOnChange: true)
         .AddEnvironmentVariables();
 
     Console.WriteLine($"Loaded {builder.Environment.EnvironmentName} configuration");
@@ -120,6 +122,7 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 
 // Configure middleware
+app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<ExceptionMiddleware>();
 app.UseMiddleware<SerilogEnrichingMiddleware>();
 app.UseCors("AllowFrontend");

@@ -14,6 +14,8 @@ namespace BookStore.ProductService.Extensions
     {
         public static IServiceCollection AddApplicationServices(this IServiceCollection services, IConfiguration config)
         {
+            services.AddHttpContextAccessor();
+
             services.AddSingleton<CosmosClient>(sp => new CosmosClient(
                 config["CosmosDb:CosmosEndpoint"],
                 config["CosmosDb:AccountKey"]
