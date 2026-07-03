@@ -19,6 +19,6 @@ export class InventoryComponent implements OnInit {
 
   ngOnInit() {
     const id = this.route.snapshot.paramMap.get('id');
-    this.service.getInventory(id!).subscribe(data => this.inventory = data);
+    this.service.getByProductId(id!).subscribe(data => this.inventory = data);
   }
 }
