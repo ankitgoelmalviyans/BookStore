@@ -95,26 +95,18 @@ builder.Host.UseSerilog((context, services, configuration) =>
 });
 
 // CORS
-//builder.Services.AddCors(options =>
-//{
-    //options.AddPolicy("AllowFrontend", policy =>
-    //{
-        //policy
-          //  .WithOrigins("http://localhost:4200")
-          //  .AllowAnyHeader()
-          //  .AllowAnyMethod();
-    //});
-//});
+var allowedOrigins = builder.Configuration
+    .GetSection("AllowedOrigins")
+    .Get<string[]>() ?? new[] { "http://localhost:4200" };
 
-//////For testing only not for production
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll", builder =>
+    options.AddPolicy("AllowFrontend", policy =>
     {
-        builder
-            .AllowAnyOrigin()
-            .AllowAnyMethod()
-            .AllowAnyHeader();
+        policy
+            .WithOrigins(allowedOrigins)
+            .AllowAnyHeader()
+            .AllowAnyMethod();
     });
 });
 
