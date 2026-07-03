@@ -1,6 +1,7 @@
 using System;
 namespace BookStore.InventoryService.Domain
 {
+    //Inventory class
     public class Inventory
     {
         public Guid Id { get; set; }
