@@ -8,7 +8,7 @@ export class AuthService {
   constructor(private http: HttpClient, private router: Router) {}
 
   login(credentials: any) {
-    return this.http.post(`${environment.authApiUrl}/api/auth/login`, credentials);
+    return this.http.post(`${environment.authApiUrl}/auth/login`, credentials);
   }
 
   saveToken(token: string) {
