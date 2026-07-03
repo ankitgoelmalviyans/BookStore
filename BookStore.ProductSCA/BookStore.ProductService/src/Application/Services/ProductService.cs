@@ -11,11 +11,11 @@ namespace BookStore.ProductService.Application.Services
     public class ProductService : IProductService
     {
         private readonly IProductRepository _productRepository;
-        private readonly IEventProducer _eventProducer;
+        private readonly IMessagePublisher _eventProducer;
         private readonly ILogger<ProductService> _logger;
         private readonly IConfiguration _configuration;
 
-        public ProductService(IProductRepository productRepository, IEventProducer eventProducer, ILogger<ProductService> logger, IConfiguration configuration)
+        public ProductService(IProductRepository productRepository, IMessagePublisher eventProducer, ILogger<ProductService> logger, IConfiguration configuration)
         {
             _productRepository = productRepository;
             _eventProducer = eventProducer;

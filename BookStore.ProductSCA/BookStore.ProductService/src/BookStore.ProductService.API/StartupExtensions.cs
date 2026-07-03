@@ -66,7 +66,7 @@ namespace BookStore.ProductService.Extensions
             services.AddScoped<IProductService, BookStore.ProductService.Application.Services.ProductService>();
 
 
-            services.AddScoped<IEventProducer, AzureServiceBusProducer>();
+            services.AddScoped<IMessagePublisher, AzureServiceBusProducer>();
 
             services.AddHealthChecks();
             services.AddAutoMapper(typeof(StartupExtensions).Assembly);

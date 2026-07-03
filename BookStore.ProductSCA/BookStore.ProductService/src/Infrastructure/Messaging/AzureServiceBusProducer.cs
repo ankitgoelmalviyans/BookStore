@@ -2,7 +2,7 @@ using Azure.Messaging.ServiceBus;
 using System.Text.Json;
 using BookStore.ProductService.Core.Messaging;
 
-public class AzureServiceBusProducer : IEventProducer
+public class AzureServiceBusProducer : IMessagePublisher
 {
     private readonly ServiceBusClient _client;
 
