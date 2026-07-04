@@ -62,7 +62,7 @@ jobs:
         run: |
           az aks get-credentials \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --name bookstore-aks \
+            --name ${{ env.AKS_NAME }} \
             --overwrite-existing
 
       - name: Install NGINX Ingress via Helm
