@@ -55,8 +55,8 @@ resource aks 'Microsoft.ContainerService/managedClusters@2024-01-01' = {
     ]
     networkProfile: {
       networkPlugin: 'azure'
-      loadBalancerSku: 'standard'    ← add this
-      outboundType: 'loadBalancer'   ← add this
+      loadBalancerSku: 'standard'    
+      outboundType: 'loadBalancer'  
     }
   }
 }
