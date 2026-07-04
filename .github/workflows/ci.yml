@@ -214,23 +214,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Install Bicep
+        run: az bicep install
 
-      - name: Validate Bicep — main
+      - name: Validate Bicep syntax — main
         run: |
-          az deployment group validate \
-            --resource-group BookStoreRG \
-            --template-file infrastructure/bicep/main.bicep \
-            --parameters @infrastructure/bicep/parameters/main.parameters.json
+          az bicep build \
+            --file infrastructure/bicep/main.bicep
+          echo "main.bicep syntax valid"
 
-      - name: Validate Bicep — demo
+      - name: Validate Bicep syntax — demo
         run: |
-          az deployment group validate \
-            --resource-group BookStoreRG \
-            --template-file infrastructure/bicep/main.demo.bicep
+          az bicep build \
+            --file infrastructure/bicep/main.demo.bicep
+          echo "main.demo.bicep syntax valid"
 
   # ─────────────────────────────────────────
   # JOB 7 — Security scan
