@@ -1,0 +1,281 @@
+name: CD — Deploy (Profile A Cost-Optimised)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  RESOURCE_GROUP: BookStoreRG_GA
+  AKS_CLUSTER: bookstore-aks-ga
+  ACR_SERVER: bookstoreaurega.azurecr.io
+  NAMESPACE: bookstore
+
+jobs:
+
+  # ─────────────────────────────────────────
+  # JOB 1 — Build and push AuthService
+  # ─────────────────────────────────────────
+  build-push-auth:
+    name: Build and Push AuthService
+    runs-on: ubuntu-latest
+
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ACR_SERVER }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Set image tag
+        id: meta
+        run: |
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          echo "tags=${{ env.ACR_SERVER }}/authservice:$SHORT_SHA" >> $GITHUB_OUTPUT
+          echo "short-sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+
+      - name: Build and push AuthService
+        uses: docker/build-push-action@v5
+        with:
+          context: AuthService/src/AuthService
+          file: AuthService/src/AuthService/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+
+  # ─────────────────────────────────────────
+  # JOB 2 — Build and push ProductService
+  # ─────────────────────────────────────────
+  build-push-product:
+    name: Build and Push ProductService
+    runs-on: ubuntu-latest
+
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ACR_SERVER }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Set image tag
+        id: meta
+        run: |
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          echo "tags=${{ env.ACR_SERVER }}/productservice:$SHORT_SHA" >> $GITHUB_OUTPUT
+          echo "short-sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+
+      - name: Build and push ProductService
+        uses: docker/build-push-action@v5
+        with:
+          context: BookStore.ProductSCA/BookStore.ProductService/src
+          file: BookStore.ProductSCA/BookStore.ProductService/src/BookStore.ProductService.API/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+
+  # ─────────────────────────────────────────
+  # JOB 3 — Build and push InventoryService
+  # ─────────────────────────────────────────
+  build-push-inventory:
+    name: Build and Push InventoryService
+    runs-on: ubuntu-latest
+
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ACR_SERVER }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Set image tag
+        id: meta
+        run: |
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          echo "tags=${{ env.ACR_SERVER }}/inventoryservice:$SHORT_SHA" >> $GITHUB_OUTPUT
+          echo "short-sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+
+      - name: Build and push InventoryService
+        uses: docker/build-push-action@v5
+        with:
+          context: BookStore.ProductSCA/BookStore.InventoryService
+          file: BookStore.ProductSCA/BookStore.InventoryService/InventoryService.API/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+
+  # ─────────────────────────────────────────
+  # JOB 4 — Deploy all services to AKS
+  # ─────────────────────────────────────────
+  deploy:
+    name: Deploy to AKS
+    runs-on: ubuntu-latest
+    needs:
+      - build-push-auth
+      - build-push-product
+      - build-push-inventory
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ env.AKS_CLUSTER }} \
+            --overwrite-existing
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'latest'
+
+      - name: Create namespace
+        run: |
+          kubectl get namespace ${{ env.NAMESPACE }} || \
+          kubectl create namespace ${{ env.NAMESPACE }}
+
+      - name: Create Kubernetes secrets
+        run: |
+          kubectl create secret generic authservice-secrets \
+            --from-literal=Jwt__Key="${{ secrets.JWT_KEY }}" \
+            --from-literal=AllowedOrigins__0="${{ secrets.ALLOWED_ORIGINS }}" \
+            --namespace=${{ env.NAMESPACE }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl create secret generic productservice-secrets \
+            --from-literal=Jwt__Key="${{ secrets.JWT_KEY }}" \
+            --from-literal=CosmosDb__CosmosEndpoint="${{ secrets.COSMOS_ENDPOINT }}" \
+            --from-literal=CosmosDb__AccountKey="${{ secrets.COSMOS_KEY }}" \
+            --from-literal=AzureServiceBus__ConnectionString="${{ secrets.SERVICE_BUS_CONNECTION }}" \
+            --from-literal=AllowedOrigins__0="${{ secrets.ALLOWED_ORIGINS }}" \
+            --namespace=${{ env.NAMESPACE }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl create secret generic inventoryservice-secrets \
+            --from-literal=Jwt__Key="${{ secrets.JWT_KEY }}" \
+            --from-literal=CosmosDb__CosmosEndpoint="${{ secrets.COSMOS_ENDPOINT }}" \
+            --from-literal=CosmosDb__AccountKey="${{ secrets.COSMOS_KEY }}" \
+            --from-literal=AzureServiceBus__ConnectionString="${{ secrets.SERVICE_BUS_CONNECTION }}" \
+            --from-literal=AllowedOrigins__0="${{ secrets.ALLOWED_ORIGINS }}" \
+            --namespace=${{ env.NAMESPACE }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Helm dependency update
+        run: |
+          helm dependency update infrastructure/helm/authservice
+          helm dependency update infrastructure/helm/productservice
+          helm dependency update infrastructure/helm/inventoryservice
+
+      - name: Get short SHA
+        id: sha
+        run: |
+          echo "short=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+
+      - name: Deploy AuthService
+        run: |
+          helm upgrade --install authservice \
+            infrastructure/helm/authservice \
+            --values infrastructure/helm/values-costopt.yaml \
+            --set image.tag=${{ steps.sha.outputs.short }} \
+            --set ingress.host=${{ secrets.INGRESS_IP }}.nip.io \
+            --namespace ${{ env.NAMESPACE }} \
+            --wait \
+            --timeout 5m
+
+      - name: Deploy ProductService
+        run: |
+          helm upgrade --install productservice \
+            infrastructure/helm/productservice \
+            --values infrastructure/helm/values-costopt.yaml \
+            --set image.tag=${{ steps.sha.outputs.short }} \
+            --set ingress.host=${{ secrets.INGRESS_IP }}.nip.io \
+            --namespace ${{ env.NAMESPACE }} \
+            --wait \
+            --timeout 5m
+
+      - name: Deploy InventoryService
+        run: |
+          helm upgrade --install inventoryservice \
+            infrastructure/helm/inventoryservice \
+            --values infrastructure/helm/values-costopt.yaml \
+            --set image.tag=${{ steps.sha.outputs.short }} \
+            --set ingress.host=${{ secrets.INGRESS_IP }}.nip.io \
+            --namespace ${{ env.NAMESPACE }} \
+            --wait \
+            --timeout 5m
+
+      - name: Health checks
+        run: |
+          echo "Waiting for deployments to be ready..."
+          kubectl rollout status deployment/authservice \
+            -n ${{ env.NAMESPACE }} --timeout=3m
+          kubectl rollout status deployment/productservice \
+            -n ${{ env.NAMESPACE }} --timeout=3m
+          kubectl rollout status deployment/inventoryservice \
+            -n ${{ env.NAMESPACE }} --timeout=3m
+
+      - name: Verify health endpoints
+        run: |
+          INGRESS_IP=${{ secrets.INGRESS_IP }}
+
+          # Wait for ingress to be ready
+          sleep 30
+
+          # Check each service health endpoint
+          for service in auth product inventory; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              http://$INGRESS_IP.nip.io/$service/health)
+            echo "$service health: $STATUS"
+            if [ "$STATUS" != "200" ]; then
+              echo "ERROR: $service health check failed"
+              exit 1
+            fi
+          done
+          echo "All services healthy"
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "Deployment failed — rolling back..."
+          helm rollback authservice -n ${{ env.NAMESPACE }} || true
+          helm rollback productservice -n ${{ env.NAMESPACE }} || true
+          helm rollback inventoryservice -n ${{ env.NAMESPACE }} || true
+          echo "Rollback complete"
+
+      - name: Print deployment summary
+        if: success()
+        run: |
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          echo "=========================================="
+          echo "Deployment successful — Profile A"
+          echo "=========================================="
+          echo "Image tag:    $SHORT_SHA"
+          echo "Auth:         http://${{ secrets.INGRESS_IP }}.nip.io/auth"
+          echo "Product:      http://${{ secrets.INGRESS_IP }}.nip.io/product"
+          echo "Inventory:    http://${{ secrets.INGRESS_IP }}.nip.io/inventory"
+          echo "=========================================="
