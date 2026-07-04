@@ -7,7 +7,7 @@ service:
   port: 80
 
 image:
-  repository: bookstoreaure.azurecr.io/authservice
+  repository: bookstoreaurega.azurecr.io/authservice
   tag: latest
   pullPolicy: Always
 
