@@ -2,6 +2,7 @@ using Azure.Messaging.ServiceBus;
 using BookStore.InventoryService.Application.Interfaces;
 using BookStore.InventoryService.Domain.Events;
 using Microsoft.Extensions.Configuration;
+using Serilog.Context;
 using System;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -29,22 +30,30 @@ namespace BookStore.InventoryService.Infrastructure.Messaging
 
             processor.ProcessMessageAsync += async args =>
             {
-                try
-                {
-                    var json = args.Message.Body.ToString();
-                    var productEvent = JsonSerializer.Deserialize<ProductCreatedIntegrationEvent>(json);
+                var correlationId = args.Message.ApplicationProperties
+                    .TryGetValue("CorrelationId", out var cid)
+                    ? cid?.ToString()
+                    : Guid.NewGuid().ToString();
 
-                    if (productEvent != null)
+                using (LogContext.PushProperty("CorrelationId", correlationId))
+                {
+                    try
                     {
-                        Console.WriteLine($"Received ProductCreatedEvent: {productEvent.Name} - Qty: {productEvent.Quantity}");
-                        _repository.UpdateInventory(productEvent.Id, productEvent.Quantity);
-                    }
+                        var json = args.Message.Body.ToString();
+                        var productEvent = JsonSerializer.Deserialize<ProductCreatedIntegrationEvent>(json);
 
-                    await args.CompleteMessageAsync(args.Message);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine("Message processing failed: " + ex.Message);
+                        if (productEvent != null)
+                        {
+                            Console.WriteLine($"Received ProductCreatedEvent: {productEvent.Name} - Qty: {productEvent.Quantity}");
+                            _repository.UpdateInventory(productEvent.Id, productEvent.Quantity);
+                        }
+
+                        await args.CompleteMessageAsync(args.Message);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine("Message processing failed: " + ex.Message);
+                    }
                 }
             };
 

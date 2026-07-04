@@ -1,0 +1,58 @@
+name: Infrastructure — Demo Profile (APIM)
+
+on:
+  workflow_dispatch:
+
+env:
+  RESOURCE_GROUP: BookStoreRG
+
+jobs:
+  deploy-apim:
+    name: Provision APIM for Demo
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy APIM via Bicep
+        run: |
+          OUTPUT=$(az deployment group create \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --template-file infrastructure/bicep/main.demo.bicep \
+            --query properties.outputs \
+            --output json)
+
+          echo "APIM_URL=$(echo $OUTPUT | jq -r .apimGatewayUrl.value)" >> $GITHUB_ENV
+
+      - name: Print APIM URL
+        run: |
+          echo "APIM Gateway: ${{ env.APIM_URL }}"
+          echo "Add to GitHub Secrets: APIM_GATEWAY_URL=${{ env.APIM_URL }}"
+
+  teardown-apim:
+    name: Teardown APIM After 4 Hours
+    runs-on: ubuntu-latest
+    needs: deploy-apim
+
+    steps:
+      - name: Wait 4 hours
+        run: sleep 14400
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Delete APIM
+        run: |
+          az apim delete \
+            --name bookstore-apim \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --yes
+          echo "APIM torn down — back to Profile A"

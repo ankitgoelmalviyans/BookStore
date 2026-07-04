@@ -8,19 +8,23 @@ export class AuthService {
   constructor(private http: HttpClient, private router: Router) {}
 
   login(credentials: any) {
-    return this.http.post(`${environment.authUrl}/auth/login`, credentials);
+    return this.http.post(`${environment.authApiUrl}/auth/login`, credentials);
   }
 
   saveToken(token: string) {
-    localStorage.setItem('jwt', token);
+    localStorage.setItem('auth_token', token);
   }
 
   getToken(): string | null {
-    return localStorage.getItem('jwt');
+    return localStorage.getItem('auth_token');
+  }
+
+  isLoggedIn(): boolean {
+    return !!localStorage.getItem('auth_token');
   }
 
   logout() {
-    localStorage.removeItem('jwt');
+    localStorage.removeItem('auth_token');
     this.router.navigate(['/login']);
   }
 }

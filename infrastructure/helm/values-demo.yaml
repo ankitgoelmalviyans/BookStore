@@ -1,0 +1,34 @@
+# Profile B — Demo Mode (APIM + Azure OpenAI)
+global:
+  profile: demo
+  ingressHost: ""          # set by pipeline: $INGRESS_IP.nip.io
+
+authservice:
+  image:
+    tag: ""                # set by pipeline: ${{ github.sha }}
+  ingress:
+    host: ""               # set by pipeline: $INGRESS_IP.nip.io
+
+productservice:
+  image:
+    tag: ""                # set by pipeline: ${{ github.sha }}
+  ingress:
+    host: ""               # set by pipeline: $INGRESS_IP.nip.io
+
+inventoryservice:
+  image:
+    tag: ""                # set by pipeline: ${{ github.sha }}
+  ingress:
+    host: ""               # set by pipeline: $INGRESS_IP.nip.io
+
+# Gateway — Profile B uses APIM in front of NGINX
+gateway:
+  useApim: true
+  apimGatewayUrl: ""       # set by pipeline: $APIM_GATEWAY_URL secret
+  nginxEnabled: true       # NGINX still runs as backend
+
+# LLM — Profile B uses Azure OpenAI
+llm:
+  useAzureOpenAI: true
+  useGitHubModels: false
+  azureOpenAIEndpoint: ""  # set by pipeline: $AZURE_OPENAI_ENDPOINT secret

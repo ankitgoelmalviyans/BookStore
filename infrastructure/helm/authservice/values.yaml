@@ -1,0 +1,29 @@
+namespace: bookstore
+environment: Production
+replicaCount: 1
+
+service:
+  name: authservice
+  port: 80
+
+image:
+  repository: bookstoreaure.azurecr.io/authservice
+  tag: latest
+  pullPolicy: Always
+
+ingress:
+  host: ""
+  path: /auth
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 300m
+    memory: 256Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 2

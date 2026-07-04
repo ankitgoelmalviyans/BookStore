@@ -17,8 +17,13 @@ obj/
 
 # --- ASP.NET Secrets ---
 appsettings.*.json
+!**/appsettings.Development.json
 secrets.json
 *.key
+
+# Secrets — never commit real values
+**/appsettings.Production.json
+**/appsettings.Staging.json
 
 # --- Angular ---
 **/node_modules/

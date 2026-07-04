@@ -1,0 +1,138 @@
+name: Infrastructure — Bicep (Always-On)
+
+on:
+  push:
+    paths:
+      - 'infrastructure/bicep/**'
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  RESOURCE_GROUP: BookStoreRG
+  LOCATION: eastus
+
+jobs:
+  deploy-infra:
+    name: Deploy Core Infrastructure
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Create Resource Group
+        run: |
+          az group create \
+            --name ${{ env.RESOURCE_GROUP }} \
+            --location ${{ env.LOCATION }}
+
+      - name: Register ContainerService Provider
+        run: |
+          az provider register --namespace Microsoft.ContainerService
+          for i in {1..10}; do
+            STATE=$(az provider show \
+              --namespace Microsoft.ContainerService \
+              --query registrationState -o tsv)
+            echo "State: $STATE"
+            if [ "$STATE" == "Registered" ]; then break; fi
+            sleep 10
+          done
+
+      - name: Deploy Bicep — Core Resources
+        id: bicep
+        run: |
+          OUTPUT=$(az deployment group create \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --template-file infrastructure/bicep/main.bicep \
+            --parameters @infrastructure/bicep/parameters/main.parameters.json \
+            --query properties.outputs \
+            --output json)
+
+          echo "COSMOS_ENDPOINT=$(echo $OUTPUT | jq -r .cosmosEndpoint.value)" >> $GITHUB_ENV
+          echo "ACR_SERVER=$(echo $OUTPUT | jq -r .acrLoginServer.value)" >> $GITHUB_ENV
+          echo "AKS_NAME=$(echo $OUTPUT | jq -r .aksClusterName.value)" >> $GITHUB_ENV
+
+      - name: Get AKS Credentials
+        run: |
+          az aks get-credentials \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name bookstore-aks \
+            --overwrite-existing
+
+      - name: Install NGINX Ingress via Helm
+        run: |
+          helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+          helm repo update
+          helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+            --namespace ingress-nginx \
+            --create-namespace \
+            --set controller.replicaCount=1 \
+            --set controller.nodeSelector."kubernetes\.io/os"=linux \
+            --wait
+
+      - name: Install Cert Manager via Helm
+        run: |
+          helm repo add jetstack https://charts.jetstack.io
+          helm repo update
+          helm upgrade --install cert-manager jetstack/cert-manager \
+            --namespace cert-manager \
+            --create-namespace \
+            --set installCRDs=true \
+            --wait
+
+      - name: Create Let's Encrypt ClusterIssuer
+        run: |
+          cat <<EOF | kubectl apply -f -
+          apiVersion: cert-manager.io/v1
+          kind: ClusterIssuer
+          metadata:
+            name: letsencrypt-prod
+          spec:
+            acme:
+              server: https://acme-v02.api.letsencrypt.org/directory
+              email: admin@bookstore.com
+              privateKeySecretRef:
+                name: letsencrypt-prod
+              solvers:
+              - http01:
+                  ingress:
+                    class: nginx
+          EOF
+
+      - name: Get Ingress Public IP
+        run: |
+          for i in {1..20}; do
+            IP=$(kubectl get svc ingress-nginx-controller \
+              -n ingress-nginx \
+              -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+            echo "Current IP: $IP"
+            if [ -n "$IP" ]; then
+              echo "INGRESS_IP=$IP" >> $GITHUB_ENV
+              echo "BASE_URL=http://$IP.nip.io" >> $GITHUB_ENV
+              break
+            fi
+            sleep 15
+          done
+
+      - name: Print Summary
+        run: |
+          echo "=========================================="
+          echo "Infrastructure deployed successfully"
+          echo "Ingress IP:     ${{ env.INGRESS_IP }}"
+          echo "Base URL:       ${{ env.BASE_URL }}"
+          echo "Cosmos:         ${{ env.COSMOS_ENDPOINT }}"
+          echo "ACR:            ${{ env.ACR_SERVER }}"
+          echo "=========================================="
+          echo ""
+          echo "ACTION REQUIRED: Add these to GitHub Secrets:"
+          echo "  INGRESS_IP        = ${{ env.INGRESS_IP }}"
+          echo "  AUTH_API_URL      = http://${{ env.INGRESS_IP }}.nip.io/auth/api"
+          echo "  PRODUCT_API_URL   = http://${{ env.INGRESS_IP }}.nip.io/product/api"
+          echo "  INVENTORY_API_URL = http://${{ env.INGRESS_IP }}.nip.io/inventory/api"
+          echo "  ALLOWED_ORIGINS   = http://${{ env.INGRESS_IP }}.nip.io"

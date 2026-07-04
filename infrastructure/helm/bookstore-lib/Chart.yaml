@@ -1,0 +1,5 @@
+apiVersion: v2
+name: bookstore-lib
+description: Shared Helm library chart for BookStore microservices
+type: library
+version: 0.1.0
