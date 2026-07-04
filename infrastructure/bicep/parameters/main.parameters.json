@@ -6,7 +6,7 @@
     "acrName":             { "value": "bookstoreaurega" },
     "serviceBusNamespace": { "value": "bookstore-servicebus-ga" },
     "cosmosAccountName":   { "value": "bscosmosankit2026ga" },
-    "keyVaultName":        { "value": "bskvankit2026" },
+    "keyVaultName":        { "value": "bskvankit2026ga" },
     "aksNodeCount":        { "value": 1 },
     "aksNodeSize":         { "value": "Standard_B2s" }
   }
