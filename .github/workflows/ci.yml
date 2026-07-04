@@ -7,7 +7,7 @@ on:
   push:
     branches:
       - main
-      - upgrade_bookstore
+      - Upgrade_BookStore
 
 env:
   DOTNET_VERSION: '8.0.x'
