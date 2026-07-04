@@ -41,9 +41,7 @@ resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
 resource aks 'Microsoft.ContainerService/managedClusters@2024-01-01' = {
   name: aksClusterName
   location: location
-  identity: {
-    type: 'SystemAssigned'
-  }
+  identity: { type: 'SystemAssigned' }
   properties: {
     dnsPrefix: aksClusterName
     agentPoolProfiles: [
@@ -52,8 +50,14 @@ resource aks 'Microsoft.ContainerService/managedClusters@2024-01-01' = {
         count: aksNodeCount
         vmSize: aksNodeSize
         mode: 'System'
+        osType: 'Linux'
       }
     ]
+    networkProfile: {
+      networkPlugin: 'azure'
+      loadBalancerSku: 'standard'    ← add this
+      outboundType: 'loadBalancer'   ← add this
+    }
   }
 }
 
