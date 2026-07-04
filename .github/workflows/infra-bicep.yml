@@ -9,8 +9,8 @@ on:
   workflow_dispatch:
 
 env:
-  RESOURCE_GROUP: BookStoreRG
-  LOCATION: eastus
+  RESOURCE_GROUP: BookStoreRG_GA
+  LOCATION: centralindia
 
 jobs:
   deploy-infra:
