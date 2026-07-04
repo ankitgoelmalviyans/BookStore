@@ -74,6 +74,9 @@ jobs:
 
       - name: Install NGINX Ingress via Helm
         run: |
+          # Azure LB health probe hits NodePort with GET /
+          # NGINX returns 404 for / causing probe to fail
+          # This annotation changes probe path to /healthz which returns 200
           helm repo add ingress-nginx \
             https://kubernetes.github.io/ingress-nginx
           helm repo update
@@ -83,6 +86,13 @@ jobs:
             --set controller.replicaCount=1 \
             --set controller.nodeSelector."kubernetes\.io/os"=linux \
             --wait
+
+      - name: Fix Azure LB Health Probe Path
+        run: |
+          kubectl annotate svc ingress-nginx-controller \
+            -n ingress-nginx \
+            service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path=/healthz \
+            --overwrite
 
       - name: Install Cert Manager via Helm
         run: |
