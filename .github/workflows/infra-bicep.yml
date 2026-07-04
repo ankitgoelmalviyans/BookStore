@@ -72,11 +72,36 @@ jobs:
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --attach-acr bookstoreaurega || true
 
+      - name: Create Static Public IP
+        run: |
+          MC_RG=$(az aks show \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ env.AKS_NAME }} \
+            --query nodeResourceGroup \
+            --output tsv)
+
+          # Create static IP if not exists
+          az network public-ip create \
+            --resource-group $MC_RG \
+            --name bookstore-static-ip \
+            --sku Standard \
+            --allocation-method Static \
+            --location ${{ env.LOCATION }} || true
+
+          # Get the static IP
+          STATIC_IP=$(az network public-ip show \
+            --resource-group $MC_RG \
+            --name bookstore-static-ip \
+            --query ipAddress \
+            --output tsv)
+
+          echo "STATIC_IP=$STATIC_IP" >> $GITHUB_ENV
+          echo "INGRESS_IP=$STATIC_IP" >> $GITHUB_ENV
+          echo "BASE_URL=http://$STATIC_IP.nip.io" >> $GITHUB_ENV
+          echo "Static IP: $STATIC_IP"
+
       - name: Install NGINX Ingress via Helm
         run: |
-          # Azure LB health probe hits NodePort with GET /
-          # NGINX returns 404 for / causing probe to fail
-          # This annotation changes probe path to /healthz which returns 200
           helm repo add ingress-nginx \
             https://kubernetes.github.io/ingress-nginx
           helm repo update
@@ -85,7 +110,17 @@ jobs:
             --create-namespace \
             --set controller.replicaCount=1 \
             --set controller.nodeSelector."kubernetes\.io/os"=linux \
+            --set controller.defaultBackend.enabled=true \
+            --set controller.service.loadBalancerIP=${{ env.STATIC_IP }} \
             --wait
+
+      - name: Fix Azure LB Health Probe for NGINX
+        run: |
+          kubectl annotate svc ingress-nginx-controller \
+            -n ingress-nginx \
+            service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path=/healthz \
+            --overwrite
+          echo "LB probe fixed — external traffic routing correctly"
 
       - name: Fix Azure LB Health Probe Path
         run: |
