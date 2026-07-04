@@ -35,6 +35,7 @@ else
 // Add services
 builder.Services.AddApplicationServices(builder.Configuration);
 builder.Services.AddControllers();
+builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 
 // Add environment-based Swagger URL prefix
