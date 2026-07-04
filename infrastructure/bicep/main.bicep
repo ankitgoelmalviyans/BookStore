@@ -61,20 +61,7 @@ resource aks 'Microsoft.ContainerService/managedClusters@2024-01-01' = {
   }
 }
 
-// ─── AKS → ACR Pull Role Assignment ──────────────────────────────────────────
 
-resource acrPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(acr.id, aks.id, 'acrpull')
-  scope: acr
-  properties: {
-    roleDefinitionId: subscriptionResourceId(
-      'Microsoft.Authorization/roleDefinitions',
-      '7f951dda-4ed3-4680-a7ca-43fe172d538d' // AcrPull
-    )
-    principalId: aks.properties.identityProfile.kubeletidentity.objectId
-    principalType: 'ServicePrincipal'
-  }
-}
 
 // ─── Service Bus ──────────────────────────────────────────────────────────────
 
