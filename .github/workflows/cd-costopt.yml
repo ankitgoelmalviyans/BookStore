@@ -148,6 +148,16 @@ jobs:
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --name ${{ env.AKS_CLUSTER }} \
             --overwrite-existing
+            
+      - name: Ensure NGINX Ingress is ready
+        run: |
+          kubectl rollout status deployment/ingress-nginx-controller \
+            -n ingress-nginx --timeout=5m || true
+
+          kubectl annotate svc ingress-nginx-controller \
+            -n ingress-nginx \
+            service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path=/healthz \
+            --overwrite
 
       - name: Install Helm
         uses: azure/setup-helm@v4
