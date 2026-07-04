@@ -119,6 +119,49 @@ jobs:
             fi
             sleep 15
           done
+      
+      - name: Allow HTTP and HTTPS through NSG
+        run: |
+          # Get AKS managed resource group dynamically
+          MC_RG=$(az aks show \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name bookstore-aks-ga \
+            --query nodeResourceGroup \
+            --output tsv)
+
+          echo "Managed RG: $MC_RG"
+
+          # Get NSG name
+          NSG=$(az network nsg list \
+            --resource-group $MC_RG \
+            --query "[0].name" \
+            --output tsv)
+
+          echo "Found NSG: $NSG"
+
+          # Allow HTTP port 80
+          az network nsg rule create \
+            --resource-group $MC_RG \
+            --nsg-name $NSG \
+            --name AllowHTTP \
+            --priority 100 \
+            --destination-port-ranges 80 \
+            --access Allow \
+            --protocol Tcp \
+            --direction Inbound || true
+
+          # Allow HTTPS port 443
+          az network nsg rule create \
+            --resource-group $MC_RG \
+            --nsg-name $NSG \
+            --name AllowHTTPS \
+            --priority 110 \
+            --destination-port-ranges 443 \
+            --access Allow \
+            --protocol Tcp \
+            --direction Inbound || true
+
+          echo "NSG rules added — HTTP and HTTPS now open"
 
       - name: Print Summary
         run: |
