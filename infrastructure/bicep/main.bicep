@@ -2,19 +2,19 @@
 param location string = resourceGroup().location
 
 @description('Name of the AKS cluster')
-param aksClusterName string = 'bookstore-aks'
+param aksClusterName string = 'bookstore-aks-ga'
 
 @description('Name of the Azure Container Registry')
-param acrName string = 'bookstoreaure'
+param acrName string = 'bookstoreaurega'
 
 @description('Name of the Service Bus namespace')
-param serviceBusNamespace string = 'bookstore-servicebus'
+param serviceBusNamespace string = 'bookstore-servicebus-ga'
 
 @description('Name of the Cosmos DB account')
-param cosmosAccountName string = 'bookstore-cosmos'
+param cosmosAccountName string = 'bscosmosankit2026ga'
 
 @description('Name of the Key Vault')
-param keyVaultName string = 'bookstore-kv'
+param keyVaultName string = 'bskvankit2026ga'
 
 @description('Number of nodes in the AKS node pool')
 @minValue(1)
