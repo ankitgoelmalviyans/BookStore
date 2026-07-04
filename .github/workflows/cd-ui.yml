@@ -1,0 +1,72 @@
+name: CD — Angular UI (GitHub Pages)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'BookStore.ProductSCA/product-ui/**'
+  workflow_dispatch:
+
+jobs:
+  build-deploy:
+    name: Build and Deploy Angular to GitHub Pages
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18.x'
+          cache: 'npm'
+          cache-dependency-path: |
+            BookStore.ProductSCA/product-ui/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd BookStore.ProductSCA/product-ui
+          npm ci
+
+      - name: Replace environment tokens
+        run: |
+          cd BookStore.ProductSCA/product-ui/src/environments
+
+          sed -i "s|#{AUTH_API_URL}#|${{ secrets.AUTH_API_URL }}|g" \
+            environment.prod.ts
+          sed -i "s|#{PRODUCT_API_URL}#|${{ secrets.PRODUCT_API_URL }}|g" \
+            environment.prod.ts
+          sed -i "s|#{INVENTORY_API_URL}#|${{ secrets.INVENTORY_API_URL }}|g" \
+            environment.prod.ts
+
+      - name: Build Angular production
+        run: |
+          cd BookStore.ProductSCA/product-ui
+          npx ng build \
+            --configuration production \
+            --base-href /BookStore/
+
+      - name: Add 404.html for SPA routing
+        run: |
+          cp BookStore.ProductSCA/product-ui/dist/product-ui/index.html \
+             BookStore.ProductSCA/product-ui/dist/product-ui/404.html
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: BookStore.ProductSCA/product-ui/dist/product-ui
+          publish_branch: gh-pages
+          commit_message: "deploy: Angular UI ${{ github.sha }}"
+
+      - name: Print deployment summary
+        run: |
+          echo "=========================================="
+          echo "Angular UI deployed successfully"
+          echo "URL: https://ankitgoelmalviyans.github.io/BookStore/"
+          echo "=========================================="
