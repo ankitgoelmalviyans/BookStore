@@ -1,0 +1,13 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "aksClusterName":      { "value": "bookstore-aks" },
+    "acrName":             { "value": "bookstoreaure" },
+    "serviceBusNamespace": { "value": "bookstore-servicebus" },
+    "cosmosAccountName":   { "value": "bookstore-cosmos" },
+    "keyVaultName":        { "value": "bookstore-kv" },
+    "aksNodeCount":        { "value": 1 },
+    "aksNodeSize":         { "value": "Standard_B2s" }
+  }
+}
