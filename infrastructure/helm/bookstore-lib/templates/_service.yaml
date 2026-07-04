@@ -1,0 +1,15 @@
+{{- define "bookstore-lib.service" -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.service.name }}
+  namespace: {{ .Values.namespace | default "bookstore" }}
+spec:
+  selector:
+    app: {{ .Values.service.name }}
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+  type: ClusterIP
+{{- end }}

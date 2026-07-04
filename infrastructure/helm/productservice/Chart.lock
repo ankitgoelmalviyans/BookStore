@@ -1,0 +1,6 @@
+dependencies:
+- name: bookstore-lib
+  repository: file://../bookstore-lib
+  version: 0.1.0
+digest: sha256:84f89708737f8ad325d508f67e3b5da7cfa6d2d5162ae1c19b2e314dbc5ef5c2
+generated: "2026-07-04T06:10:11.927083Z"

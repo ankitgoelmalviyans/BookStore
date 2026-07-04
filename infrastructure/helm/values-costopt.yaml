@@ -1,0 +1,34 @@
+# Profile A — Cost Optimised (NGINX Ingress, no APIM, GitHub Models)
+global:
+  profile: costopt
+  ingressHost: ""          # set by pipeline: $INGRESS_IP.nip.io
+
+authservice:
+  image:
+    tag: ""                # set by pipeline: ${{ github.sha }}
+  ingress:
+    host: ""               # set by pipeline: $INGRESS_IP.nip.io
+
+productservice:
+  image:
+    tag: ""                # set by pipeline: ${{ github.sha }}
+  ingress:
+    host: ""               # set by pipeline: $INGRESS_IP.nip.io
+
+inventoryservice:
+  image:
+    tag: ""                # set by pipeline: ${{ github.sha }}
+  ingress:
+    host: ""               # set by pipeline: $INGRESS_IP.nip.io
+
+# Gateway — Profile A uses NGINX Ingress (free, inside AKS)
+# No APIM in this profile
+gateway:
+  useApim: false
+  nginxEnabled: true
+
+# LLM — Profile A uses GitHub Models (free tier)
+llm:
+  useAzureOpenAI: false
+  useGitHubModels: true
+  githubModelsEndpoint: https://models.inference.ai.azure.com
