@@ -55,7 +55,10 @@ namespace BookStore.InventoryService.Infrastructure.Repositories
             {
                 var newItem = new Inventory
                 {
-                    Id = Guid.NewGuid(),
+                    // id IS the partition key (/id) for this container, so it must equal the
+                    // PartitionKey value we pass below. Keying inventory by ProductId gives us
+                    // one row per product and keeps id == partition key value consistent.
+                    Id = productId,
                     ProductId = productId,
                     Quantity = quantity,
                     LastUpdated = DateTime.UtcNow

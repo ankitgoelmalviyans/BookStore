@@ -8,6 +8,7 @@ namespace BookStore.InventoryService.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize]
     public class InventoryController : ControllerBase
     {
         private readonly IInventoryRepository _repository;

@@ -6,7 +6,10 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using System;
+using System.Text;
 using Microsoft.OpenApi.Models;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using Serilog.Enrichers.Span;
 using OpenTelemetry.Resources;
@@ -88,6 +91,21 @@ builder.Services.AddSwaggerGen(c =>
     }
 });
 
+// Authentication — validate JWTs issued by AuthService (mirrors ProductService)
+builder.Services.AddAuthentication("Bearer")
+    .AddJwtBearer("Bearer", options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = false,
+            ValidateAudience = false,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
+        };
+    });
+
 builder.Services.AddInventoryDependencies(builder.Configuration);
 builder.Services.AddHealthChecks();
 var allowedOrigins = builder.Configuration
@@ -114,6 +132,7 @@ app.UseSwaggerUI();
 app.UseHttpsRedirection();
 app.UseCors("AllowFrontend");
 app.UseMiddleware<CorrelationIdMiddleware>();
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();

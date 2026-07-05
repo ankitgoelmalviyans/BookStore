@@ -5,4 +5,10 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Needed for the [Newtonsoft.Json.JsonProperty("id")] mapping on entities
+         persisted to Cosmos DB, whose SDK v3 serializer is Newtonsoft by default. -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
 </Project>
