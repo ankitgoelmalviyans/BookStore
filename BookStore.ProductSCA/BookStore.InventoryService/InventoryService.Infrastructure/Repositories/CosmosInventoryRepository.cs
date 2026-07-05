@@ -14,7 +14,9 @@ namespace BookStore.InventoryService.Infrastructure.Repositories
 
         public CosmosInventoryRepository(IConfiguration configuration)
         {
-            var cosmosClient = new CosmosClient(configuration["CosmosDb:CosmosEndpoint"]);
+            var cosmosClient = new CosmosClient(
+                configuration["CosmosDb:CosmosEndpoint"],
+                configuration["CosmosDb:AccountKey"]);
             var database = cosmosClient.GetDatabase(configuration["CosmosDb:DatabaseName"]);
             _container = database.GetContainer(configuration["CosmosDb:ContainerName"]);
         }

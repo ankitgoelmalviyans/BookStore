@@ -196,6 +196,8 @@ jobs:
             --from-literal=CosmosDb__CosmosEndpoint="${{ secrets.COSMOS_ENDPOINT }}" \
             --from-literal=CosmosDb__AccountKey="${{ secrets.COSMOS_KEY }}" \
             --from-literal=AzureServiceBus__ConnectionString="${{ secrets.SERVICE_BUS_CONNECTION }}" \
+            --from-literal=AzureServiceBus__TopicName="product-events" \
+            --from-literal=AzureServiceBus__SubscriptionName="inventory-subscription" \
             --from-literal=AllowedOrigins__0="${{ secrets.ALLOWED_ORIGINS }}" \
             --namespace=${{ env.NAMESPACE }} \
             --dry-run=client -o yaml | kubectl apply -f -
