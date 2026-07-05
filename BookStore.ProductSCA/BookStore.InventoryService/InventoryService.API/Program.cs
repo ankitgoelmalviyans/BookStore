@@ -150,6 +150,13 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+// Canonical middleware pipeline order — shared across AuthService, ProductService, InventoryService:
+//   1. CorrelationId  2. RequestLogging (DurationMs)  3. Exception (ProblemDetails)  4. Swagger/UI
+//   5. CORS  6. Authentication  7. Authorization  8. Controllers  9. HealthChecks
+app.UseMiddleware<CorrelationIdMiddleware>();
+app.UseMiddleware<RequestLoggingMiddleware>();
+app.UseMiddleware<ExceptionMiddleware>();
+
 // Swagger is enabled for all environments now
 app.UseSwagger();
 app.UseSwaggerUI();
@@ -160,7 +167,6 @@ app.UseSwaggerUI();
 // the original request was HTTPS and would redirect to a URL missing the
 // ingress's /inventory path prefix, breaking every request behind TLS.
 app.UseCors("AllowFrontend");
-app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
 

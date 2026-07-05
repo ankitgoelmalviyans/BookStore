@@ -149,9 +149,10 @@ Built and deployed today, verified against the code:
 - **.NET 10 upgrade** — from the current `net8.0`.
 - **Managed Identity for ACR** — replace the `ACR_USERNAME`/`ACR_PASSWORD` GitHub Secrets with
   workload identity, removing the credential-rotation problem entirely.
-- **Standardised middleware & errors** — one shared RFC 9457 ProblemDetails exception middleware
-  across all three services (closing the inconsistency in `docs/LLD.md`), plus a uniform pipeline
-  order and JWT config.
+- **Standardised middleware & errors** — *partially done:* all three services now return RFC 9457
+  ProblemDetails (with `correlationId`), share a canonical pipeline order, and emit `DurationMs` via a
+  common `RequestLoggingMiddleware`. Remaining: extract the duplicated middleware into a **shared
+  library/package** (today it's copied across the three separate solutions) and unify JWT config.
 - **Key Vault-backed secrets** — mount the provisioned Key Vault into pods (CSI driver) instead of
   plain Kubernetes Secrets.
 - **Real TLS** — a purchased domain to unblock Let's Encrypt on the ingress (removing the nip.io

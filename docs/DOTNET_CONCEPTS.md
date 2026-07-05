@@ -13,27 +13,22 @@ component can act before *and* after `next()`, or short-circuit (e.g. return 401
 rest). **Order matters**: whatever is registered first is outermost, so it sees the request first and
 the response last.
 
-### Our middleware stack — order per service (from the real `Program.cs`)
+### Our middleware stack — one canonical order, shared by all three services (from the real `Program.cs`)
 
-**AuthService**
 ```
-CorrelationIdMiddleware → GlobalExceptionMiddleware → UseSwagger → UseSwaggerUI
-→ UseCors → UseAuthentication → UseAuthorization → MapControllers → MapHealthChecks
+CorrelationIdMiddleware → RequestLoggingMiddleware → Exception middleware (ProblemDetails)
+→ UseSwagger → UseSwaggerUI → UseCors → UseAuthentication → UseAuthorization
+→ [ProductService only: SerilogEnrichingMiddleware] → MapControllers → MapHealthChecks
 ```
-**ProductService**
-```
-CorrelationIdMiddleware → ExceptionMiddleware → SerilogEnrichingMiddleware
-→ UseCors → UseAuthentication → UseAuthorization → UseSwagger → UseSwaggerUI
-→ MapHealthChecks → MapControllers
-```
-**InventoryService**
-```
-UseSwagger → UseSwaggerUI → UseCors → CorrelationIdMiddleware
-→ UseAuthentication → UseAuthorization → MapControllers → MapHealthChecks
-```
-> Honest note: the three orders are **not** identical (e.g. Inventory puts Swagger/CORS *before*
-> CorrelationId, and has no global exception middleware). Standardising the pipeline is a known
-> cleanup item — see `docs/LLD.md`.
+- **AuthService** — exception middleware is `GlobalExceptionMiddleware`.
+- **ProductService** — exception middleware is `ExceptionMiddleware`; also runs
+  `SerilogEnrichingMiddleware` **after** authentication (so it can log the authenticated `UserName`).
+- **InventoryService** — exception middleware is `ExceptionMiddleware` (added during the
+  standardisation; it previously had no global handler).
+
+> Note: this used to differ per service (Inventory put Swagger/CORS before CorrelationId and had no
+> exception handler). The pipeline order and the RFC 9457 error handling were standardised — the only
+> intentional per-service difference now is ProductService's extra `SerilogEnrichingMiddleware`.
 
 For each element, what it does / why it's there / what breaks if missing:
 
@@ -55,9 +50,10 @@ For each element, what it does / why it's there / what breaks if missing:
 
 ### Middleware we could add next (PLANNED)
 - **RateLimiterMiddleware** — throttle abusive callers (`AddRateLimiter`), or offload to APIM in B.
-- **RequestResponseLoggingMiddleware** — structured request/response + `DurationMs` (which the
-  Splunk "slow requests" search assumes but nothing emits yet).
 - **CachingMiddleware / OutputCache** — cache `GET /api/products` responses.
+
+> Already added: a `RequestLoggingMiddleware` now emits a `DurationMs` field per request across all
+> three services — the field the Splunk duration searches rely on.
 
 ---
 

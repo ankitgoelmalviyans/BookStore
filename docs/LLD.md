@@ -34,17 +34,20 @@ var claims = new[]
 ### Middleware pipeline order (`Program.cs`)
 ```
 1. UseMiddleware<CorrelationIdMiddleware>   // establish CorrelationId + TraceId in LogContext first
-2. UseMiddleware<GlobalExceptionMiddleware> // catch everything below, return structured 500 + correlationId
-3. UseSwagger
-4. UseSwaggerUI
-5. UseCors("AllowFrontend")
-6. UseAuthentication                        // parse/validate Bearer token
-7. UseAuthorization
-8. MapControllers
-9. MapHealthChecks("/health")
+2. UseMiddleware<RequestLoggingMiddleware>  // time the request, emit DurationMs (health excluded)
+3. UseMiddleware<GlobalExceptionMiddleware> // catch everything below, return RFC 9457 ProblemDetails + correlationId
+4. UseSwagger
+5. UseSwaggerUI
+6. UseCors("AllowFrontend")
+7. UseAuthentication                        // parse/validate Bearer token
+8. UseAuthorization
+9. MapControllers
+10. MapHealthChecks("/health")
 ```
-Order rationale: CorrelationId is outermost so *every* later log line (including exceptions) carries
-it. Exception handling wraps the pipeline. Auth precedes Authz (you must know *who* before *whether*).
+Order rationale: CorrelationId is outermost so *every* later log line (including the request-duration
+line and exceptions) carries it. Request logging sits just inside it so the completion line sees the
+final status code. Exception handling wraps the app. Auth precedes Authz (you must know *who* before
+*whether*). **All three services now share this canonical order.**
 
 ### Current limitations
 - **Single credential** from config — no user store, no registration.
@@ -173,27 +176,31 @@ ProcessMessageAsync:
 - **If missing:** logs from a single request would be un-joinable; the Splunk end-to-end trace story
   collapses; the async hop loses its business trace id.
 
-### 2. GlobalExceptionMiddleware / ExceptionMiddleware (differs per service — real inconsistency)
-- **AuthService `GlobalExceptionMiddleware`:** catches all, logs with method+path, returns a
-  **structured JSON 500** with `type`/`title`/`status` **and `correlationId`** (from
-  `HttpContext.Items["X-Correlation-Id"]`). It references `rfc9110#section-15.6.1` — close to, but
-  not a full RFC 9457 `application/problem+json` ProblemDetails.
-- **ProductService `ExceptionMiddleware`:** catches all, logs, and writes a **plain-text**
-  `"An unexpected error occurred."` with status 500 — **no ProblemDetails, no CorrelationId in the
-  body.** (It is an `IMiddleware` registered as a Singleton.)
-- **InventoryService:** has **no** global exception middleware in its pipeline.
-- **If missing:** unhandled exceptions leak stack traces / default 500s; errors become harder to
+### 2. Exception middleware — now standardised to RFC 9457 ProblemDetails
+All three services return an identical error shape on an unhandled exception: an
+`application/problem+json` response (`type`/`title`/`status`/`instance`) with the request's
+`correlationId` as an extension member, sourced from `HttpContext.Items["X-Correlation-Id"]`.
+- **AuthService** — `GlobalExceptionMiddleware` (conventional, `RequestDelegate` ctor).
+- **ProductService** — `ExceptionMiddleware` (`IMiddleware`, registered Singleton).
+- **InventoryService** — `ExceptionMiddleware` (conventional) — newly added; previously it had none.
+- **Implementation note:** the three services are separate solutions, so the middleware is
+  *duplicated* (behaviourally identical) rather than shared from a common library. A shared package
+  is the longer-term ideal (Phase 5).
+- **If missing:** unhandled exceptions leak stack traces / default 500s and errors are harder to
   correlate.
-- **Target state (PLANNED):** a single shared RFC 9457 ProblemDetails middleware, with CorrelationId
-  in the body, used identically by all three services.
 
-### 3. SerilogEnrichingMiddleware (ProductService only)
+### 3. RequestLoggingMiddleware (all three services)
+- Times each request with a `Stopwatch` and logs one structured completion line —
+  `HTTP {RequestMethod} {RequestPath} responded {StatusCode} in {DurationMs} ms` — skipping `/health`
+  to avoid probe noise. Runs inside the CorrelationId LogContext, so the line carries CorrelationId +
+  TraceId. This is what emits the `DurationMs` field the Splunk duration searches use.
+
+### 4. SerilogEnrichingMiddleware (ProductService only)
 - Pushes `RequestId` (`context.TraceIdentifier`) and `UserName` (or `"Anonymous"`) into `LogContext`.
+  Positioned **after** `UseAuthentication` so the authenticated `UserName` is populated.
 
 ### Middleware we do NOT have yet but should (PLANNED)
 - **RateLimiterMiddleware** — protect endpoints (or push to APIM in Profile B).
-- **RequestResponseLoggingMiddleware** — structured request/response + duration (would also feed the
-  `DurationMs` field the Splunk "slow requests" search currently assumes but nothing emits).
 
 ---
 

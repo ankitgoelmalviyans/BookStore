@@ -177,5 +177,10 @@ These are **PLANNED**, not built. They are documented in `docs/ROADMAP.md`.
 | **Unit / integration tests** | Phase 5 — CI builds and validates but runs no test suite yet |
 
 ### Known gaps flagged honestly
-- **ProductService exception middleware** returns a plain-text `500` (not RFC 9457 ProblemDetails, and without CorrelationId). AuthService returns a structured error object. This inconsistency is a real gap.
 - **Event publish is best-effort**: `ProductService.CreateAsync` catches and logs a Service Bus publish failure but still returns success — a **dual-write** risk the Outbox pattern (Phase 2) is meant to close.
+- **Symmetric JWT key shared across services** — fine for a monorepo demo; asymmetric signing is the production target.
+
+### Recently closed gaps
+- **Unified error handling** — all three services now return **RFC 9457 `application/problem+json`** ProblemDetails with the request's `correlationId` on unhandled errors (previously ProductService returned plain text and InventoryService had no global handler). The implementation is duplicated per service (they are separate solutions); a shared library remains the longer-term ideal.
+- **Standardised middleware pipeline order** across all three services.
+- **Request-duration logging** — a `RequestLoggingMiddleware` now emits a `DurationMs` field per request (health probes excluded), making duration-based Splunk searches real.

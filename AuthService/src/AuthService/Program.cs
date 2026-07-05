@@ -89,7 +89,12 @@ builder.Services.AddAuthentication("Bearer")
     });
 
 var app = builder.Build();
+
+// Canonical middleware pipeline order — shared across AuthService, ProductService, InventoryService:
+//   1. CorrelationId  2. RequestLogging (DurationMs)  3. GlobalException (ProblemDetails)
+//   4. Swagger/UI  5. CORS  6. Authentication  7. Authorization  8. Controllers  9. HealthChecks
 app.UseMiddleware<CorrelationIdMiddleware>();
+app.UseMiddleware<RequestLoggingMiddleware>();
 app.UseMiddleware<GlobalExceptionMiddleware>();
 app.UseSwagger();
 app.UseSwaggerUI();

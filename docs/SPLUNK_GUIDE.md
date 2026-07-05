@@ -177,10 +177,20 @@ index=main sourcetype="bookstore:json" Application="BookStore.ProductService"
 index=main sourcetype="bookstore:json"
   MessageTemplate="Failed to publish ProductCreatedEvent to Service Bus"
 | table _time, Application, CorrelationId, TraceId
+
+# 26. Slow requests (over 1 second) — DurationMs is emitted by RequestLoggingMiddleware
+index=main sourcetype="bookstore:json" DurationMs>1000
+| table _time, Application, RequestMethod, RequestPath, StatusCode, DurationMs, CorrelationId
+| sort by DurationMs desc
+
+# 27. Per-service average/95th-percentile latency
+index=main sourcetype="bookstore:json" DurationMs=*
+| stats avg(DurationMs) as avg_ms, p95(DurationMs) as p95_ms, count by Application
 ```
-> Note: a `DurationMs`-based "slow requests" search is documented in `docs/splunk-searches.md` but
-> **no field emits `DurationMs` yet** — it needs `UseSerilogRequestLogging()` or a custom enricher
-> (a RequestResponseLoggingMiddleware, see `docs/DOTNET_CONCEPTS.md`).
+> Note: `DurationMs` is now emitted per request by `RequestLoggingMiddleware` in all three services
+> (health probes excluded), so the duration searches above return real data. Fields available on the
+> request-completion line: `RequestMethod`, `RequestPath`, `StatusCode`, `DurationMs` (+ the usual
+> `CorrelationId`/`TraceId`/`Application`).
 
 ---
 
