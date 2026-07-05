@@ -22,8 +22,7 @@
       "WithSpan"
     ],
     "Properties": {
-      "Application": "BookStore.ProductService",
-      "Environment": "Development"
+      "Application": "BookStore.ProductService"
     }
   }
 }
