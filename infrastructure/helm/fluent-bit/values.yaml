@@ -22,6 +22,13 @@ resources:
     cpu: 200m
     memory: 128Mi
 
+env:
+  - name: SPLUNK_HEC_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: splunk-secrets
+        key: SPLUNK_HEC_TOKEN
+
 config:
   service: |
     [SERVICE]
@@ -74,10 +81,3 @@ config:
         Event_Index         main
         Event_Sourcetype    bookstore:json
         Retry_Limit         5
-
-  env:
-  - name: SPLUNK_HEC_TOKEN
-    valueFrom:
-      secretKeyRef:
-        name: splunk-secrets
-        key: SPLUNK_HEC_TOKEN
