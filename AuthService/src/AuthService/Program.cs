@@ -61,7 +61,15 @@ builder.Services.AddOpenTelemetry()
 
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new() { Title = "BookStore.AuthService", Version = "v1" });
+
+    if (!builder.Environment.IsDevelopment())
+    {
+        c.AddServer(new Microsoft.OpenApi.Models.OpenApiServer { Url = "/auth" });
+    }
+});
 builder.Services.AddScoped<ITokenService, TokenService>();
 
 builder.Services.AddAuthentication("Bearer")
