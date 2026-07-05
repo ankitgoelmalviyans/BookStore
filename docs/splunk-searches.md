@@ -1,5 +1,43 @@
 # BookStore Splunk Searches
 
+## How logs reach Splunk
+
+```text
+App (Serilog JSON to stdout)
+  → containerd writes /var/log/containers/*_bookstore_*.log  (CRI-wrapped)
+  → Fluent Bit DaemonSet:
+       cri_bookstore parser   (splits the CRI wrapper, sets _time)
+       kubernetes filter      (adds pod/namespace/labels metadata)
+       grep x2                (drop fluent-bit's own logs; keep only the 3 services)
+       parser json_serilog    (parses the Serilog JSON in "message" into fields)
+       nest lift Properties   (moves Serilog Properties.* up to top level)
+       modify                 (adds environment=Production, platform=BookStore-AKS)
+  → Splunk HEC  (index=main, sourcetype=bookstore:json)
+```
+
+Because the whole record is shipped as JSON, every field below is a real, searchable
+top-level field — no `spath` needed.
+
+## Fields available for searching
+
+| Field | Source | Example |
+|---|---|---|
+| `_time` | CRI timestamp | — |
+| `Timestamp` | Serilog | `2026-07-05T12:29:25.46+00:00` |
+| `Level` | Serilog | `Information`, `Warning`, `Error` |
+| `MessageTemplate` | Serilog | `Received ProductCreatedEvent: {Name}` |
+| `Application` | Serilog property | `BookStore.ProductService` |
+| `CorrelationId` | CorrelationIdMiddleware | request-scoped GUID |
+| `TraceId` / `SpanId` / `ParentId` | Serilog.Enrichers.Span | OpenTelemetry trace ids |
+| `OperationName` | Serilog.Enrichers.Span | `Microsoft.AspNetCore.Hosting.HttpRequestIn` |
+| `SourceContext`, `RequestPath`, `ThreadId`, `MachineName`, `EventId` | Serilog | — |
+| `kubernetes.pod_name`, `kubernetes.container_name` | k8s filter | `productservice-...` |
+| `environment`, `platform` | Fluent Bit modify | `Production`, `BookStore-AKS` |
+| `message` | preserved raw | the original Serilog JSON string |
+
+> Placeholder values from message templates also become their own fields — e.g. a log
+> with template `Received ProductCreatedEvent: {Name}` gives you a searchable `Name` field.
+
 ## Find all logs for a specific request
 
 ```text
@@ -11,7 +49,7 @@ index=main sourcetype="bookstore:json" CorrelationId="YOUR_CORRELATION_ID"
 
 ```text
 index=main sourcetype="bookstore:json" TraceId="YOUR_TRACE_ID"
-| table _time, Application, Level, Message, SpanId, CorrelationId
+| table _time, Application, Level, MessageTemplate, SpanId, CorrelationId
 | sort by _time
 ```
 
@@ -19,7 +57,7 @@ index=main sourcetype="bookstore:json" TraceId="YOUR_TRACE_ID"
 
 ```text
 index=main sourcetype="bookstore:json" Level="Error"
-| table _time, Application, Message, CorrelationId, TraceId
+| table _time, Application, MessageTemplate, CorrelationId, TraceId
 | sort by _time desc
 ```
 
@@ -27,7 +65,7 @@ index=main sourcetype="bookstore:json" Level="Error"
 
 ```text
 index=main sourcetype="bookstore:json" Application="BookStore.ProductService"
-| table _time, Level, Message, CorrelationId
+| table _time, Level, MessageTemplate, CorrelationId
 ```
 
 ## Service Bus consumer errors
@@ -50,9 +88,13 @@ index=main sourcetype="bookstore:json" earliest=-1h
 
 ```text
 index=main sourcetype="bookstore:json"
-SpanOperationName=* DurationMs>1000
-| table _time, Application, SpanOperationName, DurationMs, CorrelationId
+OperationName=* DurationMs>1000
+| table _time, Application, OperationName, DurationMs, CorrelationId
 | sort by DurationMs desc
 ```
 
-> **Note:** the "Slow requests" search assumes a `DurationMs` field. Nothing in the current OpenTelemetry/Serilog setup emits that field yet — `Serilog.Enrichers.Span` only adds `TraceId`, `SpanId`, and (with `IncludeOperationName`) `SpanOperationName`. To make this search return results, add request-duration logging (e.g. Serilog's `UseSerilogRequestLogging()` middleware, or a custom enricher) that writes a `DurationMs` property.
+> **Note:** the "Slow requests" search assumes a `DurationMs` field. Nothing in the current
+> setup emits that field yet — `Serilog.Enrichers.Span` only adds `TraceId`, `SpanId`, and
+> `OperationName`. To make this search return results, add request-duration logging (e.g.
+> Serilog's `UseSerilogRequestLogging()` middleware, or a custom enricher) that writes a
+> `DurationMs` property.

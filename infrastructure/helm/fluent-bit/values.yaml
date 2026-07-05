@@ -14,64 +14,6 @@ rbac:
 tolerations:
   - operator: Exists
 
-luaScripts:
-  flatten.lua: |
-    -- This image's Fluent Bit build has no cjson binding, so we can't
-    -- generically decode "message" as JSON. Instead, pull just the fields
-    -- we know Serilog's JsonFormatter emits, via plain Lua string patterns.
-    -- Non-JSON content (e.g. a plain Console.WriteLine line) simply won't
-    -- match any pattern below, so the record passes through unchanged.
-    function flatten_message(tag, timestamp, record)
-        local message = record["message"]
-        if type(message) ~= "string" then
-            return 0, timestamp, record
-        end
-
-        local changed = false
-
-        local level = message:match('"Level":"([^"]*)"')
-        if level then
-            record["Level"] = level
-            changed = true
-        end
-
-        local template = message:match('"MessageTemplate":"(.-)",')
-        if template then
-            record["MessageTemplate"] = template
-            changed = true
-        end
-
-        local application = message:match('"Application":"([^"]*)"')
-        if application then
-            record["Application"] = application
-            changed = true
-        end
-
-        local correlationId = message:match('"CorrelationId":"([^"]*)"')
-        if correlationId then
-            record["CorrelationId"] = correlationId
-            changed = true
-        end
-
-        local traceId = message:match('"TraceId":"([^"]*)"')
-        if traceId then
-            record["TraceId"] = traceId
-            changed = true
-        end
-
-        local spanOperationName = message:match('"SpanOperationName":"([^"]*)"')
-        if spanOperationName then
-            record["SpanOperationName"] = spanOperationName
-            changed = true
-        end
-
-        if not changed then
-            return 0, timestamp, record
-        end
-
-        return 1, timestamp, record
-    end
-
 resources:
   requests:
     cpu: 50m
@@ -131,11 +73,26 @@ config:
         Match   kube.*
         Regex   $kubernetes['container_name'] ^(authservice|productservice|inventoryservice)$
 
+    # Parse the Serilog JSON that sits inside "message" into real fields.
+    # Native JSON parser (no Lua/cjson). If a line is NOT JSON (e.g. a plain
+    # Console.WriteLine), the parser leaves the record untouched — nothing dropped.
+    # Reserve_Data keeps the kubernetes metadata; Preserve_Key keeps the raw message.
     [FILTER]
-        Name    lua
-        Match   kube.*
-        script  /fluent-bit/scripts/flatten.lua
-        call    flatten_message
+        Name         parser
+        Match        kube.*
+        Key_Name     message
+        Parser       json_serilog
+        Reserve_Data On
+        Preserve_Key On
+
+    # Serilog nests all enriched properties under "Properties". Lift them to the
+    # top level so CorrelationId / TraceId / Application / Level etc. are directly
+    # searchable in Splunk instead of buried as Properties.CorrelationId.
+    [FILTER]
+        Name         nest
+        Match        kube.*
+        Operation    lift
+        Nested_under Properties
 
     [FILTER]
         Name    modify
@@ -163,3 +120,7 @@ config:
         Regex       ^(?<time>[^ ]+) (?<stream>stdout|stderr) (?<logtag>[^ ]*) (?<message>.*)$
         Time_Key    time
         Time_Format %Y-%m-%dT%H:%M:%S.%L%z
+
+    [PARSER]
+        Name        json_serilog
+        Format      json
