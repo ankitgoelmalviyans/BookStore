@@ -176,6 +176,8 @@ jobs:
         run: |
           kubectl create secret generic authservice-secrets \
             --from-literal=Jwt__Key="${{ secrets.JWT_KEY }}" \
+            --from-literal=Auth__Username="${{ secrets.AUTH_USERNAME }}" \
+            --from-literal=Auth__Password="${{ secrets.AUTH_PASSWORD }}" \
             --from-literal=AllowedOrigins__0="${{ secrets.ALLOWED_ORIGINS }}" \
             --namespace=${{ env.NAMESPACE }} \
             --dry-run=client -o yaml | kubectl apply -f -
