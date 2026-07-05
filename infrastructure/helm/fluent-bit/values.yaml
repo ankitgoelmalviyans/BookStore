@@ -45,7 +45,7 @@ config:
         Name              tail
         Tag               kube.*
         Path              /var/log/containers/*_bookstore_*.log
-        multiline.parser  cri
+        Parser            cri
         DB                /var/log/flb_kube.db
         Mem_Buf_Limit     5MB
         Skip_Long_Lines   On
@@ -81,3 +81,11 @@ config:
         Event_Index         main
         Event_Sourcetype    bookstore:json
         Retry_Limit         5
+
+  customParsers: |
+    [PARSER]
+        Name        cri
+        Format      regex
+        Regex       ^(?<time>[^ ]+) (?<stream>stdout|stderr) (?<logtag>[^ ]*) (?<log>.*)$
+        Time_Key    time
+        Time_Format %Y-%m-%dT%H:%M:%S.%L%z
