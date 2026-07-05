@@ -66,12 +66,12 @@ config:
     [FILTER]
         Name    grep
         Match   kube.*
-        Exclude kubernetes.container_name fluent-bit
+        Exclude $kubernetes['container_name'] fluent-bit
 
     [FILTER]
         Name    grep
         Match   kube.*
-        Regex   kubernetes.container_name ^(authservice|productservice|inventoryservice)$
+        Regex   $kubernetes['container_name'] ^(authservice|productservice|inventoryservice)$
 
     [FILTER]
         Name    modify
