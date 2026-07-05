@@ -45,7 +45,7 @@ namespace BookStore.ProductService.Application.Services
                 Quantity = createdProduct.Quantity
             };
 
-            var topic = _configuration["AzureServiceBus:TopicName"];
+            var topic = _configuration["AzureServiceBus:TopicName"] ?? "product-events";
 
             try
             {

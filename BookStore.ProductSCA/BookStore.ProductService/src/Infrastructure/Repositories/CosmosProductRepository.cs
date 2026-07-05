@@ -59,7 +59,7 @@ public class CosmosProductRepository : IProductRepository
         return response.Resource;
     }
 
-    public async Task<Product?> UpdateAsync(Product product)
+    public async Task<Product> UpdateAsync(Product product)
     {
         try
         {
@@ -71,7 +71,7 @@ public class CosmosProductRepository : IProductRepository
         }
         catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
-            return null;
+            throw new KeyNotFoundException($"Product {product.Id} not found.", ex);
         }
     }
 

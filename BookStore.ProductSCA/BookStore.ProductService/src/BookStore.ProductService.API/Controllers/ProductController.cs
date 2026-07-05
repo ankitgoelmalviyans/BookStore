@@ -1,6 +1,5 @@
 using BookStore.ProductService.Core.Entities;
 using BookStore.ProductService.Application.Interfaces;
-using BookStore.ProductService.Core.Entities;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 
