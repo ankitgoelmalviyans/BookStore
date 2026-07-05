@@ -71,7 +71,13 @@ config:
         Splunk_Token        ${SPLUNK_HEC_TOKEN}
         TLS                 On
         TLS.Verify          Off
-        Splunk_Send_Raw     On
         Event_Index         main
         Event_Sourcetype    bookstore:json
         Retry_Limit         5
+
+  env:
+  - name: SPLUNK_HEC_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: splunk-secrets
+        key: SPLUNK_HEC_TOKEN

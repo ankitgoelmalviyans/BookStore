@@ -1,7 +1,10 @@
 name: CD — Deploy (Profile A Cost-Optimised)
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI — Build and Validate"]
+    types:
+      - completed
     branches:
       - main
   workflow_dispatch:
@@ -253,9 +256,6 @@ jobs:
           helm upgrade --install fluent-bit fluent/fluent-bit \
             --namespace ${{ env.NAMESPACE }} \
             --values infrastructure/helm/fluent-bit/values.yaml \
-            --set env[0].name=SPLUNK_HEC_TOKEN \
-            --set env[0].valueFrom.secretKeyRef.name=splunk-secrets \
-            --set env[0].valueFrom.secretKeyRef.key=SPLUNK_HEC_TOKEN \
             --wait \
             --timeout 3m
           echo "Fluent Bit deployed — logs shipping to Splunk"
