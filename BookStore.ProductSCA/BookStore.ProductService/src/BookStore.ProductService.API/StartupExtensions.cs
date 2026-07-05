@@ -34,7 +34,7 @@ namespace BookStore.ProductService.Extensions
 
             services.AddSingleton<ServiceBusClient>(sp =>
             {
-                var connectionString = sp.GetRequiredService<IConfiguration>()["ServiceBus:ConnectionString"];
+                var connectionString = sp.GetRequiredService<IConfiguration>()["AzureServiceBus:ConnectionString"];
                 return new ServiceBusClient(connectionString);
             });
 
