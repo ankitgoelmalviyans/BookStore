@@ -37,8 +37,8 @@ config:
     [INPUT]
         Name              tail
         Tag               kube.*
-        Path              /var/log/containers/*bookstore*.log
-        Parser            docker
+        Path              /var/log/containers/*_bookstore_*.log
+        multiline.parser  cri
         DB                /var/log/flb_kube.db
         Mem_Buf_Limit     5MB
         Skip_Long_Lines   On
