@@ -54,8 +54,11 @@ builder.Services.AddOpenTelemetry()
             options.Filter = ctx =>
                 !ctx.Request.Path.StartsWithSegments("/health");
         })
-        .AddHttpClientInstrumentation()
-        .AddConsoleExporter());
+        .AddHttpClientInstrumentation());
+// NOTE: No exporter is registered on purpose. Spans are still created so that
+// TraceId/SpanId enrich the Serilog logs, but they are NOT dumped to stdout
+// (the console exporter's multi-line plaintext output pollutes Splunk).
+// A real OTLP exporter to a tracing backend is planned for Phase 4.
 
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
