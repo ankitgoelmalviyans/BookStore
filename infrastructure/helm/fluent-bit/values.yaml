@@ -64,6 +64,16 @@ config:
         K8S-Logging.Exclude Off
 
     [FILTER]
+        Name    grep
+        Match   kube.*
+        Exclude kubernetes.container_name fluent-bit
+
+    [FILTER]
+        Name    grep
+        Match   kube.*
+        Regex   kubernetes.container_name ^(authservice|productservice|inventoryservice)$
+
+    [FILTER]
         Name    modify
         Match   kube.*
         Add     environment Production
@@ -86,6 +96,6 @@ config:
     [PARSER]
         Name        cri
         Format      regex
-        Regex       ^(?<time>[^ ]+) (?<stream>stdout|stderr) (?<logtag>[^ ]*) (?<log>.*)$
+        Regex       ^(?<time>[^ ]+) (?<stream>stdout|stderr) (?<logtag>[^ ]*) (?<message>.*)$
         Time_Key    time
         Time_Format %Y-%m-%dT%H:%M:%S.%L%z
