@@ -1,8 +1,11 @@
 using Serilog;
+using Serilog.Enrichers.Span;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using AuthService.Middleware;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -25,9 +28,37 @@ builder.Services.AddCors(options =>
             .AllowAnyMethod();
     });
 });
-builder.Host.UseSerilog((ctx, lc) => lc.ReadFrom.Configuration(ctx.Configuration));
+builder.Host.UseSerilog((ctx, lc) => lc
+    .ReadFrom.Configuration(ctx.Configuration)
+    .Enrich.FromLogContext()
+    .Enrich.WithMachineName()
+    .Enrich.WithThreadId()
+    .Enrich.WithSpan(new SpanOptions
+    {
+        IncludeOperationName = true,
+        IncludeTags = false
+    }));
 
 builder.Services.AddControllers();
+
+// OpenTelemetry distributed tracing
+builder.Services.AddOpenTelemetry()
+    .WithTracing(tracing => tracing
+        .SetResourceBuilder(
+            ResourceBuilder.CreateDefault()
+                .AddService(
+                    serviceName: builder.Configuration["Otel:ServiceName"]
+                        ?? "BookStore.UnknownService",
+                    serviceVersion: "1.0.0"))
+        .AddAspNetCoreInstrumentation(options =>
+        {
+            options.RecordException = true;
+            options.Filter = ctx =>
+                !ctx.Request.Path.StartsWithSegments("/health");
+        })
+        .AddHttpClientInstrumentation()
+        .AddConsoleExporter());
+
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();

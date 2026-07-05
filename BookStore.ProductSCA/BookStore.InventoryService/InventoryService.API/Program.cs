@@ -8,6 +8,9 @@ using Microsoft.Extensions.Hosting;
 using System;
 using Microsoft.OpenApi.Models;
 using Serilog;
+using Serilog.Enrichers.Span;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -34,10 +37,38 @@ else
 
 builder.Host.UseSerilog((context, services, configuration) =>
 {
-    configuration.ReadFrom.Configuration(context.Configuration);
+    configuration
+        .ReadFrom.Configuration(context.Configuration)
+        .Enrich.FromLogContext()
+        .Enrich.WithMachineName()
+        .Enrich.WithThreadId()
+        .Enrich.WithSpan(new SpanOptions
+        {
+            IncludeOperationName = true,
+            IncludeTags = false
+        });
 });
 
 builder.Services.AddControllers();
+
+// OpenTelemetry distributed tracing
+builder.Services.AddOpenTelemetry()
+    .WithTracing(tracing => tracing
+        .SetResourceBuilder(
+            ResourceBuilder.CreateDefault()
+                .AddService(
+                    serviceName: builder.Configuration["Otel:ServiceName"]
+                        ?? "BookStore.UnknownService",
+                    serviceVersion: "1.0.0"))
+        .AddAspNetCoreInstrumentation(options =>
+        {
+            options.RecordException = true;
+            options.Filter = ctx =>
+                !ctx.Request.Path.StartsWithSegments("/health");
+        })
+        .AddHttpClientInstrumentation()
+        .AddConsoleExporter());
+
 builder.Services.AddEndpointsApiExplorer();
 
 // Add Swagger path prefix logic for Dev vs Production

@@ -18,7 +18,8 @@
     "Enrich": [
       "FromLogContext",
       "WithMachineName",
-      "WithThreadId"
+      "WithThreadId",
+      "WithSpan"
     ],
     "Properties": {
       "Application": "BookStore.InventoryService",

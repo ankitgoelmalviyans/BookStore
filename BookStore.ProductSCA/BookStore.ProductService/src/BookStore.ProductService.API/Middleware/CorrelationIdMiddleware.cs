@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Serilog.Context;
 
 namespace BookStore.ProductService.API.Middleware;
@@ -24,8 +25,17 @@ public class CorrelationIdMiddleware
         // Add to response so caller can trace it
         context.Response.Headers[CorrelationIdHeader] = correlationId;
 
+        // Attach CorrelationId to current OpenTelemetry span
+        var activity = Activity.Current;
+        activity?.SetTag("correlation.id", correlationId);
+        activity?.SetTag("bookstore.service",
+            context.RequestServices
+                .GetRequiredService<IConfiguration>()["Otel:ServiceName"]);
+
         // Push into Serilog LogContext so ALL log lines include it
         using (LogContext.PushProperty("CorrelationId", correlationId))
+        using (LogContext.PushProperty("TraceId",
+            activity?.TraceId.ToString() ?? correlationId))
         {
             await _next(context);
         }

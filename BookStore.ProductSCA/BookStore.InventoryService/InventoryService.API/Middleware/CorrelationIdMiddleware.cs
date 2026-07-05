@@ -25,8 +25,11 @@
 /// <param name="context">The <see cref="HttpContext"/> for the current request.</param>
 /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Serilog.Context;
 using System;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -55,8 +58,17 @@ public class CorrelationIdMiddleware
         // Add to response so caller can trace it
         context.Response.Headers[CorrelationIdHeader] = correlationId;
 
+        // Attach CorrelationId to current OpenTelemetry span
+        var activity = Activity.Current;
+        activity?.SetTag("correlation.id", correlationId);
+        activity?.SetTag("bookstore.service",
+            context.RequestServices
+                .GetRequiredService<IConfiguration>()["Otel:ServiceName"]);
+
         // Push into Serilog LogContext so ALL log lines include it
         using (LogContext.PushProperty("CorrelationId", correlationId))
+        using (LogContext.PushProperty("TraceId",
+            activity?.TraceId.ToString() ?? correlationId))
         {
             await _next(context);
         }

@@ -239,6 +239,27 @@ jobs:
             --wait \
             --timeout 5m
 
+      - name: Create Splunk secret
+        run: |
+          kubectl create secret generic splunk-secrets \
+            --from-literal=SPLUNK_HEC_TOKEN="${{ secrets.SPLUNK_HEC_TOKEN }}" \
+            --namespace ${{ env.NAMESPACE }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy Fluent Bit
+        run: |
+          helm repo add fluent https://fluent.github.io/helm-charts
+          helm repo update
+          helm upgrade --install fluent-bit fluent/fluent-bit \
+            --namespace ${{ env.NAMESPACE }} \
+            --values infrastructure/helm/fluent-bit/values.yaml \
+            --set env[0].name=SPLUNK_HEC_TOKEN \
+            --set env[0].valueFrom.secretKeyRef.name=splunk-secrets \
+            --set env[0].valueFrom.secretKeyRef.key=SPLUNK_HEC_TOKEN \
+            --wait \
+            --timeout 3m
+          echo "Fluent Bit deployed — logs shipping to Splunk"
+
       - name: Health checks
         run: |
           echo "Waiting for deployments to be ready..."
