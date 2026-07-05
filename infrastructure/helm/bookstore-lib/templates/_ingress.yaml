@@ -8,17 +8,16 @@ metadata:
     kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/use-regex: "true"
-    # TODO: Re-enable when custom domain with proper DNS is configured
-    # nip.io domains have issues with Let's Encrypt HTTP-01 challenge
-    # cert-manager.io/cluster-issuer: letsencrypt-prod
+    cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
   ingressClassName: nginx
-  # TODO: Re-enable TLS when Let's Encrypt cert is working
-  # Requires a proper domain (not nip.io) or manual cert-manager configuration
-  # tls:
-  #   - hosts:
-  #       - {{ .Values.ingress.host }}
-  #     secretName: {{ .Values.service.name }}-tls
+  # All three services share the same nip.io host, so they share one TLS secret
+  # (and therefore one Let's Encrypt certificate) rather than each requesting
+  # its own near-duplicate cert for the identical hostname.
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host }}
+      secretName: bookstore-tls
   rules:
     - host: {{ .Values.ingress.host }}
       http:

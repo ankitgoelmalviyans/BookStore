@@ -89,6 +89,31 @@ builder.Services.AddSwaggerGen(c =>
     {
         c.AddServer(new OpenApiServer { Url = "/inventory" });
     }
+
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "Bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "Enter 'Bearer' [space] and then your valid token.\nExample: Bearer eyJhbGciOi..."
+    });
+
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
 });
 
 // Authentication — validate JWTs issued by AuthService (mirrors ProductService)
@@ -129,7 +154,11 @@ var app = builder.Build();
 app.UseSwagger();
 app.UseSwaggerUI();
 
-app.UseHttpsRedirection();
+// No UseHttpsRedirection() here: TLS is terminated at the NGINX ingress, which
+// forwards to this pod over plain HTTP inside the cluster (normal for this
+// topology). Without ForwardedHeaders wired up, this middleware can't see that
+// the original request was HTTPS and would redirect to a URL missing the
+// ingress's /inventory path prefix, breaking every request behind TLS.
 app.UseCors("AllowFrontend");
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseAuthentication();
