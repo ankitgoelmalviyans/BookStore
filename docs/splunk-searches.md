@@ -30,7 +30,8 @@ top-level field — no `spath` needed.
 | `CorrelationId` | CorrelationIdMiddleware | request-scoped GUID |
 | `TraceId` / `SpanId` / `ParentId` | Serilog.Enrichers.Span | OpenTelemetry trace ids |
 | `OperationName` | Serilog.Enrichers.Span | `Microsoft.AspNetCore.Hosting.HttpRequestIn` |
-| `SourceContext`, `RequestPath`, `ThreadId`, `MachineName`, `EventId` | Serilog | — |
+| `DurationMs`, `RequestMethod`, `RequestPath`, `StatusCode` | RequestLoggingMiddleware (per-request completion line) | `12.4`, `POST`, `/api/products`, `201` |
+| `SourceContext`, `ThreadId`, `MachineName`, `EventId` | Serilog | — |
 | `kubernetes.pod_name`, `kubernetes.container_name` | k8s filter | `productservice-...` |
 | `environment`, `platform` | Fluent Bit modify | `Production`, `BookStore-AKS` |
 | `message` | preserved raw | the original Serilog JSON string |

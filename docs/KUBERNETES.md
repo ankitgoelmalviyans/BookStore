@@ -208,7 +208,7 @@ kubectl describe configmap <name> -n bookstore
 | **CrashLoopBackOff** | App throws on startup — usually a missing/empty secret (`Jwt__Key`, Cosmos endpoint) | `kubectl logs --previous`; check `*-secrets`; the CD job recreates them from GitHub Secrets |
 | **Pod Pending** | No schedulable capacity on the single B2s node | `kubectl describe pod` (Insufficient cpu/memory); lower requests or scale the node pool |
 | **External URL times out** | **Azure LB health probe hitting `/` returns 404 → LB marks backend unhealthy** | Annotate the ingress LB service health-probe path to `/healthz` (see war story) |
-| **404 from NGINX** | Ingress path/rewrite mismatch, or wrong Host | `kubectl describe ingress`; confirm path `/auth(/|$)(.*)` + `rewrite-target: /$2`; use the correct `*.nip.io` Host header |
+| **404 from NGINX** | Ingress path/rewrite mismatch, or wrong Host | `kubectl describe ingress`; confirm the path regex `/auth(/\|$)(.*)` + `rewrite-target: /$2`; use the correct `*.nip.io` Host header |
 | **Service Bus errors** | Bad/empty `AzureServiceBus__ConnectionString`, or topic/subscription missing | Check the secret; confirm topic `product-events` + subscription `inventory-subscription` exist (Bicep creates them) |
 | **Cosmos errors** | Empty endpoint/key, wrong DB/container, or throttling (429) | Check `CosmosDb__*` secret values; confirm DB `BookStoreDB` + containers `Products`/`Inventory`; transient 429s → the subscriber abandons+retries |
 | **CD pipeline fails at ACR** | Rotated/incorrect `ACR_USERNAME`/`ACR_PASSWORD`, or ACR admin disabled | Refresh the GitHub Secrets from `az acr credential show`; (Managed Identity for ACR is a Phase-5 fix) |

@@ -17,7 +17,7 @@ Architect** or **Staff / Principal Engineer**:
 - Azure-native infrastructure (AKS, Cosmos DB, Service Bus, ACR, Key Vault) provisioned as code
 - GitHub-Actions-only CI/CD across app, UI, and infrastructure
 - End-to-end observability (Serilog JSON → Fluent Bit → Splunk, with CorrelationId + OpenTelemetry)
-- A dual-profile deployment model that keeps the always-on bill near **~$22/month**
+- A dual-profile deployment model that keeps the always-on bill low (**roughly ~$22/month** as an estimate for the current SKUs — 1× `Standard_B2s` + Basic ACR + Standard Service Bus + free-tier Cosmos; actual Azure pricing varies by region and over time)
 
 The goal is not to run a bookshop. The goal is to be able to **explain and defend every decision**
 in an interview, with the code open on screen.

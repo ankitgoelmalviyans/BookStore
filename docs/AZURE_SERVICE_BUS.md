@@ -91,14 +91,17 @@ The CorrelationId is what makes the async hop **traceable end-to-end in Splunk**
 2. ProductService CorrelationIdMiddleware reads it → HttpContext.Items["X-Correlation-Id"]
    and pushes CorrelationId into Serilog LogContext (every ProductService log line carries it)
         │
-3. AzureServiceBusProducer.PublishAsync:
-        message.ApplicationProperties["CorrelationId"] = <that same id>
+3. AzureServiceBusProducer.PublishAsync (invoked by the OutboxPublisherService):
+        message.CorrelationId = <that same id>                         // native (SDK filters)
+        message.ApplicationProperties["CorrelationId"] = <that same id> // consumer contract
         │  (id now travels ON the message, across the broker)
         ▼
 4. Service Bus stores/forwards the message on inventory-subscription
         │
 5. InventoryService AzureServiceBusSubscriber.ProcessMessageAsync:
-        var correlationId = args.Message.ApplicationProperties["CorrelationId"]
+        var correlationId = args.Message.ApplicationProperties.TryGetValue("CorrelationId", out var cid)
+            ? cid?.ToString()
+            : Guid.NewGuid().ToString();
         using (LogContext.PushProperty("CorrelationId", correlationId)) { ... }
    → every InventoryService log line for this message carries the SAME id
         │

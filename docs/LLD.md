@@ -32,7 +32,7 @@ var claims = new[]
 - **No** `iss`/`aud` are validated downstream (`ValidateIssuer=false`, `ValidateAudience=false`).
 
 ### Middleware pipeline order (`Program.cs`)
-```
+```text
 1. UseMiddleware<CorrelationIdMiddleware>   // establish CorrelationId + TraceId in LogContext first
 2. UseMiddleware<RequestLoggingMiddleware>  // time the request, emit DurationMs (health excluded)
 3. UseMiddleware<GlobalExceptionMiddleware> // catch everything below, return RFC 9457 ProblemDetails + correlationId
