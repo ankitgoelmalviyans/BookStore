@@ -11,10 +11,13 @@ namespace BookStore.InventoryService.Application.Interfaces
         void UpdateInventory(Guid productId, int quantity);
 
         /// <summary>
-        /// Atomically-intended stock decrement (see implementation notes on concurrency): fails with
-        /// <c>false</c> if the product has no inventory record or insufficient stock, rather than
-        /// letting quantity go negative. This is the operation that makes Inventory the authoritative
-        /// owner of stock rather than a mirror of a field the catalog shouldn't own.
+        /// Bounds-checked stock decrement: fails with <c>false</c> for a non-positive
+        /// <paramref name="quantity"/>, a missing inventory record, or insufficient stock, rather than
+        /// letting quantity go negative or (for a non-positive input) silently increase. This is the
+        /// operation that makes Inventory the authoritative owner of stock rather than a mirror of a
+        /// field the catalog shouldn't own. Concurrency-safe under concurrent callers: the Cosmos
+        /// implementation uses ETag-based optimistic concurrency with retry; the in-memory
+        /// implementation (Singleton) uses a lock.
         /// </summary>
         bool TryDecrementStock(Guid productId, int quantity);
     }

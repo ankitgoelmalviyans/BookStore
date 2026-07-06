@@ -159,11 +159,15 @@ ProcessMessageAsync:
   - Existing row → set `Quantity`, `LastUpdated`, `UpsertItemAsync`.
   - No row → create `Inventory { Id = productId, ProductId = productId, Quantity, LastUpdated }`.
 - **`TryDecrementStock(productId, quantity)`** — the operation that makes Inventory the actual owner of
-  stock rather than a mirror of a field Product used to carry. Reads the current row, returns `false`
-  (no write) if it doesn't exist or has insufficient quantity, otherwise decrements and upserts. Exposed
-  as `POST /api/Inventory/{productId}/decrement`, returning 409 on insufficient stock. Same
-  read-then-write caveat as `UpdateInventory` below: no ETag/optimistic-concurrency check, so this is
-  not safe under heavy concurrent decrements of the same row without adding one.
+  stock rather than a mirror of a field Product used to carry. Rejects a non-positive `quantity` outright
+  (a negative value would otherwise slip past the insufficient-stock check and *increase* stock — a real
+  bug caught in review). Otherwise: point-reads the row via `ReadItemAsync` (capturing its ETag), returns
+  `false` if it doesn't exist or has insufficient quantity, else decrements and upserts with
+  `ItemRequestOptions.IfMatchEtag` set to that ETag. A `412 PreconditionFailed` (another writer updated
+  the row between our read and write) is caught and retried against a fresh read, up to 5 attempts —
+  closing the TOCTOU window a plain read-then-write would leave. Exposed as
+  `POST /api/Inventory/{productId}/decrement`, returning 409 on insufficient stock (not to be confused
+  with Cosmos's own 412 — that's an internal retry signal, not surfaced to the caller).
 - **Note:** this repo is registered **Singleton** and creates its own `CosmosClient` in its
   constructor (unlike ProductService, which injects a shared Singleton `CosmosClient`). Cosmos
   operations here are called synchronously (`.Wait()` / `.GetAwaiter().GetResult()`).
