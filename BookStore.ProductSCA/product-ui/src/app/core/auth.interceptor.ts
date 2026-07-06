@@ -9,9 +9,15 @@ export class AuthInterceptor implements HttpInterceptor {
   intercept(req: HttpRequest<any>, next: HttpHandler) {
     const token = localStorage.getItem('auth_token');
 
-    // Generate a correlation ID for this browser session's request chain
+    // Persist across page reloads so one browser session shares a single CorrelationId.
+    // Without localStorage the id resets on every F5, collapsing to per-request granularity.
     if (!this.correlationId) {
-      this.correlationId = crypto.randomUUID();
+      this.correlationId = localStorage.getItem('correlation_id') ?? crypto.randomUUID();
+      try {
+        localStorage.setItem('correlation_id', this.correlationId);
+      } catch {
+        // Keep the in-memory correlation id if persistence is unavailable.
+      }
     }
 
     const headers: { [key: string]: string } = {

@@ -256,10 +256,17 @@ with a `SpanId` and a `ParentId`. ASP.NET Core instrumentation creates the root 
 | | **TraceId** | **CorrelationId** |
 |---|-------------|-------------------|
 | Source | OpenTelemetry `Activity` (via `Serilog.Enrichers.Span`) | `X-Correlation-Id` header / generated in middleware |
-| Scope | Now **propagated across the Service Bus hop** — producer injects `traceparent`, consumer continues it, so one TraceId spans create→publish→consume | **Stable end-to-end** — client-generated, copied across the Service Bus hop |
-| Who sets it | The runtime, automatically | The client (Angular `crypto.randomUUID()`) or the first service |
-| Use in Splunk | Correlate spans *within* a service's request | Follow one *business transaction* across all services incl. async |
-| When to reach for it | "What happened inside this one request technically?" | "Show me everything that happened for this customer's action, everywhere." |
+| Granularity | **Per HTTP request** — every request gets a brand-new TraceId | **Per browser session** (persisted in `localStorage`) — survives page reloads; cleared when the user clears storage |
+| Scope | Propagated across the Service Bus hop — producer injects `traceparent`, consumer continues it, so one TraceId spans create→publish→consume | Stable end-to-end — client-generated, copied across the Service Bus hop via `ApplicationProperties["CorrelationId"]` |
+| Who sets it | The runtime, automatically | Angular `AuthInterceptor` (`crypto.randomUUID()` stored in `localStorage`); middleware fallback generates one if header is missing |
+| Use in Splunk | Zoom into spans of a single HTTP request or the async create→publish→consume chain | Follow everything one browser session did across all services |
+| When to reach for it | "What happened inside this one request technically?" | "Show me everything this user did across all services since they opened the tab." |
 
-**Rule for Splunk:** paste the **CorrelationId** to see the whole cross-service story (it survives
-Service Bus). Use **TraceId** to zoom into the spans of a single service's request.
+**Why `localStorage`?** Originally the interceptor held `correlationId` as a plain class field.
+That reset on every page reload, making CorrelationId per-SPA-bootstrap — practically the same
+granularity as TraceId. Storing it in `localStorage` (key `correlation_id`) means the id survives
+`F5` and new tabs, restoring the intended browser-session scope.
+
+**Rule for Splunk:** paste the **CorrelationId** to see the whole cross-service story for a browser
+session (survives Service Bus and page reloads). Use **TraceId** to zoom into the spans of a single
+HTTP request or its async continuation.
