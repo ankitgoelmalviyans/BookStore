@@ -58,7 +58,18 @@ public class AzureServiceBusProducer : IMessagePublisher, IAsyncDisposable
         activity?.SetTag("messaging.destination.name", topic);
         activity?.SetTag("correlation.id", effectiveCorrelationId);
 
-        await sender.SendMessageAsync(message);
+        try
+        {
+            await sender.SendMessageAsync(message);
+        }
+        catch (Exception ex)
+        {
+            // Without this, a failed publish still looks like a normal (or just unterminated) span
+            // in the trace backend — exactly the failure this instrumentation exists to surface.
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            activity?.RecordException(ex);
+            throw;
+        }
     }
 
     public async ValueTask DisposeAsync()

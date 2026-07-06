@@ -69,9 +69,18 @@ builder.Services.AddOpenTelemetry()
         {
             otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
         }
+        // Uri.TryCreate (not `new Uri(...)`): a malformed operator-supplied endpoint must not crash
+        // the whole service at startup — log and continue without exporting instead.
         if (!string.IsNullOrWhiteSpace(otlpEndpoint))
         {
-            tracing.AddOtlpExporter(o => o.Endpoint = new Uri(otlpEndpoint));
+            if (Uri.TryCreate(otlpEndpoint, UriKind.Absolute, out var otlpUri))
+            {
+                tracing.AddOtlpExporter(o => o.Endpoint = otlpUri);
+            }
+            else
+            {
+                Console.WriteLine($"WARNING: Otel:OtlpEndpoint '{otlpEndpoint}' is not a valid absolute URI — OTLP export disabled.");
+            }
         }
     });
 
