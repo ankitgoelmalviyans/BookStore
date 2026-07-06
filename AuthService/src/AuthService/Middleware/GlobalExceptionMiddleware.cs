@@ -43,7 +43,7 @@ public class GlobalExceptionMiddleware
                 throw;
             }
 
-            var correlationId = context.Items["X-Correlation-Id"]?.ToString();
+            var correlationId = context.Items[CorrelationConstants.HttpContextItemKey]?.ToString();
 
             var problem = new ProblemDetails
             {

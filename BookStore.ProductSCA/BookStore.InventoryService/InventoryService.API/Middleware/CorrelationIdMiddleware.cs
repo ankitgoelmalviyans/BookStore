@@ -38,7 +38,7 @@ namespace BookStore.InventoryService.API.Middleware;
 public class CorrelationIdMiddleware
 {
     private readonly RequestDelegate _next;
-    private const string CorrelationIdHeader = "X-Correlation-Id";
+    private const string CorrelationIdHeader = CorrelationConstants.HttpContextItemKey;
 
     public CorrelationIdMiddleware(RequestDelegate next)
     {
