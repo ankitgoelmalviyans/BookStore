@@ -66,8 +66,19 @@ public class AzureServiceBusProducer : IMessagePublisher, IAsyncDisposable
         {
             // Without this, a failed publish still looks like a normal (or just unterminated) span
             // in the trace backend — exactly the failure this instrumentation exists to surface.
+            // Recorded via plain System.Diagnostics APIs (the OTel "exception" event semantic
+            // convention) rather than the OpenTelemetry.Api RecordException helper, so this
+            // Infrastructure project doesn't need an OpenTelemetry SDK package reference — spans are
+            // pure BCL here; only Program.cs owns the OTel SDK/exporter wiring.
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-            activity?.RecordException(ex);
+            activity?.AddEvent(new ActivityEvent(
+                "exception",
+                tags: new ActivityTagsCollection
+                {
+                    ["exception.type"] = ex.GetType().FullName,
+                    ["exception.message"] = ex.Message,
+                    ["exception.stacktrace"] = ex.ToString()
+                }));
             throw;
         }
     }
