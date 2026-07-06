@@ -1,6 +1,5 @@
 using System;
 using System.Net;
-using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using BookStore.InventoryService.Application.Interfaces;
@@ -66,7 +65,8 @@ namespace BookStore.InventoryService.Infrastructure.Repositories
 
         private class ProcessedMessage
         {
-            [JsonPropertyName("id")]
+            // Cosmos-only type — persisted via the SDK's Newtonsoft serializer, never returned via the
+            // API — so only the Newtonsoft mapping is needed for the required lowercase "id".
             [Newtonsoft.Json.JsonProperty("id")]
             public Guid Id { get; set; }
 
