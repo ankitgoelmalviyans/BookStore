@@ -29,15 +29,19 @@ harder when a message crosses a broker. I generate a CorrelationId in the Angula
 it through ProductService's middleware into the Serilog LogContext, copy it onto the Service Bus
 message's `ApplicationProperties` in the producer, and read it back in the InventoryService
 subscriber. So one id ties the whole business transaction together in Splunk even across the async
-hop — because the OpenTelemetry TraceId doesn't propagate across Service Bus in this setup.
+hop. I've since also propagated the OpenTelemetry trace context across the broker — the producer
+injects the W3C `traceparent`, the consumer continues it — so there's a real distributed TraceId
+spanning the services too; but CorrelationId stays the always-on, human-readable thread I actually
+paste into Splunk.
 
 **4. What would you do differently if starting over?**
 A few things I've since started fixing. I standardised the middleware pipeline and error handling
 (all three services now return RFC 9457 ProblemDetails with CorrelationId — previously ProductService
 returned plain text and Inventory had no global handler), and I built the Outbox pattern into
-ProductService to close the best-effort dual-write gap. If I were starting fresh I'd do both from day
-one rather than retrofitting. The remaining one I'd pull earlier is wiring an OpenTelemetry OTLP
-exporter, so I'd have a real trace waterfall instead of just TraceIds in logs.
+ProductService to close the best-effort dual-write gap, and wired a config-gated OpenTelemetry OTLP
+exporter with trace-context propagation across the Service Bus hop so the real cross-service waterfall
+is there the moment I point it at a collector. If I were starting fresh I'd have built all of that
+alongside the logging from day one rather than retrofitting.
 
 **5. How does this relate to your work at Blackbaud?**
 The AI layer on my roadmap is a direct port of things I built at Blackbaud — a RAG assistant
@@ -59,8 +63,8 @@ GitHub Actions CI/CD. Live URLs are under `http://104.211.94.129.nip.io/{auth,pr
 
 **8. What is planned but not built yet?**
 OrderService (CQRS), PaymentService (Saga), NotificationService, the AI layer, Istio canary, full
-APIM policy wiring, KEDA, an OTLP trace exporter, and broader test coverage. The Outbox pattern on
-ProductService and the Inbox pattern on InventoryService are both already done. It's all in
+APIM policy wiring, KEDA, and broader test coverage. The Outbox pattern on ProductService, the Inbox
+pattern on InventoryService, and the config-gated OTLP trace exporter are all already done. It's all in
 `docs/ROADMAP.md`, clearly marked.
 
 **9. What was the hardest problem you solved?**
@@ -436,9 +440,11 @@ validation problem, and I act from there.
 OpenTelemetry is a vendor-neutral standard for traces, metrics, and logs. I use its tracing
 instrumentation so every request gets a real TraceId and SpanId that enrich my logs — that's the
 structured backbone that logging alone doesn't give you. Logs tell you *what happened at a point*;
-traces tell you *how a request flowed and where the time went*. I'm honest that today I create spans
-but don't export them to a backend — that's a deliberate choice to keep stdout clean JSON for Splunk,
-and wiring an OTLP exporter to App Insights is PLANNED.
+traces tell you *how a request flowed and where the time went*. The spans always get created (that's
+what enriches my logs with TraceId/SpanId), and I've wired a **config-gated OTLP exporter** plus
+`traceparent` propagation across the Service Bus hop, so create → publish → consume is one real
+distributed trace. It's opt-in via `Otel:OtlpEndpoint` so I don't impose cost or pollute Splunk's
+stdout by default — point it at a collector (Jaeger/Tempo/App Insights) and the waterfall shows up.
 
 **56. What is a Span and how does it relate to a Trace?**
 A Trace is the whole journey of one logical operation, identified by a TraceId. A Span is one unit of
@@ -472,10 +478,11 @@ if any service's total is zero. No logs for ten minutes almost certainly means t
 the log pipeline broke, both of which I want to know about. I'd pair that with an error-rate alert
 that fires when errors exceed five per minute. Both are written out in `docs/SPLUNK_GUIDE.md`.
 
-**60. What would you add to observability in Phase 4? (PLANNED)**
-The big one is an OpenTelemetry OTLP exporter to Azure Application Insights, so I get a real
-distributed-trace waterfall UI and true cross-service TraceId propagation instead of stitching with
-CorrelationId. I'd also add request-duration logging — a `DurationMs` field via
-`UseSerilogRequestLogging()` — so my "slow requests" Splunk search actually returns data, since
-nothing emits that field today. And I'd build the Splunk monitoring dashboard and the down-detection
-and error-rate alerts into the standard deploy so observability ships with the platform, not after it.
+**60. What would you add to observability in Phase 4?**
+The trace pipeline is now wired — a config-gated OTLP exporter with `traceparent` propagation across
+the Service Bus hop — so the main remaining step is *operational*: stand up a backend to look at it,
+either a local Jaeger/Tempo collector or Azure Application Insights (a one-package swap plus a
+connection string) for a managed Portal UI. Beyond that I'd add **metrics** (OpenTelemetry meters —
+request rate, latency histograms, Service Bus queue depth) since I've only done traces and logs so
+far, and bake the Splunk monitoring dashboard and the down-detection/error-rate alerts into the
+standard deploy so observability ships with the platform rather than being bolted on after.

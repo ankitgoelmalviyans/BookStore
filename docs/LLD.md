@@ -220,10 +220,15 @@ Trace  (TraceId = 4bf92f3577b34da6a3ce929d0e0e4736)
      └─ span: Cosmos Upsert Inventory            (inventoryservice)
 ```
 
-> **Reality check:** the code registers instrumentation but **no exporter**, and the broker hop does
-> **not** auto-propagate the parent TraceId in this setup. So the pretty single-Trace waterfall above
-> is the *conceptual* model and the **PLANNED** Phase-4 state (OTLP → App Insights). Today you get
-> real per-service TraceIds in the logs, and you stitch cross-service flows using **CorrelationId**.
+> **Reality check:** the messaging layer is now instrumented, so the single-Trace waterfall above is
+> **real**: each service has an `ActivitySource`, the producer injects the W3C `traceparent` onto the
+> Service Bus message, and the consumer starts its span as a child — so create → publish → consume
+> share one TraceId. The trace context is even threaded through the **outbox record** (stored
+> alongside CorrelationId) so the async drain doesn't orphan the trace. The **OTLP exporter is
+> opt-in** (`Otel:OtlpEndpoint` / `OTEL_EXPORTER_OTLP_ENDPOINT`): point it at a collector
+> (Jaeger/Tempo/App Insights) to see the waterfall; with no endpoint set, spans are still created so
+> TraceId/SpanId keep enriching the logs. **CorrelationId remains the always-on business thread** you
+> paste into Splunk (present even with no exporter, and human-readable).
 
 ### What is a Span
 A **Span** is one unit of work within a trace — a name, start/stop time, status, and tags/attributes,
@@ -235,7 +240,7 @@ with a `SpanId` and a `ParentId`. ASP.NET Core instrumentation creates the root 
 | | **TraceId** | **CorrelationId** |
 |---|-------------|-------------------|
 | Source | OpenTelemetry `Activity` (via `Serilog.Enrichers.Span`) | `X-Correlation-Id` header / generated in middleware |
-| Scope | Per span-tree; **new per service** here (no cross-broker propagation yet) | **Stable end-to-end** — client-generated, copied across the Service Bus hop |
+| Scope | Now **propagated across the Service Bus hop** — producer injects `traceparent`, consumer continues it, so one TraceId spans create→publish→consume | **Stable end-to-end** — client-generated, copied across the Service Bus hop |
 | Who sets it | The runtime, automatically | The client (Angular `crypto.randomUUID()`) or the first service |
 | Use in Splunk | Correlate spans *within* a service's request | Follow one *business transaction* across all services incl. async |
 | When to reach for it | "What happened inside this one request technically?" | "Show me everything that happened for this customer's action, everywhere." |

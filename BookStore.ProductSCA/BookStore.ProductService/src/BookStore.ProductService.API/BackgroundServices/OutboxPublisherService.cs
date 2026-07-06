@@ -88,7 +88,8 @@ namespace BookStore.ProductService.API.BackgroundServices
 
                 using (LogContext.PushProperty("CorrelationId", outbox.CorrelationId))
                 {
-                    await publisher.PublishAsync(outbox.Payload, outbox.Topic, outbox.CorrelationId);
+                    await publisher.PublishAsync(
+                        outbox.Payload, outbox.Topic, outbox.CorrelationId, outbox.TraceParent);
                     await outboxStore.MarkPublishedAsync(product, stoppingToken);
 
                     _logger.LogInformation(

@@ -1,10 +1,12 @@
 using Azure.Messaging.ServiceBus;
 using BookStore.InventoryService.Application.Interfaces;
 using BookStore.InventoryService.Domain.Events;
+using BookStore.InventoryService.Infrastructure.Observability;
 using Microsoft.Extensions.Configuration;
 using Serilog;
 using Serilog.Context;
 using System;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Threading.Tasks;
 
@@ -47,6 +49,21 @@ namespace BookStore.InventoryService.Infrastructure.Messaging
                     .TryGetValue("CorrelationId", out var cid)
                     ? cid?.ToString()
                     : Guid.NewGuid().ToString();
+
+                // Extract the W3C traceparent the producer stamped on the message and start our
+                // processing span as a CHILD of it — so this consume shares the producer's TraceId
+                // (one distributed trace across the async hop). This span is also what gives the
+                // handler an ambient Activity, so Serilog.Enrichers.Span can finally stamp
+                // TraceId/SpanId onto these consumer log lines.
+                var traceParent = args.Message.ApplicationProperties
+                    .TryGetValue("traceparent", out var tp)
+                    ? tp?.ToString()
+                    : null;
+
+                using var activity = BookStoreActivitySource.Instance.StartActivity(
+                    "ServiceBus.Process product-events", ActivityKind.Consumer, traceParent);
+                activity?.SetTag("messaging.system", "servicebus");
+                activity?.SetTag("correlation.id", correlationId);
 
                 using (LogContext.PushProperty("CorrelationId", correlationId))
                 {

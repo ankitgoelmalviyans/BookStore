@@ -118,7 +118,7 @@ Everything below is present in the codebase today.
 - **CorrelationId propagation** across HTTP *and* the async Service Bus hop (one id, end-to-end).
 - **Structured JSON logging** via Serilog (`JsonFormatter`) on stdout.
 - **Log shipping** via a Fluent Bit DaemonSet → Splunk Cloud HEC (`index=main`, `sourcetype=bookstore:json`).
-- **OpenTelemetry** tracing instrumentation (spans created; TraceId/SpanId enrich logs — no exporter wired yet).
+- **OpenTelemetry** tracing with W3C `traceparent` propagation across the Service Bus hop and a config-gated OTLP exporter (spans always created for log enrichment; exported when `Otel:OtlpEndpoint` is set).
 
 ---
 
@@ -173,7 +173,7 @@ These are **PLANNED**, not built. They are documented in `docs/ROADMAP.md`.
 | **Istio canary** | Phase 4 |
 | **APIM full wiring** | Phase 4 — `main.demo.bicep` + `infra-demo.yml` provision a Consumption-tier APIM but it is not yet the enforced gateway; no JWT/rate-limit policies wired |
 | **KEDA autoscaling on Service Bus queue depth** | Phase 4 |
-| **OpenTelemetry OTLP export** to App Insights | Phase 4 — spans created today but no exporter |
+| ~~OpenTelemetry OTLP export~~ | ✅ **Implemented** — config-gated OTLP exporter + `traceparent` propagation across the Service Bus hop. A managed backend (App Insights) is the only remaining *ops* step |
 | **cert-manager TLS on ingress** | ClusterIssuer is created, but TLS is effectively pending a non-`nip.io` domain |
 | Unit / integration tests | *Started* — an xUnit suite for `ProductService.CreateAsync` (outbox behaviour) now runs in CI; broader coverage + integration tests are Phase 5 |
 
@@ -182,6 +182,7 @@ These are **PLANNED**, not built. They are documented in `docs/ROADMAP.md`.
 - **Multi-replica race on both Outbox and Inbox** — if InventoryService or ProductService scale beyond one replica, two instances can race on the same pending item/event. Tolerable today (both sides are idempotent-by-design), but a lease/lock or change-feed-driven single-owner processor would close it if replica count grows.
 
 ### Recently closed gaps
+- **No trace export + no TraceId on the consumer** — added a config-gated **OTLP exporter** and instrumented the messaging layer: the producer injects the W3C `traceparent`, the consumer continues it (context threaded through the outbox record), so create → publish → consume is one distributed trace. This also fixed InventoryService's consumer logs having **no TraceId** — they run in a background handler with no ambient `Activity`, so `Serilog.Enrichers.Span` had nothing to stamp; the new consume span provides it.
 - **At-least-once delivery, explicit consumer Inbox** — InventoryService's `AzureServiceBusSubscriber` now checks `IInboxStore.HasBeenProcessedAsync` before applying an update and calls `MarkProcessedAsync` only **after** the update succeeds. Once the inbox record exists, any later redelivery of that event is skipped — dedup is guaranteed for the common case (a redelivery *after* successful processing). Honest caveat: because the record is written *after* the update (never before — writing it first would risk *losing* the update entirely if the process died in between, which is worse), a crash in the narrow window between the update succeeding and the mark being written will replay the update on redelivery. That replay is harmless here because `UpdateInventory` sets an absolute quantity — but the guarantee is "dedup once the inbox record exists," not a blanket no-op. The dedup key is `ProductCreatedEvent.EventId`, stamped by ProductService from its `OutboxMessage.EventId`. Backed by a dedicated Cosmos `ProcessedMessages` container with a 30-day TTL so the dedup log doesn't grow unbounded.
 - **Dual-write / best-effort publish** — `ProductService.CreateAsync` no longer publishes inline (which could save a product but lose its event). It now writes an **embedded transactional-outbox record atomically with the product** (single `CreateItemAsync`), and a background `OutboxPublisherService` reliably drains it to Service Bus, preserving the CorrelationId.
 - **Unified error handling** — all three services now return **RFC 9457 `application/problem+json`** ProblemDetails with the request's `correlationId` on unhandled errors (previously ProductService returned plain text and InventoryService had no global handler). The implementation is duplicated per service (they are separate solutions); a shared library remains the longer-term ideal.

@@ -126,13 +126,21 @@ Each ADR follows: **Decision → Why → Alternatives considered → Trade-offs.
 ### ADR-11 — OpenTelemetry for distributed tracing
 
 - **Decision:** All three services call `AddOpenTelemetry().WithTracing(...)` with ASP.NET Core +
-  HttpClient instrumentation, filtering `/health`. **No exporter is registered** (by design).
+  HttpClient instrumentation (filtering `/health`) **plus a per-service `ActivitySource`** for the
+  Service Bus publish/consume spans. An **OTLP exporter is registered but opt-in** — added only when
+  `Otel:OtlpEndpoint` (or the standard `OTEL_EXPORTER_OTLP_ENDPOINT`) is set. The producer injects
+  the W3C `traceparent` onto the message and the consumer continues it, so create → publish → consume
+  is one distributed trace (context threaded through the outbox record so the async drain doesn't
+  orphan it).
 - **Why:** Creating spans gives every log line a real `TraceId`/`SpanId` (via
-  `Serilog.Enrichers.Span`) — the technical trace id — without polluting stdout with the console
-  exporter's multi-line output (which would break the JSON-per-line contract Splunk relies on).
-- **Alternatives:** Console exporter now; OTLP now; no OpenTelemetry at all.
-- **Trade-offs:** There is no trace **backend UI** yet — you correlate spans via TraceId in Splunk,
-  not in a Jaeger/App-Insights waterfall. Wiring an OTLP exporter is **PLANNED** (Phase 4).
+  `Serilog.Enrichers.Span`); the OTLP exporter (pointed at a collector) gives the actual waterfall +
+  cross-service trace. Gating it keeps the default footprint zero-cost and avoids the console
+  exporter's multi-line stdout, which would break the JSON-per-line contract Splunk relies on.
+- **Alternatives:** Console exporter (pollutes Splunk stdout); always-on Azure Application Insights
+  (imposes cost); no exporter at all (the previous state).
+- **Trade-offs:** With no endpoint set you still don't get a waterfall *UI* — you run a collector
+  (Jaeger/Tempo, or App Insights) to see it. Chosen so the always-on cost stays at zero while the
+  trace pipeline is fully wired and one env var away from live.
 
 ### ADR-12 — CorrelationId middleware for business-level tracing
 
@@ -140,8 +148,10 @@ Each ADR follows: **Decision → Why → Alternatives considered → Trade-offs.
   stores it in `HttpContext.Items`, echoes it on the response, tags the OTel `Activity`, and pushes
   it into the Serilog `LogContext`. The producer copies it onto Service Bus `ApplicationProperties`;
   the subscriber reads it back.
-- **Why:** A **stable, human-meaningful id** that a client can generate and that survives the async
-  Service Bus hop — where the OTel TraceId does **not** automatically propagate in this setup.
+- **Why:** A **stable, human-meaningful id** that a client can generate, is always present (even with
+  no trace exporter configured), and reads cleanly in Splunk. The OTel TraceId now *also* propagates
+  across the Service Bus hop (ADR-11), but it's an opaque machine id most useful with a trace
+  backend — CorrelationId stays the id you paste into Splunk for a business transaction.
 - **Alternatives:** Rely on TraceId only (breaks across the broker); no correlation at all.
 - **Trade-offs:** Two ids to understand (CorrelationId vs TraceId — see `docs/LLD.md`). Worth it:
   CorrelationId is the one you paste into Splunk to see a whole business transaction.
