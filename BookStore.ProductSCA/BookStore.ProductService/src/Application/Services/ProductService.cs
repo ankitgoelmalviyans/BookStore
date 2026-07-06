@@ -42,13 +42,16 @@ namespace BookStore.ProductService.Application.Services
             }
 
             var topic = _configuration["AzureServiceBus:TopicName"] ?? "product-events";
+            var eventId = Guid.NewGuid();
 
             // Transactional outbox: persist the event atomically WITH the product as a single
             // document write. The OutboxPublisherService drains it to Service Bus. This replaces the
             // old best-effort inline publish, which could leave a product saved but its event lost.
+            // EventId is stamped on the payload (not just the outbox record) so InventoryService can
+            // deduplicate redelivered messages via its own Inbox.
             product.Outbox = new OutboxMessage
             {
-                EventId = Guid.NewGuid(),
+                EventId = eventId,
                 EventType = nameof(ProductCreatedEvent),
                 Topic = topic,
                 Status = OutboxMessage.Pending,
@@ -56,6 +59,7 @@ namespace BookStore.ProductService.Application.Services
                 CreatedAt = DateTime.UtcNow,
                 Payload = new ProductCreatedEvent
                 {
+                    EventId = eventId,
                     Id = product.Id,
                     Name = product.Name,
                     Price = product.Price,

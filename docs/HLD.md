@@ -62,7 +62,8 @@
         │  account: bscosmosankit... │   │  index=main                │
         │  db: BookStoreDB           │   │  sourcetype=bookstore:json │
         │  containers: Products,     │   └────────────────────────────┘
-        │              Inventory     │
+        │   Inventory,               │
+        │   ProcessedMessages(TTL)   │
         │  partition key: /id        │
         └────────────────────────────┘
 
@@ -201,16 +202,19 @@ Pods running the new image; UI separately via cd-ui.yml → gh-pages
   touch Cosmos/Service Bus.
 
 ### ProductService
-- **Owns:** the `Products` Cosmos container and the product lifecycle (CRUD).
-- **Publishes:** `ProductCreatedEvent` → `product-events` on create.
+- **Owns:** the `Products` Cosmos container, the product lifecycle (CRUD), and the transactional
+  outbox (`Product.Outbox` field + `OutboxPublisherService`).
+- **Publishes:** `ProductCreatedEvent` → `product-events`, reliably, via the outbox drain — not
+  inline during the create request.
 - **Subscribes:** nothing.
-- **Does NOT:** manage stock/inventory, know InventoryService exists, or verify the event was
-  consumed (best-effort publish).
+- **Does NOT:** manage stock/inventory, or know InventoryService exists.
 
 ### InventoryService
-- **Owns:** the `Inventory` Cosmos container; one row per product keyed by `ProductId`.
+- **Owns:** the `Inventory` Cosmos container (one row per product keyed by `ProductId`) and the
+  `ProcessedMessages` Cosmos container (the Inbox dedup log, TTL-expired after 30 days).
 - **Publishes:** nothing.
-- **Subscribes:** `product-events` via `inventory-subscription`.
+- **Subscribes:** `product-events` via `inventory-subscription`, deduplicated via `IInboxStore`
+  before applying an update.
 - **Does NOT:** create products, call ProductService, or decrement stock on orders (there is no
   OrderService yet — **PLANNED**). Today "update inventory" means "set quantity from the product
   create event."
@@ -235,7 +239,7 @@ Pods running the new image; UI separately via cd-ui.yml → gh-pages
                           └───┬─────────────┬───────────────┬───────────────────────┘                        │
                               ▼             ▼               ▼                                                 │
                        InventoryService  OrderService   PaymentService   NotificationService                 │
-                       (+ Inbox dedupe)  (CQRS r/w,      (Saga           (stateless, multi-event             │
+                       (Inbox — DONE)    (CQRS r/w,      (Saga           (stateless, multi-event             │
                                           Outbox)         orchestration)  subscriber)                        │
                                                                                                              │
    AI layer:  Book Knowledge RAG (Cosmos vector search) · BookStore AI Agent (Semantic Kernel intent        │

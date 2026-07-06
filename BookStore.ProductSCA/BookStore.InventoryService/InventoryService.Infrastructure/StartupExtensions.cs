@@ -13,9 +13,15 @@ namespace BookStore.InventoryService.Infrastructure
             var useCosmos = configuration.GetValue<bool>("UseCosmosDb");
 
             if (useCosmos)
+            {
                 services.AddSingleton<IInventoryRepository, CosmosInventoryRepository>();
+                services.AddSingleton<IInboxStore, CosmosInboxStore>();
+            }
             else
+            {
                 services.AddSingleton<IInventoryRepository, InMemoryInventoryRepository>();
+                services.AddSingleton<IInboxStore, InMemoryInboxStore>();
+            }
 
             services.AddSingleton<IEventSubscriber, AzureServiceBusSubscriber>();
 

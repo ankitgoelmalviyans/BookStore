@@ -58,9 +58,10 @@ Service Bus, Cosmos DB, the NGINX ingress on a static IP, Fluent Bit shipping to
 GitHub Actions CI/CD. Live URLs are under `http://104.211.94.129.nip.io/{auth,product,inventory}`.
 
 **8. What is planned but not built yet?**
-OrderService (CQRS), PaymentService (Saga), NotificationService, the consumer-side Inbox pattern, the
-AI layer, Istio canary, full APIM policy wiring, KEDA, an OTLP trace exporter, and a test suite. The
-Outbox pattern on ProductService is already done. It's all in `docs/ROADMAP.md`, clearly marked.
+OrderService (CQRS), PaymentService (Saga), NotificationService, the AI layer, Istio canary, full
+APIM policy wiring, KEDA, an OTLP trace exporter, and broader test coverage. The Outbox pattern on
+ProductService and the Inbox pattern on InventoryService are both already done. It's all in
+`docs/ROADMAP.md`, clearly marked.
 
 **9. What was the hardest problem you solved?**
 The "pods are healthy but the site times out from the internet" problem. Everything inside the
@@ -160,9 +161,10 @@ build/deploy job in the pipeline. The topic is the seam that keeps the producer 
 **21. What patterns are you using for resilience?**
 Async messaging with a broker that buffers and retries; manual message settlement in the consumer
 (`AutoCompleteMessages = false`) so I explicitly complete, abandon-for-retry, or dead-letter; the
-dead-letter queue for poison messages; Kubernetes liveness/readiness probes on `/health` for pod
-self-healing; and `helm rollback` on a failed deploy in the CD pipeline. PLANNED additions are the
-Inbox pattern for idempotent consumers and KEDA for backlog-based scaling.
+dead-letter queue for poison messages; an **Inbox** in InventoryService (`IInboxStore`, keyed on the
+event's `EventId`) so a redelivered message is explicitly a no-op, not just accidentally safe;
+Kubernetes liveness/readiness probes on `/health` for pod self-healing; and `helm rollback` on a
+failed deploy in the CD pipeline. A PLANNED addition is KEDA for backlog-based scaling.
 
 **22. How do you handle configuration per environment?**
 Layered config: `appsettings.json` → environment-specific JSON → `serilog.json` → environment
@@ -172,12 +174,14 @@ secrets. At runtime, Kubernetes injects the real values as env vars from `*-secr
 anywhere and picks up its environment purely from injected config.
 
 **23. What's your data partitioning strategy in Cosmos DB?**
-Both containers partition on `/id`. In `Products`, the id is the product's GUID. In `Inventory`, I key
-each row by `ProductId` and set the document id equal to it — so there's exactly one inventory row per
-product and the id equals the partition key value. That gives me efficient point reads and writes by
-key. One subtlety: I annotate the id property with both `[JsonPropertyName("id")]` and Newtonsoft's
-`[JsonProperty("id")]`, because the Cosmos SDK v3 serializer is Newtonsoft and ignores
-System.Text.Json attributes — Cosmos requires a lowercase `id`.
+All three containers partition on `/id`. In `Products`, the id is the product's GUID. In `Inventory`,
+I key each row by `ProductId` and set the document id equal to it — so there's exactly one inventory
+row per product and the id equals the partition key value. In `ProcessedMessages` — my Inbox dedup
+log — the id is the event's `EventId`, so checking "have I seen this before" is a cheap point read,
+not a scan. That gives me efficient point reads and writes by key everywhere. One subtlety: I annotate
+the id property with both `[JsonPropertyName("id")]` and Newtonsoft's `[JsonProperty("id")]`, because
+the Cosmos SDK v3 serializer is Newtonsoft and ignores System.Text.Json attributes — Cosmos requires a
+lowercase `id`.
 
 **24. How do services authenticate with each other?**
 Right now it's the shared JWT model, not service-to-service certs. AuthService signs tokens with a
@@ -191,9 +195,11 @@ hold the public key.
 Several levers. Scale out the consumers with **KEDA** on Service Bus queue depth instead of CPU
 (PLANNED), because backlog is the real signal for a message consumer. Bump ProductService's HPA
 ceiling and add nodes to the pool. Move Cosmos from free tier to provisioned or autoscale RU/s and
-review the partition strategy for hot partitions. Add the **Inbox pattern** so at-least-once
-redelivery under load doesn't double-apply updates. And I'd finally wire distributed tracing export so
-I could actually see where the time goes under load.
+review the partition strategy for hot partitions — the Inbox is already in place so at-least-once
+redelivery under load won't double-apply updates, but I'd revisit its multi-replica story (today two
+concurrent replicas could theoretically race past the dedup check) if I actually needed to run more
+than one InventoryService pod. And I'd finally wire distributed tracing export so I could actually
+see where the time goes under load.
 
 ---
 

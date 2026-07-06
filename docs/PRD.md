@@ -99,6 +99,7 @@ Everything below is present in the codebase today.
 | `POST /api/inventory/test-subscribe` | Test hook that manually invokes the Service Bus subscriber |
 | Event consumption | `AzureServiceBusSubscriber` (started at app startup) subscribes to `product-events` / `inventory-subscription`, and on each `ProductCreatedEvent` upserts an inventory row keyed by `ProductId` |
 | Message safety | `AutoCompleteMessages = false`; malformed messages are dead-lettered, transient failures are abandoned for retry (→ DLQ after `MaxDeliveryCount`) |
+| Idempotent consumption (Inbox) | `IInboxStore` dedupes on `ProductCreatedEvent.EventId` before applying an update — a redelivered message is a no-op |
 | `[Authorize]` | Inventory endpoints require a valid JWT; `Program.cs` configures `AddJwtBearer` |
 | `GET /health` | Health endpoint |
 
@@ -166,7 +167,7 @@ These are **PLANNED**, not built. They are documented in `docs/ROADMAP.md`.
 | **OrderService** | Phase 2 — CQRS write/read model, publishes `OrderCreated` |
 | **PaymentService** | Phase 2 — subscribes to `OrderCreated`, Saga orchestration |
 | **NotificationService** | Phase 2 — stateless, multi-event subscriber |
-| **Inbox pattern** (idempotent consumers) | Phase 2 — dedupe processed message ids |
+| ~~Inbox pattern (idempotent consumers)~~ | ✅ **Implemented** — `IInboxStore` dedupes processed EventIds in InventoryService (no longer out of scope) |
 | ~~Outbox pattern (ProductService)~~ | ✅ **Implemented** — embedded transactional outbox + background publisher (no longer out of scope) |
 | **AI layer** (RAG, Semantic-Kernel agent, text-to-SQL) | Phase 3 — `llm` block stubbed in Helm values only |
 | **Istio canary** | Phase 4 |
@@ -178,9 +179,10 @@ These are **PLANNED**, not built. They are documented in `docs/ROADMAP.md`.
 
 ### Known gaps flagged honestly
 - **Symmetric JWT key shared across services** — fine for a monorepo demo; asymmetric signing is the production target.
-- **At-least-once delivery, no consumer Inbox yet** — the outbox publisher (below) is at-least-once; InventoryService happens to be idempotent (absolute quantity), so duplicates are harmless, but a consumer-side Inbox for explicit dedupe is still **PLANNED**.
+- **Multi-replica race on both Outbox and Inbox** — if InventoryService or ProductService scale beyond one replica, two instances can race on the same pending item/event. Tolerable today (both sides are idempotent-by-design), but a lease/lock or change-feed-driven single-owner processor would close it if replica count grows.
 
 ### Recently closed gaps
+- **At-least-once delivery, explicit consumer Inbox** — InventoryService's `AzureServiceBusSubscriber` now checks `IInboxStore.HasBeenProcessedAsync` before applying an update and calls `MarkProcessedAsync` only after it succeeds, so a redelivered message is a safe no-op regardless of whether the underlying business logic happens to be idempotent. The dedup key is `ProductCreatedEvent.EventId`, stamped by ProductService from its `OutboxMessage.EventId`. Backed by a dedicated Cosmos `ProcessedMessages` container with a 30-day TTL so the dedup log doesn't grow unbounded.
 - **Dual-write / best-effort publish** — `ProductService.CreateAsync` no longer publishes inline (which could save a product but lose its event). It now writes an **embedded transactional-outbox record atomically with the product** (single `CreateItemAsync`), and a background `OutboxPublisherService` reliably drains it to Service Bus, preserving the CorrelationId.
 - **Unified error handling** — all three services now return **RFC 9457 `application/problem+json`** ProblemDetails with the request's `correlationId` on unhandled errors (previously ProductService returned plain text and InventoryService had no global handler). The implementation is duplicated per service (they are separate solutions); a shared library remains the longer-term ideal.
 - **Standardised middleware pipeline order** across all three services.

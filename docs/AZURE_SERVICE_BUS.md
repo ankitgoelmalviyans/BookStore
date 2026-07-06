@@ -188,3 +188,77 @@ public class KafkaPublisher : IMessagePublisher
 with **zero business-logic edits**. That is Dependency Inversion doing exactly what it's for, and
 it's also why the publisher is trivially mockable in a unit test (`Mock<IMessagePublisher>` →
 `Verify(p => p.PublishAsync(...))`).
+
+---
+
+## Inbox Pattern (implemented, InventoryService)
+
+Service Bus is **at-least-once**, not exactly-once: a message can be redelivered even after the
+consumer already did the work — e.g. `UpdateInventory` succeeds but the process crashes before the
+`CompleteMessageAsync` call reaches the broker. Today's `UpdateInventory` happens to be idempotent
+(it sets an *absolute* quantity, so applying it twice is harmless) — but relying on "the handler
+happens to be safe to re-run" is luck, not a guarantee, and it would silently break the moment a
+future event carries a *delta* (e.g. `"decrement by 3"`) instead of an absolute value. The Inbox
+pattern makes idempotency **explicit and event-type-agnostic**.
+
+### `IInboxStore`
+```csharp
+// InventoryService.Application/Interfaces/IInboxStore.cs
+public interface IInboxStore
+{
+    Task<bool> HasBeenProcessedAsync(Guid eventId);
+    Task MarkProcessedAsync(Guid eventId);
+}
+```
+- **`CosmosInboxStore`** persists one document per processed `EventId` in a dedicated
+  `ProcessedMessages` Cosmos container, keyed/partitioned on `/id = eventId` — a duplicate check is a
+  cheap point read, not a scan.
+- **`InMemoryInboxStore`** (dev/local) backs the same contract with an in-process set, selected the
+  same way as `InMemoryInventoryRepository` — via the `UseCosmosDb` config flag.
+
+### The dedup key: `EventId`, not `CorrelationId`
+`CorrelationId` identifies a *business transaction* and is meant to be copied across every hop of a
+request — it is deliberately **not unique per message** (a retry keeps the same CorrelationId on
+purpose, so Splunk can still tie it to the original request). The Inbox needs the opposite property:
+a key that uniquely identifies *this one event*, stable across redeliveries of the *same* message but
+distinct for every *new* event. That's `EventId` — the same id ProductService's `OutboxMessage`
+already carries, now also stamped onto `ProductCreatedEvent.EventId` in the wire payload so
+InventoryService can read it back out.
+
+### The sequencing that matters
+```csharp
+// AzureServiceBusSubscriber.ProcessMessageAsync (simplified)
+if (evt.EventId != Guid.Empty && await inbox.HasBeenProcessedAsync(evt.EventId))
+{
+    await args.CompleteMessageAsync(args.Message);   // duplicate — ack and skip, don't reprocess
+    return;
+}
+
+repository.UpdateInventory(evt.Id, evt.Quantity);     // do the business effect FIRST
+
+if (evt.EventId != Guid.Empty)
+{
+    await inbox.MarkProcessedAsync(evt.EventId);      // mark AFTER it succeeds, never before
+}
+
+await args.CompleteMessageAsync(args.Message);
+```
+**Why mark *after*, not before:** if the marker were written before `UpdateInventory` and the process
+crashed in between, the event would look "already processed" on redelivery — the update would be
+silently skipped forever. Marking after success means a mid-flight crash still allows a correct retry;
+the only cost is a narrow race window where two concurrent deliveries could both pass the check before
+either marks it (a rare, documented trade-off — see `docs/ROADMAP.md`, same caveat already noted for
+the Outbox's multi-replica scenario).
+
+### `Guid.Empty` — the backward-compatibility escape hatch
+If `EventId` is absent (an older producer, or a message published outside this flow), the subscriber
+**skips the dedup check** rather than rejecting the message — it just processes it as before. Explicit
+dedup is a strict improvement over "no dedup," never a stricter *requirement* the consumer imposes on
+every possible producer.
+
+### Why not use the Service Bus `MessageId` instead?
+`ServiceBusMessage.MessageId` is transport-level and, in this codebase, never explicitly set — so it
+would be empty and useless as a dedup key. `EventId` is a **domain-level** identity that lives in the
+event payload itself, travels with the message body (not transport metadata), and is meaningful
+independently of which broker delivers it — the same reasoning that keeps `CorrelationId` in
+`ApplicationProperties` (transport) while `EventId` lives in the payload (domain).
