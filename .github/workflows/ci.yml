@@ -78,6 +78,12 @@ jobs:
             --no-restore \
             --configuration Release
 
+      - name: Test
+        run: |
+          dotnet test \
+            BookStore.ProductSCA/BookStore.ProductService/tests/ProductService.UnitTests/ProductService.UnitTests.csproj \
+            --configuration Release
+
       - name: Docker build check
         uses: docker/build-push-action@v5
         with:

@@ -18,7 +18,7 @@
                                             │        │  Angular product-ui│
                                             │        │ /BookStore/ (SPA)  │
                                             │        └─────────┬─────────┘
-                                            │                  │ HTTPS REST
+                                            │                  │ REST/JSON over HTTP (TLS partial*)
                                             │                  │ Bearer JWT + X-Correlation-Id
                                             ▼                  ▼
                             ┌──────────────────┐      http://104.211.94.129.nip.io
@@ -69,6 +69,11 @@
   Also in cluster: ns cert-manager (cert-manager + letsencrypt-prod ClusterIssuer — TLS PARTIAL)
   Also provisioned by Bicep: Azure Key Vault (bskvankit2026ga, RBAC) — for future secret storage
 ```
+
+> \* **TLS partial:** the SPA itself is served over HTTPS from GitHub Pages, but browser→API calls
+> hit the `nip.io` ingress over **HTTP** — `nip.io` blocks Let's Encrypt HTTP-01, so the ingress TLS
+> is pending a real domain (see ADR-9 / the cert-manager note above). That's why the ingress label
+> reads `http://…` rather than `https://…`.
 
 ---
 

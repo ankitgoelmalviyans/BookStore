@@ -1,6 +1,5 @@
 using BookStore.ProductService.Core.Entities;
 using BookStore.ProductService.Core.Events;
-using BookStore.ProductService.Core.Messaging;
 using BookStore.ProductService.Core.Repositories;
 using Microsoft.Extensions.Logging;
 using BookStore.ProductService.Application.Interfaces;
@@ -11,14 +10,15 @@ namespace BookStore.ProductService.Application.Services
     public class ProductService : IProductService
     {
         private readonly IProductRepository _productRepository;
-        private readonly IMessagePublisher _eventProducer;
         private readonly ILogger<ProductService> _logger;
         private readonly IConfiguration _configuration;
 
-        public ProductService(IProductRepository productRepository, IMessagePublisher eventProducer, ILogger<ProductService> logger, IConfiguration configuration)
+        public ProductService(
+            IProductRepository productRepository,
+            ILogger<ProductService> logger,
+            IConfiguration configuration)
         {
             _productRepository = productRepository;
-            _eventProducer = eventProducer;
             _logger = logger;
             _configuration = configuration;
         }
@@ -33,31 +33,41 @@ namespace BookStore.ProductService.Application.Services
             return await _productRepository.GetByIdAsync(id);
         }
 
-        public async Task<Product> CreateAsync(Product product)
+        public async Task<Product> CreateAsync(Product product, string? correlationId = null)
         {
-            var createdProduct = await _productRepository.CreateAsync(product);
-
-            var productCreatedEvent = new ProductCreatedEvent
+            // Assign the id up front so the event payload and the stored document id match.
+            if (product.Id == Guid.Empty)
             {
-                Id = createdProduct.Id,
-                Name = createdProduct.Name,
-                Price = createdProduct.Price,
-                Quantity = createdProduct.Quantity
-            };
+                product.Id = Guid.NewGuid();
+            }
 
             var topic = _configuration["AzureServiceBus:TopicName"] ?? "product-events";
 
-            try
+            // Transactional outbox: persist the event atomically WITH the product as a single
+            // document write. The OutboxPublisherService drains it to Service Bus. This replaces the
+            // old best-effort inline publish, which could leave a product saved but its event lost.
+            product.Outbox = new OutboxMessage
             {
-                await _eventProducer.PublishAsync(productCreatedEvent, topic);
-                _logger.LogInformation("ProductCreatedEvent published to topic '{Topic}'", topic);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to publish ProductCreatedEvent to Service Bus");
-            }
+                EventId = Guid.NewGuid(),
+                EventType = nameof(ProductCreatedEvent),
+                Topic = topic,
+                Status = OutboxMessage.Pending,
+                CorrelationId = correlationId,
+                CreatedAt = DateTime.UtcNow,
+                Payload = new ProductCreatedEvent
+                {
+                    Id = product.Id,
+                    Name = product.Name,
+                    Price = product.Price,
+                    Quantity = product.Quantity
+                }
+            };
 
-            _logger.LogInformation("Product created with ID: {ProductId}", createdProduct.Id);
+            var createdProduct = await _productRepository.CreateAsync(product);
+
+            _logger.LogInformation(
+                "Product created with ID {ProductId}; outbox event {EventId} queued for topic '{Topic}'",
+                createdProduct.Id, product.Outbox.EventId, topic);
 
             return createdProduct;
         }

@@ -19,5 +19,12 @@ namespace BookStore.ProductService.Core.Entities
 
         // Optional partition key
         public string Category { get; set; } = string.Empty;
+
+        // Embedded transactional outbox record. Persisted to Cosmos (Newtonsoft) as part of the
+        // atomic single-document write, but hidden from the API response and never bound from
+        // client input (System.Text.Json [JsonIgnore]).
+        [JsonIgnore]
+        [Newtonsoft.Json.JsonProperty("outbox", NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        public OutboxMessage? Outbox { get; set; }
     }
 }

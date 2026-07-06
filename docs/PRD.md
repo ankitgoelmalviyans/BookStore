@@ -17,7 +17,7 @@ Architect** or **Staff / Principal Engineer**:
 - Azure-native infrastructure (AKS, Cosmos DB, Service Bus, ACR, Key Vault) provisioned as code
 - GitHub-Actions-only CI/CD across app, UI, and infrastructure
 - End-to-end observability (Serilog JSON → Fluent Bit → Splunk, with CorrelationId + OpenTelemetry)
-- A dual-profile deployment model that keeps the always-on bill near **~$22/month**
+- A dual-profile deployment model that keeps the always-on bill low (**roughly ~$22/month** as an estimate for the current SKUs — 1× `Standard_B2s` + Basic ACR + Standard Service Bus + free-tier Cosmos; actual Azure pricing varies by region and over time)
 
 The goal is not to run a bookshop. The goal is to be able to **explain and defend every decision**
 in an interview, with the code open on screen.
@@ -82,12 +82,12 @@ Everything below is present in the codebase today.
 |------------|--------|
 | `GET /api/products` | Returns all products from Cosmos `Products` container |
 | `GET /api/products/{id}` | Returns one product, `404` if not found |
-| `POST /api/products` | Creates a product, then **publishes `ProductCreatedEvent`** to Service Bus topic `product-events` |
+| `POST /api/products` | Creates a product and **atomically records a `ProductCreatedEvent` in the embedded transactional outbox** (single document write); the background `OutboxPublisherService` then drains it to Service Bus topic `product-events` |
 | `PUT /api/products/{id}` | Upserts a product (`400` if id mismatch, `404` if not found) |
 | `DELETE /api/products/{id}` | Deletes a product, `204` on success, `404` if not found |
 | `[Authorize]` | All product endpoints require a valid JWT bearer token |
 | `GET /health` | Health endpoint |
-| Event publishing | `AzureServiceBusProducer` stamps the request's `CorrelationId` onto the message's `ApplicationProperties` |
+| Event publishing | `OutboxPublisherService` drains pending outbox records via `AzureServiceBusProducer`, which stamps the stored `CorrelationId` onto the message (native `CorrelationId` + `ApplicationProperties`) |
 
 ### InventoryService (`BookStore.ProductSCA/BookStore.InventoryService`)
 
@@ -167,20 +167,21 @@ These are **PLANNED**, not built. They are documented in `docs/ROADMAP.md`.
 | **PaymentService** | Phase 2 — subscribes to `OrderCreated`, Saga orchestration |
 | **NotificationService** | Phase 2 — stateless, multi-event subscriber |
 | **Inbox pattern** (idempotent consumers) | Phase 2 — dedupe processed message ids |
-| **Outbox pattern** (ProductService) | Phase 2 — fixes the current at-least-once dual-write gap |
+| ~~Outbox pattern (ProductService)~~ | ✅ **Implemented** — embedded transactional outbox + background publisher (no longer out of scope) |
 | **AI layer** (RAG, Semantic-Kernel agent, text-to-SQL) | Phase 3 — `llm` block stubbed in Helm values only |
 | **Istio canary** | Phase 4 |
 | **APIM full wiring** | Phase 4 — `main.demo.bicep` + `infra-demo.yml` provision a Consumption-tier APIM but it is not yet the enforced gateway; no JWT/rate-limit policies wired |
 | **KEDA autoscaling on Service Bus queue depth** | Phase 4 |
 | **OpenTelemetry OTLP export** to App Insights | Phase 4 — spans created today but no exporter |
 | **cert-manager TLS on ingress** | ClusterIssuer is created, but TLS is effectively pending a non-`nip.io` domain |
-| **Unit / integration tests** | Phase 5 — CI builds and validates but runs no test suite yet |
+| Unit / integration tests | *Started* — an xUnit suite for `ProductService.CreateAsync` (outbox behaviour) now runs in CI; broader coverage + integration tests are Phase 5 |
 
 ### Known gaps flagged honestly
-- **Event publish is best-effort**: `ProductService.CreateAsync` catches and logs a Service Bus publish failure but still returns success — a **dual-write** risk the Outbox pattern (Phase 2) is meant to close.
 - **Symmetric JWT key shared across services** — fine for a monorepo demo; asymmetric signing is the production target.
+- **At-least-once delivery, no consumer Inbox yet** — the outbox publisher (below) is at-least-once; InventoryService happens to be idempotent (absolute quantity), so duplicates are harmless, but a consumer-side Inbox for explicit dedupe is still **PLANNED**.
 
 ### Recently closed gaps
+- **Dual-write / best-effort publish** — `ProductService.CreateAsync` no longer publishes inline (which could save a product but lose its event). It now writes an **embedded transactional-outbox record atomically with the product** (single `CreateItemAsync`), and a background `OutboxPublisherService` reliably drains it to Service Bus, preserving the CorrelationId.
 - **Unified error handling** — all three services now return **RFC 9457 `application/problem+json`** ProblemDetails with the request's `correlationId` on unhandled errors (previously ProductService returned plain text and InventoryService had no global handler). The implementation is duplicated per service (they are separate solutions); a shared library remains the longer-term ideal.
 - **Standardised middleware pipeline order** across all three services.
 - **Request-duration logging** — a `RequestLoggingMiddleware` now emits a `DurationMs` field per request (health probes excluded), making duration-based Splunk searches real.

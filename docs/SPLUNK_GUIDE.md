@@ -35,14 +35,14 @@ is a real, top-level searchable field — no `spath` needed.**
 
 ## Why the CRI parser, not the Docker parser
 AKS runs **containerd**, not Docker, as its container runtime. containerd (CRI) writes log lines as:
-```
+```text
 2026-07-05T12:29:25.460+00:00 stdout F {"Timestamp":"...","Level":"Information",...}
 └──────── time ────────────┘ stream tag └────────── the actual app log ──────────┘
 ```
 The **Docker** JSON parser expects `{"log":"...","stream":"...","time":"..."}` and would **fail** on
 the CRI space-delimited format — dropping or mangling every line. So we define a custom `cri_bookstore`
 regex parser:
-```
+```text
 Regex  ^(?<time>[^ ]+) (?<stream>stdout|stderr) (?<logtag>[^ ]*) (?<message>.*)$
 ```
 This is a **real production gotcha**: pick the parser that matches your runtime, or you get no logs.
@@ -199,24 +199,24 @@ index=main sourcetype="bookstore:json" DurationMs=*
 1. **User reports an error** ("I clicked Save and it failed at ~12:29"). Get their CorrelationId if
    the UI surfaced it, or the approximate time + action.
 2. **Find the error:**
-   ```
+   ```text
    index=main sourcetype="bookstore:json" Level="Error" earliest=-15m
    | table _time, Application, MessageTemplate, CorrelationId, TraceId
    ```
 3. **Pivot on CorrelationId** — take the `CorrelationId` from the error line and see the *whole*
    transaction, across services and the async hop:
-   ```
+   ```text
    index=main sourcetype="bookstore:json" CorrelationId="<that id>" | sort by _time
    ```
    This shows the ProductService request **and** the InventoryService message processing for the
    same action — the payoff of threading CorrelationId through Service Bus.
 4. **Zoom in with TraceId** — for the technical spans of one service's request:
-   ```
+   ```text
    index=main sourcetype="bookstore:json" TraceId="<trace id>" | sort by _time
    ```
 5. **If Splunk is missing events** (e.g. a very recent failure, or a suspected pipeline problem),
    fall back to pod logs directly:
-   ```
+   ```text
    kubectl logs -l app=productservice -n bookstore --tail=100
    kubectl logs -l app=inventoryservice -n bookstore --tail=100
    kubectl logs -l app.kubernetes.io/name=fluent-bit -n bookstore --tail=50   # is the shipper healthy?
@@ -229,20 +229,20 @@ index=main sourcetype="bookstore:json" DurationMs=*
 Create a **BookStore Monitoring** dashboard with four panels:
 
 - **Panel 1 — Events per service (bar chart)**
-  ```
+  ```text
   index=main sourcetype="bookstore:json" | stats count by Application
   ```
 - **Panel 2 — Error rate over time (line chart)**
-  ```
+  ```text
   index=main sourcetype="bookstore:json" Level="Error" | timechart span=5m count by Application
   ```
 - **Panel 3 — Recent errors (table)**
-  ```
+  ```text
   index=main sourcetype="bookstore:json" Level="Error"
   | table _time, Application, MessageTemplate, CorrelationId | sort by _time desc | head 25
   ```
 - **Panel 4 — Request volume by hour (column chart)**
-  ```
+  ```text
   index=main sourcetype="bookstore:json" | timechart span=1h count by Application
   ```
 Save each search as a dashboard panel; set the dashboard's time picker to default `Last 24 hours`.
@@ -252,14 +252,14 @@ Save each search as a dashboard panel; set the dashboard's time picker to defaul
 ## How to Set Up Alerts
 
 - **Alert: error rate exceeds 5/min**
-  ```
+  ```text
   index=main sourcetype="bookstore:json" Level="Error"
   ```
   Save As → Alert; type **Scheduled**, run every 1 minute over the last 1 minute; **Trigger when
   number of results > 5**; action: email / webhook.
 
 - **Alert: a service has gone silent (0 logs for 10 min = likely down)**
-  ```
+  ```text
   index=main sourcetype="bookstore:json" earliest=-10m
   | stats count by Application
   | append

@@ -32,12 +32,12 @@ subscriber. So one id ties the whole business transaction together in Splunk eve
 hop — because the OpenTelemetry TraceId doesn't propagate across Service Bus in this setup.
 
 **4. What would you do differently if starting over?**
-Three things. First, I'd standardise the middleware pipeline and error handling from day one — right
-now AuthService returns a structured error with CorrelationId but ProductService just returns plain
-text, and Inventory has no global handler. Second, I'd build the Outbox pattern into ProductService
-immediately, because today the event publish is best-effort — it catches the failure and returns
-success, which is a dual-write gap. Third, I'd wire an OpenTelemetry OTLP exporter early so I had a
-real trace waterfall, not just TraceIds in logs.
+A few things I've since started fixing. I standardised the middleware pipeline and error handling
+(all three services now return RFC 9457 ProblemDetails with CorrelationId — previously ProductService
+returned plain text and Inventory had no global handler), and I built the Outbox pattern into
+ProductService to close the best-effort dual-write gap. If I were starting fresh I'd do both from day
+one rather than retrofitting. The remaining one I'd pull earlier is wiring an OpenTelemetry OTLP
+exporter, so I'd have a real trace waterfall instead of just TraceIds in logs.
 
 **5. How does this relate to your work at Blackbaud?**
 The AI layer on my roadmap is a direct port of things I built at Blackbaud — a RAG assistant
@@ -58,9 +58,9 @@ Service Bus, Cosmos DB, the NGINX ingress on a static IP, Fluent Bit shipping to
 GitHub Actions CI/CD. Live URLs are under `http://104.211.94.129.nip.io/{auth,product,inventory}`.
 
 **8. What is planned but not built yet?**
-OrderService (CQRS), PaymentService (Saga), NotificationService, the Inbox and Outbox patterns, the
-AI layer, Istio canary, full APIM policy wiring, KEDA, an OTLP trace exporter, and a test suite.
-It's all in `docs/ROADMAP.md`, clearly marked as planned.
+OrderService (CQRS), PaymentService (Saga), NotificationService, the consumer-side Inbox pattern, the
+AI layer, Istio canary, full APIM policy wiring, KEDA, an OTLP trace exporter, and a test suite. The
+Outbox pattern on ProductService is already done. It's all in `docs/ROADMAP.md`, clearly marked.
 
 **9. What was the hardest problem you solved?**
 The "pods are healthy but the site times out from the internet" problem. Everything inside the
@@ -103,13 +103,16 @@ abandons it for redelivery, and after `MaxDeliveryCount` it goes to the dead-let
 inspection — it never blocks the subscription forever.
 
 **14. How do you handle distributed transactions across services?**
-Today, I don't hold a distributed transaction — I use eventual consistency via events, which is the
-right default for microservices. I'm honest that there's a current gap: ProductService's write to
-Cosmos and its publish to Service Bus aren't atomic, and the code returns success even if the publish
-fails. The **PLANNED** fix is the **Outbox pattern** — write the event to an outbox row in the same
-Cosmos transactional batch as the product, and a relay ships it reliably. For multi-step business
-transactions like order→payment, the plan is the **Saga pattern** with compensating actions, since
-there's no two-phase commit across services.
+I don't hold a distributed transaction — I use eventual consistency via events, which is the right
+default for microservices. The one place that used to be a real gap was ProductService writing to
+Cosmos and publishing to Service Bus non-atomically — it even returned success if the publish failed.
+I fixed that with the **Outbox pattern**: the pending event is now stored as an embedded record on the
+product document and written in the same atomic `CreateItemAsync`, then a background publisher drains
+it to Service Bus. I embedded it in the aggregate rather than using a transactional batch across
+separate documents because the container is partitioned on `/id`, so two documents can never share a
+partition key — a single-document write is the only truly atomic option there. For multi-step business
+transactions like order→payment, the plan is the **Saga pattern** with compensating actions (still
+PLANNED), since there's no two-phase commit across services.
 
 **15. What's the difference between Profile A and Profile B?**
 Same images, different Helm value overlay. Profile A (`values-costopt.yaml`) is cost-optimised: NGINX

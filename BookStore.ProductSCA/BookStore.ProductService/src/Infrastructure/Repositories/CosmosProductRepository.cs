@@ -61,6 +61,15 @@ public class CosmosProductRepository : IProductRepository
 
     public async Task<Product> UpdateAsync(Product product)
     {
+        // The API never round-trips the embedded outbox (it is hidden from clients), so preserve any
+        // still-Pending outbox event already on the stored document rather than erasing it on update.
+        if (product.Outbox is null)
+        {
+            var existing = await GetByIdAsync(product.Id);
+            if (existing?.Outbox is not null)
+                product.Outbox = existing.Outbox;
+        }
+
         try
         {
             var response = await _container.UpsertItemAsync(

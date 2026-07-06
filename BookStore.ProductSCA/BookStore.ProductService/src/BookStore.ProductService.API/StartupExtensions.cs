@@ -1,4 +1,5 @@
 using BookStore.ProductService.API.Middleware;
+using BookStore.ProductService.API.BackgroundServices;
 using BookStore.ProductService.Core.Repositories;
 using BookStore.ProductService.Infrastructure.Repositories;
 using Serilog;
@@ -24,7 +25,13 @@ namespace BookStore.ProductService.Extensions
             services.AddScoped<IProductRepository, CosmosProductRepository>();
             services.AddScoped<IProductService, BookStore.ProductService.Application.Services.ProductService>();
 
-            services.AddScoped<IMessagePublisher, AzureServiceBusProducer>();
+            // Singleton so the producer's cached ServiceBusSenders live for the app lifetime and are
+            // disposed on shutdown (IHttpContextAccessor is safe to inject into a singleton).
+            services.AddSingleton<IMessagePublisher, AzureServiceBusProducer>();
+
+            // Transactional outbox: store over the Products container + a background drain publisher.
+            services.AddScoped<IOutboxStore, CosmosOutboxStore>();
+            services.AddHostedService<OutboxPublisherService>();
 
             services.AddHealthChecks();
             services.AddAutoMapper(typeof(StartupExtensions).Assembly);

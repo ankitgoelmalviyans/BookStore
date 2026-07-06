@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Text.Json;
 using System.Threading.Tasks;
+using BookStore.ProductService.Core.Messaging;
 
 namespace BookStore.ProductService.API.Middleware
 {
@@ -34,11 +35,19 @@ namespace BookStore.ProductService.API.Middleware
                     context.Request.Method,
                     context.Request.Path);
 
-                var correlationId = context.Items["X-Correlation-Id"]?.ToString();
+                // If the response has already started streaming we can't rewrite the status/body —
+                // rethrow so the host aborts the connection instead of throwing a secondary
+                // InvalidOperationException that would escape this handler.
+                if (context.Response.HasStarted)
+                {
+                    throw;
+                }
+
+                var correlationId = context.Items[CorrelationConstants.HttpContextItemKey]?.ToString();
 
                 var problem = new ProblemDetails
                 {
-                    Type = "https://tools.ietf.org/html/rfc9110#section-15.6.1",
+                    Type = "https://datatracker.ietf.org/doc/html/rfc9110#section-15.6.1",
                     Title = "An unexpected error occurred",
                     Status = StatusCodes.Status500InternalServerError,
                     Instance = context.Request.Path

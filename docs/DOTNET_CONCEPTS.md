@@ -15,7 +15,7 @@ the response last.
 
 ### Our middleware stack — one canonical order, shared by all three services (from the real `Program.cs`)
 
-```
+```text
 CorrelationIdMiddleware → RequestLoggingMiddleware → Exception middleware (ProblemDetails)
 → UseSwagger → UseSwaggerUI → UseCors → UseAuthentication → UseAuthorization
 → [ProductService only: SerilogEnrichingMiddleware] → MapControllers → MapHealthChecks
@@ -99,7 +99,7 @@ started once at app startup, not a per-request object.
 ## Configuration System
 
 Config is layered; **later sources override earlier ones**. Our order (from `Program.cs`):
-```
+```text
 appsettings.json  →  appsettings.Development.json (dev only)  →  serilog.json  →  Environment Variables
 ```
 Environment variables win, which is exactly how Kubernetes injects real secrets over the empty
@@ -152,6 +152,7 @@ Attribute routing maps HTTP verbs + templates to actions: `[Route("api/[controll
 action arguments; query params bind by name.
 
 ### All actual routes
+
 | Service | Routes |
 |---------|--------|
 | **AuthService** | `POST /api/auth/login` |
@@ -161,7 +162,7 @@ action arguments; query params bind by name.
 ### How NGINX Ingress path rewriting works
 The browser calls the **external** path, NGINX strips the service prefix, the pod sees its **native**
 path:
-```
+```text
 External:  http://104.211.94.129.nip.io/auth/api/auth/login
                                         └───┘
                               NGINX strips /auth  (rewrite-target: /$2)

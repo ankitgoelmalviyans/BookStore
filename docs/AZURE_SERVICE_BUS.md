@@ -91,14 +91,17 @@ The CorrelationId is what makes the async hop **traceable end-to-end in Splunk**
 2. ProductService CorrelationIdMiddleware reads it → HttpContext.Items["X-Correlation-Id"]
    and pushes CorrelationId into Serilog LogContext (every ProductService log line carries it)
         │
-3. AzureServiceBusProducer.PublishAsync:
-        message.ApplicationProperties["CorrelationId"] = <that same id>
+3. AzureServiceBusProducer.PublishAsync (invoked by the OutboxPublisherService):
+        message.CorrelationId = <that same id>                         // native (SDK filters)
+        message.ApplicationProperties["CorrelationId"] = <that same id> // consumer contract
         │  (id now travels ON the message, across the broker)
         ▼
 4. Service Bus stores/forwards the message on inventory-subscription
         │
 5. InventoryService AzureServiceBusSubscriber.ProcessMessageAsync:
-        var correlationId = args.Message.ApplicationProperties["CorrelationId"]
+        var correlationId = args.Message.ApplicationProperties.TryGetValue("CorrelationId", out var cid)
+            ? cid?.ToString()
+            : Guid.NewGuid().ToString();
         using (LogContext.PushProperty("CorrelationId", correlationId)) { ... }
    → every InventoryService log line for this message carries the SAME id
         │
@@ -118,25 +121,40 @@ business-level CorrelationId exists (see `docs/LLD.md`, "TraceId vs CorrelationI
 // Core/Messaging/IMessagePublisher.cs
 public interface IMessagePublisher
 {
-    Task PublishAsync<T>(T message, string topic) where T : class;
+    // correlationId is optional: the outbox publisher supplies it explicitly (it runs outside an
+    // HTTP request, so there's no ambient HttpContext); callers on the request path can omit it.
+    Task PublishAsync<T>(T message, string topic, string? correlationId = null) where T : class;
 }
 ```
 
+> **Transactional Outbox (implemented).** ProductService no longer publishes inline during the create
+> request. Instead `CreateAsync` writes an **embedded outbox record atomically with the product**
+> (single `CreateItemAsync`), and a background `OutboxPublisherService` drains pending records to
+> Service Bus via this interface — passing the stored `correlationId` so the async trace survives.
+> This closes the old best-effort dual-write gap (a product could be saved but its event lost). See
+> `docs/ROADMAP.md` → "Outbox pattern" for the design and the `/id`-partition reasoning.
+
 ### The current implementation (Infrastructure layer)
 ```csharp
-// Infrastructure/Messaging/AzureServiceBusProducer.cs
-public class AzureServiceBusProducer : IMessagePublisher
+// Infrastructure/Messaging/AzureServiceBusProducer.cs  (Singleton; IAsyncDisposable)
+public class AzureServiceBusProducer : IMessagePublisher, IAsyncDisposable
 {
     private readonly ServiceBusClient _client;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    // ServiceBusSender is meant to be cached for the app lifetime — one per topic, not per publish.
+    private readonly ConcurrentDictionary<string, ServiceBusSender> _senders = new();
 
-    public async Task PublishAsync<T>(T eventMessage, string topic) where T : class
+    public async Task PublishAsync<T>(T eventMessage, string topic, string? correlationId = null) where T : class
     {
-        var sender = _client.CreateSender(topic);
+        var sender = _senders.GetOrAdd(topic, t => _client.CreateSender(t));
         var message = new ServiceBusMessage(JsonSerializer.Serialize(eventMessage));
-        var correlationId = _httpContextAccessor.HttpContext?.Items["X-Correlation-Id"]?.ToString()
-                            ?? Guid.NewGuid().ToString();
-        message.ApplicationProperties["CorrelationId"] = correlationId;
+
+        var effectiveCorrelationId = correlationId                                  // outbox publisher
+            ?? _httpContextAccessor.HttpContext?.Items[CorrelationConstants.HttpContextItemKey]?.ToString()
+            ?? Guid.NewGuid().ToString();
+
+        message.CorrelationId = effectiveCorrelationId;                             // native (SDK filters)
+        message.ApplicationProperties["CorrelationId"] = effectiveCorrelationId;    // consumer contract
         await sender.SendMessageAsync(message);
     }
 }
