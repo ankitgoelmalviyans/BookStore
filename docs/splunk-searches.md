@@ -87,14 +87,13 @@ index=main sourcetype="bookstore:json" earliest=-1h
 ## Slow requests (over 1 second)
 
 ```text
-index=main sourcetype="bookstore:json"
-OperationName=* DurationMs>1000
-| table _time, Application, OperationName, DurationMs, CorrelationId
+index=main sourcetype="bookstore:json" DurationMs>1000
+| table _time, Application, RequestMethod, RequestPath, StatusCode, DurationMs, CorrelationId
 | sort by DurationMs desc
 ```
 
-> **Note:** the "Slow requests" search assumes a `DurationMs` field. Nothing in the current
-> setup emits that field yet — `Serilog.Enrichers.Span` only adds `TraceId`, `SpanId`, and
-> `OperationName`. To make this search return results, add request-duration logging (e.g.
-> Serilog's `UseSerilogRequestLogging()` middleware, or a custom enricher) that writes a
-> `DurationMs` property.
+> **Note:** `DurationMs` is now emitted per request by `RequestLoggingMiddleware` (added to all three
+> services; health-probe requests are excluded). The completion line
+> (`HTTP {RequestMethod} {RequestPath} responded {StatusCode} in {DurationMs} ms`) also gives you
+> `RequestMethod`, `RequestPath`, and `StatusCode` as searchable fields, alongside the usual
+> `CorrelationId`/`TraceId`/`Application`.

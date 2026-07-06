@@ -1,0 +1,245 @@
+# High Level Design — BookStore Platform
+
+> All diagrams reflect the **actual** deployed topology (Profile A). Planned pieces are labelled.
+
+---
+
+## System Architecture Diagram
+
+```text
+                                   ┌───────────────────────────────┐
+                                   │           GitHub               │
+                                   │  repo + Actions (CI/CD/infra)  │
+                                   └───────┬───────────────┬────────┘
+                    build/push images      │               │  push gh-pages
+                          via ACR login     │               ▼
+                                            │        ┌───────────────────┐
+                                            │        │   GitHub Pages     │
+                                            │        │  Angular product-ui│
+                                            │        │ /BookStore/ (SPA)  │
+                                            │        └─────────┬─────────┘
+                                            │                  │ HTTPS REST
+                                            │                  │ Bearer JWT + X-Correlation-Id
+                                            ▼                  ▼
+                            ┌──────────────────┐      http://104.211.94.129.nip.io
+                            │ Azure Container  │                │
+                            │ Registry (ACR)   │                ▼
+                            │ bookstoreaurega  │      ┌───────────────────────────┐
+                            └────────┬─────────┘      │  ns: ingress-nginx        │
+                                     │ image pull     │  ingress-nginx-controller │
+                                     │                │  Service type LoadBalancer│
+                                     │                │  staticIP 104.211.94.129  │
+                                     ▼                └───────────┬───────────────┘
+   ┌──────────────────────────────────────────────────────────── │ path routing ──────────┐
+   │  AKS cluster  (bookstore-aks-ga, 1× Standard_B2s)            │  /auth /product /inventory │
+   │                                                              ▼                            │
+   │   ┌──────────────── namespace: bookstore ───────────────────────────────────────────┐   │
+   │   │                                                                                   │   │
+   │   │   ┌───────────────┐    ┌─────────────────┐    ┌───────────────────┐               │   │
+   │   │   │ authservice   │    │ productservice  │    │ inventoryservice  │               │   │
+   │   │   │ Deployment    │    │ Deployment(HPA) │    │ Deployment        │               │   │
+   │   │   │ ClusterIP :80 │    │ ClusterIP :80   │    │ ClusterIP :80     │               │   │
+   │   │   └───────┬───────┘    └────────┬────────┘    └─────────┬─────────┘               │   │
+   │   │           │ JWT               │ publish              ▲ subscribe                  │   │
+   │   │           │                   │ ProductCreatedEvent  │ inventory-subscription     │   │
+   │   │           │                   ▼                      │                            │   │
+   │   │           │        ┌──────────────────────────────────────────┐                  │   │
+   │   │           │        │      Azure Service Bus (Standard)         │                  │   │
+   │   │           │        │  namespace: bookstore-servicebus-ga       │                  │   │
+   │   │           │        │  topic: product-events                    │                  │   │
+   │   │           │        │  subscription: inventory-subscription     │                  │   │
+   │   │           │        └──────────────────────────────────────────┘                  │   │
+   │   │           │                                                                       │   │
+   │   │           │  ┌──────────────── fluent-bit DaemonSet ─────────────┐                │   │
+   │   │           │  │ tails /var/log/containers/*_bookstore_*.log        │                │   │
+   │   │           │  └──────────────────────┬─────────────────────────────┘               │   │
+   │   └──────────────────────────────────── │ ───────────────────────────────────────────┘   │
+   │                                          │ HEC (TLS :8088)                                 │
+   └──────────────────────────────────────── │ ─────────────────────────────────────────────── ┘
+              product/inventory → Cosmos      ▼
+        ┌────────────────────────────┐   ┌────────────────────────────┐
+        │  Azure Cosmos DB (free)    │   │  Splunk Cloud              │
+        │  account: bscosmosankit... │   │  index=main                │
+        │  db: BookStoreDB           │   │  sourcetype=bookstore:json │
+        │  containers: Products,     │   └────────────────────────────┘
+        │              Inventory     │
+        │  partition key: /id        │
+        └────────────────────────────┘
+
+  Also in cluster: ns cert-manager (cert-manager + letsencrypt-prod ClusterIssuer — TLS PARTIAL)
+  Also provisioned by Bicep: Azure Key Vault (bskvankit2026ga, RBAC) — for future secret storage
+```
+
+---
+
+## Two-Profile Architecture
+
+One set of images. The **only** thing that changes between profiles is which Helm values file the
+pipeline applies (and which infra workflow ran).
+
+```text
+                         ┌───────────────────────── PROFILE A (Cost-Optimised) ─────────────────────────┐
+   Browser ──▶ nip.io ──▶│  NGINX Ingress ──▶ authservice / productservice / inventoryservice           │
+                         │  LLM backend (future): GitHub Models (free tier)                              │
+                         │  Trigger: every push to main (cd-costopt.yml). Always on. ~$22/mo             │
+                         │  values-costopt.yaml: gateway.useApim=false, llm.useGitHubModels=true         │
+                         └───────────────────────────────────────────────────────────────────────────────┘
+
+                         ┌───────────────────────── PROFILE B (Demo) ───────────────────────────────────┐
+   Browser ──▶ APIM  ──▶ │  Azure API Management (Consumption)  ──▶ NGINX Ingress ──▶ same 3 services     │
+                         │  LLM backend (future): Azure OpenAI                                            │
+                         │  Trigger: manual workflow_dispatch (infra-demo.yml). Self-teardown after 4h    │
+                         │  values-demo.yaml: gateway.useApim=true, llm.useAzureOpenAI=true               │
+                         └───────────────────────────────────────────────────────────────────────────────┘
+```
+
+**What actually differs today:** the gateway (NGINX vs an APIM provisioned in a separate RG,
+`BookStoreRG`) and the resource group. The `llm.*` and APIM **policy** wiring are **PLANNED** — the
+values blocks are stubbed ahead of the services that will read them.
+
+---
+
+## Data Flow Diagrams
+
+### 1. User login flow
+
+```text
+Angular LoginComponent
+  │ POST /auth/api/auth/login  { username, password }   (X-Correlation-Id stamped by AuthInterceptor)
+  ▼
+NGINX Ingress  ──strip /auth──▶  authservice :80  /api/auth/login
+  ▼
+AuthController.Login → compares Auth:Username / Auth:Password
+  ▼ (match)
+TokenService.GenerateToken → HS256 JWT { sub, jti, exp=+8h }
+  ▼
+200 { token }  ──▶  Angular saves token in localStorage
+  ▼
+AuthInterceptor now adds  Authorization: Bearer <token>  to every later request
+```
+
+### 2. Product creation flow (the headline async path)
+
+```text
+Angular ProductForm
+  │ POST /product/api/products  { name, price, quantity, ... }   (Bearer + X-Correlation-Id)
+  ▼
+NGINX Ingress ──strip /product──▶ productservice /api/products
+  ▼
+ProductController.Create → ProductService.CreateAsync
+  ├─▶ CosmosProductRepository.CreateAsync  → Products container (partition /id)
+  └─▶ IMessagePublisher.PublishAsync(ProductCreatedEvent, "product-events")
+          └─ AzureServiceBusProducer: ApplicationProperties["CorrelationId"] = <same id>
+  ▼
+201 Created  (returned to Angular immediately — inventory not yet updated)
+
+        ... asynchronously, decoupled by the broker ...
+
+Azure Service Bus  topic product-events ──▶ subscription inventory-subscription
+  ▼
+InventoryService  AzureServiceBusSubscriber.ProcessMessageAsync
+  ├─ reads CorrelationId from ApplicationProperties → LogContext
+  ├─ deserialize ProductCreatedIntegrationEvent  (bad JSON → DeadLetter)
+  ├─ CosmosInventoryRepository.UpdateInventory(Id, Quantity)  → Inventory container
+  └─ CompleteMessage   (transient error → Abandon → retry → DLQ after MaxDeliveryCount)
+```
+
+### 3. Log aggregation flow
+
+```text
+Each service: Serilog JsonFormatter → stdout (one JSON object per line)
+  ▼
+containerd writes /var/log/containers/<pod>_bookstore_<container>.log   (CRI-wrapped line)
+  ▼
+Fluent Bit DaemonSet (one pod per node):
+  tail (Parser cri_bookstore)   → split CRI wrapper, set _time
+  filter kubernetes             → add pod_name / namespace_name / container_name / host
+  filter grep (exclude)         → drop fluent-bit's own logs
+  filter grep (regex)           → keep only authservice|productservice|inventoryservice
+  filter parser json_serilog    → parse Serilog JSON inside "message" into real fields
+  filter nest (lift Properties) → hoist CorrelationId/TraceId/Application to top level
+  filter modify                 → add environment=Production, platform=BookStore-AKS
+  ▼
+OUTPUT splunk → prd-p-opur1.splunkcloud.com:8088 (TLS)  index=main  sourcetype=bookstore:json
+```
+
+### 4. Deployment flow
+
+```text
+git push main
+  ▼
+ci.yml (CI — Build and Validate): build all 3 services + UI, helm lint/template, bicep build, secret scan
+  ▼ workflow_run: completed
+cd-costopt.yml (CD — Profile A):
+  build-push-auth / -product / -inventory  → ACR (tag = short SHA)  [parallel]
+  ▼
+  deploy job:
+    az aks get-credentials
+    annotate ingress-nginx LB health-probe path = /healthz
+    create/refresh *-secrets (from GitHub Secrets)
+    helm upgrade --install {auth,product,inventory} --values values-costopt.yaml --set image.tag=<sha> --wait
+    deploy fluent-bit + splunk-secrets
+    kubectl rollout status  (fail → helm rollback)
+  ▼
+Pods running the new image; UI separately via cd-ui.yml → gh-pages
+```
+
+---
+
+## Service Boundaries
+
+### AuthService
+- **Owns:** credential check + JWT issuance. Signing key config.
+- **Publishes:** nothing.
+- **Subscribes:** nothing.
+- **Does NOT:** store users (single config-based credential), issue refresh tokens, manage roles, or
+  touch Cosmos/Service Bus.
+
+### ProductService
+- **Owns:** the `Products` Cosmos container and the product lifecycle (CRUD).
+- **Publishes:** `ProductCreatedEvent` → `product-events` on create.
+- **Subscribes:** nothing.
+- **Does NOT:** manage stock/inventory, know InventoryService exists, or verify the event was
+  consumed (best-effort publish).
+
+### InventoryService
+- **Owns:** the `Inventory` Cosmos container; one row per product keyed by `ProductId`.
+- **Publishes:** nothing.
+- **Subscribes:** `product-events` via `inventory-subscription`.
+- **Does NOT:** create products, call ProductService, or decrement stock on orders (there is no
+  OrderService yet — **PLANNED**). Today "update inventory" means "set quantity from the product
+  create event."
+
+### product-ui
+- **Owns:** the browser experience (login, product list/form, inventory view) and CorrelationId
+  generation for a browser session.
+- **Does NOT:** hold business logic or secrets; it is a thin client over the three APIs.
+
+---
+
+## Planned Architecture (Phase 2–4)
+
+```text
+                         ┌──────────────────────────── FUTURE STATE (PLANNED) ────────────────────────────┐
+   Browser ─▶ APIM ─▶ NGINX ─▶  authservice   productservice   inventoryservice                           │
+   (JWT + rate-limit policy)         │                │                ▲                                    │
+                                     │ ProductCreated │ OrderCreated   │                                    │
+                                     ▼                ▼                │                                    │
+                          ┌───────────── Azure Service Bus (topics) ───────────────┐                        │
+                          │  product-events    order-events    payment-events ...   │                        │
+                          └───┬─────────────┬───────────────┬───────────────────────┘                        │
+                              ▼             ▼               ▼                                                 │
+                       InventoryService  OrderService   PaymentService   NotificationService                 │
+                       (+ Inbox dedupe)  (CQRS r/w,      (Saga           (stateless, multi-event             │
+                                          Outbox)         orchestration)  subscriber)                        │
+                                                                                                             │
+   AI layer:  Book Knowledge RAG (Cosmos vector search) · BookStore AI Agent (Semantic Kernel intent        │
+              routing) · Natural-Language→Cosmos queries       LLM: GitHub Models (A) / Azure OpenAI (B)     │
+                                                                                                             │
+   Mesh/scale/telemetry:  Istio canary (10→25→50→100%) · KEDA scale on Service Bus queue depth ·             │
+                          OpenTelemetry OTLP → Azure Application Insights                                    │
+   └─────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+Every element in this diagram is **PLANNED** and detailed in `docs/ROADMAP.md`. The current build
+stops at ProductService → Service Bus → InventoryService with the observability stack shown above.

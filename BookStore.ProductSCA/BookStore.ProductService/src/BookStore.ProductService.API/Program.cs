@@ -148,18 +148,25 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// Configure middleware
+// Canonical middleware pipeline order — shared across AuthService, ProductService, InventoryService:
+//   1. CorrelationId  2. RequestLogging (DurationMs)  3. Exception (ProblemDetails)  4. Swagger/UI
+//   5. CORS  6. Authentication  7. Authorization  8. SerilogEnriching (needs authenticated user)
+//   9. Controllers  10. HealthChecks
 app.UseMiddleware<CorrelationIdMiddleware>();
+app.UseMiddleware<RequestLoggingMiddleware>();
 app.UseMiddleware<ExceptionMiddleware>();
-app.UseMiddleware<SerilogEnrichingMiddleware>();
-app.UseCors("AllowFrontend");
-app.UseAuthentication();
-app.UseAuthorization();
 
 app.UseSwagger();
 app.UseSwaggerUI();
 
-app.MapHealthChecks("/health");
+app.UseCors("AllowFrontend");
+app.UseAuthentication();
+app.UseAuthorization();
+
+// After authentication so it can enrich logs with the authenticated UserName.
+app.UseMiddleware<SerilogEnrichingMiddleware>();
+
 app.MapControllers();
+app.MapHealthChecks("/health");
 
 app.Run();

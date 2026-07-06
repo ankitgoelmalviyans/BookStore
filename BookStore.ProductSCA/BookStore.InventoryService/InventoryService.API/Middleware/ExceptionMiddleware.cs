@@ -1,31 +1,33 @@
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Logging;
 using System;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
-namespace BookStore.ProductService.API.Middleware
+namespace BookStore.InventoryService.API.Middleware
 {
     /// <summary>
     /// Catches any unhandled exception below it in the pipeline and returns an RFC 9457
     /// (<c>application/problem+json</c>) ProblemDetails response that includes the request's
     /// CorrelationId. Kept behaviourally identical across all three BookStore services.
     /// </summary>
-    public class ExceptionMiddleware : IMiddleware
+    public class ExceptionMiddleware
     {
+        private readonly RequestDelegate _next;
         private readonly ILogger<ExceptionMiddleware> _logger;
 
-        public ExceptionMiddleware(ILogger<ExceptionMiddleware> logger)
+        public ExceptionMiddleware(RequestDelegate next, ILogger<ExceptionMiddleware> logger)
         {
+            _next = next;
             _logger = logger;
         }
 
-        public async Task InvokeAsync(HttpContext context, RequestDelegate next)
+        public async Task InvokeAsync(HttpContext context)
         {
             try
             {
-                await next(context);
+                await _next(context);
             }
             catch (Exception ex)
             {
