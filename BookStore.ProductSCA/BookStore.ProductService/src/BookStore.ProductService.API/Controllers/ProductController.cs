@@ -38,10 +38,12 @@ namespace BookStore.ProductService.API.Controllers
         [HttpPost]
         public async Task<IActionResult> Create(Product product)
         {
-            // Pass the request's CorrelationId down so it can be persisted on the outbox record and
-            // survive the async hop when the OutboxPublisherService later publishes the event.
+            // Pass the request's CorrelationId AND W3C trace context down so both can be persisted on
+            // the outbox record and survive the async hop when the OutboxPublisherService later
+            // publishes the event — keeping the whole create → publish → consume chain in one trace.
             var correlationId = HttpContext.Items[CorrelationConstants.HttpContextItemKey]?.ToString();
-            var createdProduct = await _productService.CreateAsync(product, correlationId);
+            var traceParent = System.Diagnostics.Activity.Current?.Id;
+            var createdProduct = await _productService.CreateAsync(product, correlationId, traceParent);
             return CreatedAtAction(nameof(GetById), new { id = createdProduct.Id }, createdProduct);
         }
 

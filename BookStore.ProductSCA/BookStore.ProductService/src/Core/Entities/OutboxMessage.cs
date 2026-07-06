@@ -37,6 +37,12 @@ namespace BookStore.ProductService.Core.Entities
         [JsonProperty("correlationId")]
         public string? CorrelationId { get; set; }
 
+        // W3C traceparent of the HTTP request that created the product, captured at create time so
+        // the later (background) publish can join the same distributed trace rather than starting a
+        // disconnected one — the trace-context analogue of CorrelationId above.
+        [JsonProperty("traceParent")]
+        public string? TraceParent { get; set; }
+
         [JsonProperty("payload")]
         public ProductCreatedEvent? Payload { get; set; }
 

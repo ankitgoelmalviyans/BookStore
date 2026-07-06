@@ -1,7 +1,9 @@
 using Azure.Messaging.ServiceBus;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text.Json;
 using BookStore.ProductService.Core.Messaging;
+using BookStore.ProductService.Infrastructure.Observability;
 using Microsoft.AspNetCore.Http;
 
 public class AzureServiceBusProducer : IMessagePublisher, IAsyncDisposable
@@ -20,8 +22,16 @@ public class AzureServiceBusProducer : IMessagePublisher, IAsyncDisposable
         _httpContextAccessor = httpContextAccessor;
     }
 
-    public async Task PublishAsync<T>(T eventMessage, string topic, string? correlationId = null) where T : class
+    public async Task PublishAsync<T>(T eventMessage, string topic, string? correlationId = null, string? traceParent = null) where T : class
     {
+        // Producer span. When traceParent is supplied (the trace context captured at the original
+        // HTTP create and stored on the outbox record), this span joins THAT trace, so the whole
+        // create → outbox → publish → consume chain shares one TraceId. Otherwise it starts a new
+        // root trace. StartActivity returns null unless the source is registered via AddSource(...)
+        // in Program.cs — the null-conditional calls below tolerate that.
+        using var activity = BookStoreActivitySource.Instance.StartActivity(
+            $"ServiceBus.Publish {topic}", ActivityKind.Producer, traceParent);
+
         var sender = _senders.GetOrAdd(topic, t => _client.CreateSender(t));
 
         var jsonBody = JsonSerializer.Serialize(eventMessage);
@@ -35,6 +45,18 @@ public class AzureServiceBusProducer : IMessagePublisher, IAsyncDisposable
         // ApplicationProperties copy preserves the existing InventoryService consumer contract.
         message.CorrelationId = effectiveCorrelationId;
         message.ApplicationProperties["CorrelationId"] = effectiveCorrelationId;
+
+        // W3C trace context: inject this publish span's id so the consumer can start its span as a
+        // child (same TraceId). Fall back to the passed-in parent if no span was sampled.
+        var traceparentToInject = activity?.Id ?? traceParent;
+        if (traceparentToInject is not null)
+        {
+            message.ApplicationProperties["traceparent"] = traceparentToInject;
+        }
+
+        activity?.SetTag("messaging.system", "servicebus");
+        activity?.SetTag("messaging.destination.name", topic);
+        activity?.SetTag("correlation.id", effectiveCorrelationId);
 
         await sender.SendMessageAsync(message);
     }

@@ -33,7 +33,7 @@ namespace BookStore.ProductService.Application.Services
             return await _productRepository.GetByIdAsync(id);
         }
 
-        public async Task<Product> CreateAsync(Product product, string? correlationId = null)
+        public async Task<Product> CreateAsync(Product product, string? correlationId = null, string? traceParent = null)
         {
             // Assign the id up front so the event payload and the stored document id match.
             if (product.Id == Guid.Empty)
@@ -56,6 +56,9 @@ namespace BookStore.ProductService.Application.Services
                 Topic = topic,
                 Status = OutboxMessage.Pending,
                 CorrelationId = correlationId,
+                // W3C trace context of the originating HTTP request (captured by the controller and
+                // passed in) so the later background publish can join the same distributed trace.
+                TraceParent = traceParent,
                 CreatedAt = DateTime.UtcNow,
                 Payload = new ProductCreatedEvent
                 {

@@ -28,7 +28,8 @@ Built and deployed today, verified against the code:
 - **CI/CD** — GitHub Actions: `ci.yml`, `cd-costopt.yml`, `cd-ui.yml`, `infra-bicep.yml`,
   `infra-demo.yml`.
 - **Observability** — Serilog JSON → Fluent Bit DaemonSet → Splunk Cloud (`index=main`,
-  `bookstore:json`); CorrelationId across the async hop; OpenTelemetry spans (no exporter yet).
+  `bookstore:json`); CorrelationId across the async hop; OpenTelemetry spans with W3C `traceparent`
+  propagation across the Service Bus hop and a **config-gated OTLP exporter**.
 - **Two profiles** — cost-optimised (NGINX/GitHub Models) vs demo (APIM/Azure OpenAI) via Helm value
   overlays.
 
@@ -160,10 +161,18 @@ Built and deployed today, verified against the code:
   HPA (today's mechanism) doesn't see a message backlog; KEDA scales on the metric that actually
   matters for a consumer — how many messages are waiting.
 
-### OpenTelemetry OTLP export
-- **What:** replace the current no-exporter setup with an **OTLP exporter → Azure Application
-  Insights**, giving a real distributed-trace waterfall UI in the Azure Portal (and enabling true
-  cross-service TraceId propagation). This is the missing piece called out in `docs/LLD.md`.
+### OpenTelemetry OTLP export ✅ IMPLEMENTED (config-gated)
+- **What shipped:** a **config-gated OTLP exporter** on all three services (added only when
+  `Otel:OtlpEndpoint` / `OTEL_EXPORTER_OTLP_ENDPOINT` is set), plus **messaging instrumentation** —
+  each service has an `ActivitySource`, the producer injects the W3C `traceparent` onto the Service
+  Bus message, and the consumer continues it. Trace context is threaded through the **outbox record**
+  so the async drain keeps the create → publish → consume chain in one trace. This also closed the
+  gap where InventoryService's consumer logs had no TraceId (no ambient `Activity` in the background
+  handler, so `Serilog.Enrichers.Span` had nothing to stamp).
+- **Remaining (ops, no code):** stand up a collector to view the waterfall — a local
+  Jaeger/Tempo/`otel-collector` for dev, or **Azure Application Insights** (a one-package swap to
+  `Azure.Monitor.OpenTelemetry` + a connection string) for a managed Portal UI. Kept off the
+  always-on budget by leaving the endpoint unset in prod.
 
 ---
 

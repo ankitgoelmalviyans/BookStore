@@ -43,24 +43,37 @@ builder.Services.AddControllers();
 
 // OpenTelemetry distributed tracing
 builder.Services.AddOpenTelemetry()
-    .WithTracing(tracing => tracing
-        .SetResourceBuilder(
-            ResourceBuilder.CreateDefault()
-                .AddService(
-                    serviceName: builder.Configuration["Otel:ServiceName"]
-                        ?? "BookStore.UnknownService",
-                    serviceVersion: "1.0.0"))
-        .AddAspNetCoreInstrumentation(options =>
+    .WithTracing(tracing =>
+    {
+        tracing
+            .SetResourceBuilder(
+                ResourceBuilder.CreateDefault()
+                    .AddService(
+                        serviceName: builder.Configuration["Otel:ServiceName"]
+                            ?? "BookStore.UnknownService",
+                        serviceVersion: "1.0.0"))
+            .AddAspNetCoreInstrumentation(options =>
+            {
+                options.RecordException = true;
+                options.Filter = ctx =>
+                    !ctx.Request.Path.StartsWithSegments("/health");
+            })
+            .AddHttpClientInstrumentation();
+
+        // OTLP exporter — opt-in via config so nothing is exported (and no connection is attempted)
+        // until an endpoint is set. Spans are always created regardless, so TraceId/SpanId keep
+        // enriching the Serilog logs even with no exporter. Point Otel:OtlpEndpoint (or the standard
+        // OTEL_EXPORTER_OTLP_ENDPOINT env var) at a collector to see the distributed-trace waterfall.
+        var otlpEndpoint = builder.Configuration["Otel:OtlpEndpoint"];
+        if (string.IsNullOrWhiteSpace(otlpEndpoint))
         {
-            options.RecordException = true;
-            options.Filter = ctx =>
-                !ctx.Request.Path.StartsWithSegments("/health");
-        })
-        .AddHttpClientInstrumentation());
-// NOTE: No exporter is registered on purpose. Spans are still created so that
-// TraceId/SpanId enrich the Serilog logs, but they are NOT dumped to stdout
-// (the console exporter's multi-line plaintext output pollutes Splunk).
-// A real OTLP exporter to a tracing backend is planned for Phase 4.
+            otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
+        }
+        if (!string.IsNullOrWhiteSpace(otlpEndpoint))
+        {
+            tracing.AddOtlpExporter(o => o.Endpoint = new Uri(otlpEndpoint));
+        }
+    });
 
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
