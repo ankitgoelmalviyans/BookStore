@@ -122,7 +122,8 @@ public async Task PublishAsync<T>(T eventMessage, string topic) where T : class
 }
 ```
 - **Topic:** `product-events` (from `AzureServiceBus:TopicName`, default fallback in `CreateAsync`).
-- **Message format:** JSON body = serialized `ProductCreatedEvent { Id, Name, Price, Quantity }`.
+- **Message format:** JSON body = serialized `ProductCreatedEvent { EventId, Id, Name, Price }` — no
+  `Quantity`: Product is catalog-only and does not own stock (see `InventoryService` below).
 - **CorrelationId as `ApplicationProperty`:** this is what lets the id survive the broker hop.
 - **`ServiceBusClient` is a Singleton** (`StartupExtensions`); `IHttpContextAccessor` provides the
   request's CorrelationId.
@@ -143,7 +144,7 @@ ProcessMessageAsync:
   read CorrelationId from ApplicationProperties → push to LogContext
   try  deserialize ProductCreatedIntegrationEvent
   catch(JsonException) → DeadLetterMessage("DeserializationFailed")   // poison message, don't retry
-  try  repository.UpdateInventory(Id, Quantity); CompleteMessage
+  try  repository.UpdateInventory(Id, 0); CompleteMessage   // new product → zero stock
   catch(Exception)     → AbandonMessage                              // transient → redeliver → DLQ
 ```
 - **Why `AutoCompleteMessages=false`:** with auto-complete on, a message is ack'd the moment the
@@ -154,14 +155,29 @@ ProcessMessageAsync:
 ### `CosmosInventoryRepository`
 - **Container:** `Inventory` (`CosmosDb:ContainerName`), DB `BookStoreDB`, partition key `/id`.
 - **Keying:** one row per product — `Inventory.Id == ProductId`, so `id` (partition key) equals the
-  product id. `UpdateInventory(productId, quantity)`:
+  product id. `UpdateInventory(productId, quantity)` sets an **absolute** quantity:
   - Existing row → set `Quantity`, `LastUpdated`, `UpsertItemAsync`.
   - No row → create `Inventory { Id = productId, ProductId = productId, Quantity, LastUpdated }`.
+- **`TryDecrementStock(productId, quantity)`** — the operation that makes Inventory the actual owner of
+  stock rather than a mirror of a field Product used to carry. Rejects a non-positive `quantity` outright
+  (a negative value would otherwise slip past the insufficient-stock check and *increase* stock — a real
+  bug caught in review). Otherwise: point-reads the row via `ReadItemAsync` (capturing its ETag), returns
+  `false` if it doesn't exist or has insufficient quantity, else decrements and upserts with
+  `ItemRequestOptions.IfMatchEtag` set to that ETag. A `412 PreconditionFailed` (another writer updated
+  the row between our read and write) is caught and retried against a fresh read, up to 5 attempts —
+  closing the TOCTOU window a plain read-then-write would leave. Exposed as
+  `POST /api/Inventory/{productId}/decrement`, returning 409 on insufficient stock (not to be confused
+  with Cosmos's own 412 — that's an internal retry signal, not surfaced to the caller).
 - **Note:** this repo is registered **Singleton** and creates its own `CosmosClient` in its
   constructor (unlike ProductService, which injects a shared Singleton `CosmosClient`). Cosmos
   operations here are called synchronously (`.Wait()` / `.GetAwaiter().GetResult()`).
 - A `UseCosmosDb` flag in config selects `CosmosInventoryRepository` vs `InMemoryInventoryRepository`
   (the latter for local/dev). Production sets `UseCosmosDb: true`.
+- **Why Product doesn't carry `Quantity`:** catalog data (name, description, price) changes rarely and
+  is read-heavy; stock is a fast-moving, write-heavy counter that a fulfillment flow contends on. Giving
+  Product its own `Quantity` made InventoryService a redundant mirror with no real job. Inventory is now
+  the single source of truth for stock, and owns operations Product cannot do — `TryDecrementStock`
+  above is the concrete example.
 
 ---
 

@@ -20,8 +20,7 @@ export class ProductFormComponent implements OnInit {
   ) {
     this.productForm = this.fb.group({
       name: [''],
-      description: [''],
-      quantity: [0]
+      description: ['']
     });
   }
 

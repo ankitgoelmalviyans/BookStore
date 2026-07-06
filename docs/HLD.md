@@ -128,7 +128,8 @@ AuthInterceptor now adds  Authorization: Bearer <token>  to every later request
 
 ```text
 Angular ProductForm
-  │ POST /product/api/products  { name, price, quantity, ... }   (Bearer + X-Correlation-Id)
+  │ POST /product/api/products  { name, price, description, category }   (Bearer + X-Correlation-Id)
+  │ (catalog data only — Product does not carry stock; see note below)
   ▼
 NGINX Ingress ──strip /product──▶ productservice /api/products
   ▼
@@ -146,9 +147,14 @@ Azure Service Bus  topic product-events ──▶ subscription inventory-subscri
 InventoryService  AzureServiceBusSubscriber.ProcessMessageAsync
   ├─ reads CorrelationId from ApplicationProperties → LogContext
   ├─ deserialize ProductCreatedIntegrationEvent  (bad JSON → DeadLetter)
-  ├─ CosmosInventoryRepository.UpdateInventory(Id, Quantity)  → Inventory container
+  ├─ CosmosInventoryRepository.UpdateInventory(Id, 0)  → Inventory container (new row, zero stock)
   └─ CompleteMessage   (transient error → Abandon → retry → DLQ after MaxDeliveryCount)
 ```
+**Why zero, not a quantity from the event:** Product does not own stock — it never did make sense for
+the catalog to carry a `Quantity` a fulfillment-owned service also needs to manage. Inventory is the
+sole source of truth for stock; a new product starts at zero and is explicitly restocked via
+`POST /api/Inventory`, then decremented via `POST /api/Inventory/{productId}/decrement` (bounds-checked,
+returns 409 on insufficient stock — the one thing Product genuinely cannot do).
 
 ### 3. Log aggregation flow
 

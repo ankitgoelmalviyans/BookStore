@@ -234,7 +234,7 @@ if (evt.EventId != Guid.Empty && await inbox.HasBeenProcessedAsync(evt.EventId))
     return;
 }
 
-repository.UpdateInventory(evt.Id, evt.Quantity);     // do the business effect FIRST
+repository.UpdateInventory(evt.Id, 0);     // new product → zero stock; do the business effect FIRST
 
 if (evt.EventId != Guid.Empty)
 {

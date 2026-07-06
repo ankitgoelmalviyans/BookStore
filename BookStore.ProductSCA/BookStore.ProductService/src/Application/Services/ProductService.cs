@@ -65,8 +65,7 @@ namespace BookStore.ProductService.Application.Services
                     EventId = eventId,
                     Id = product.Id,
                     Name = product.Name,
-                    Price = product.Price,
-                    Quantity = product.Quantity
+                    Price = product.Price
                 }
             };
 

@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using Microsoft.Extensions.Configuration;
 using System.Linq;
 using System;
+using System.Net;
 
 namespace BookStore.InventoryService.Infrastructure.Repositories
 {
@@ -62,6 +63,65 @@ namespace BookStore.InventoryService.Infrastructure.Repositories
                 };
                 _container.CreateItemAsync(newItem, new PartitionKey(productId.ToString())).Wait();
             }
+        }
+
+        public bool TryDecrementStock(Guid productId, int quantity)
+        {
+            // Non-positive quantities aren't "decrements" at all — without this guard, a negative
+            // value slips past the `item.Quantity < quantity` check below (which only ever rejects
+            // positive values exceeding stock) and `item.Quantity -= quantity` then INCREASES stock,
+            // silently inverting the one thing this method exists to prevent.
+            if (quantity <= 0)
+            {
+                return false;
+            }
+
+            // Optimistic concurrency: read the row's ETag, upsert with IfMatchEtag, and retry on a 412
+            // (someone else updated the row between our read and write) rather than blindly overwriting
+            // it. This closes the TOCTOU window a plain read-then-write would have — two concurrent
+            // decrements can no longer both read the same pre-decrement Quantity and both succeed.
+            const int maxAttempts = 5;
+            for (var attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                Inventory item;
+                string etag;
+                try
+                {
+                    var response = _container.ReadItemAsync<Inventory>(
+                        productId.ToString(), new PartitionKey(productId.ToString())).GetAwaiter().GetResult();
+                    item = response.Resource;
+                    etag = response.ETag;
+                }
+                catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+                {
+                    return false;
+                }
+
+                if (item.Quantity < quantity)
+                {
+                    return false;
+                }
+
+                item.Quantity -= quantity;
+                item.LastUpdated = DateTime.UtcNow;
+
+                try
+                {
+                    _container.UpsertItemAsync(
+                        item,
+                        new PartitionKey(item.ProductId.ToString()),
+                        new ItemRequestOptions { IfMatchEtag = etag }).GetAwaiter().GetResult();
+                    return true;
+                }
+                catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.PreconditionFailed)
+                {
+                    // Lost the race — another write landed first. Loop and retry against a fresh read.
+                }
+            }
+
+            // Exhausted retries under sustained contention. Treat as failure (safe default) rather than
+            // risk an unguarded write; the caller sees this identically to insufficient stock.
+            return false;
         }
     }
 }
