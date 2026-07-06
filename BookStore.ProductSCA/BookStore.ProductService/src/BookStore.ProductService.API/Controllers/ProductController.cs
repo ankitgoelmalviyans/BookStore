@@ -37,7 +37,10 @@ namespace BookStore.ProductService.API.Controllers
         [HttpPost]
         public async Task<IActionResult> Create(Product product)
         {
-            var createdProduct = await _productService.CreateAsync(product);
+            // Pass the request's CorrelationId down so it can be persisted on the outbox record and
+            // survive the async hop when the OutboxPublisherService later publishes the event.
+            var correlationId = HttpContext.Items["X-Correlation-Id"]?.ToString();
+            var createdProduct = await _productService.CreateAsync(product, correlationId);
             return CreatedAtAction(nameof(GetById), new { id = createdProduct.Id }, createdProduct);
         }
 

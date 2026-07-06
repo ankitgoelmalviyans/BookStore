@@ -1,4 +1,5 @@
 using BookStore.ProductService.API.Middleware;
+using BookStore.ProductService.API.BackgroundServices;
 using BookStore.ProductService.Core.Repositories;
 using BookStore.ProductService.Infrastructure.Repositories;
 using Serilog;
@@ -25,6 +26,10 @@ namespace BookStore.ProductService.Extensions
             services.AddScoped<IProductService, BookStore.ProductService.Application.Services.ProductService>();
 
             services.AddScoped<IMessagePublisher, AzureServiceBusProducer>();
+
+            // Transactional outbox: store over the Products container + a background drain publisher.
+            services.AddScoped<IOutboxStore, CosmosOutboxStore>();
+            services.AddHostedService<OutboxPublisherService>();
 
             services.AddHealthChecks();
             services.AddAutoMapper(typeof(StartupExtensions).Assembly);

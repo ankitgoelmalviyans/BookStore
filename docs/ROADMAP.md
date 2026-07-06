@@ -68,16 +68,23 @@ Built and deployed today, verified against the code:
   update. The Inbox makes consumption **idempotent**. Also covers DLQ handling: a poison message
   (already dead-lettered on bad JSON today) gets a documented replay/inspection workflow.
 
-### Outbox pattern — for ProductService
-- **The dual-write problem (present today):** `ProductService.CreateAsync` does two writes — save to
-  Cosmos **and** publish to Service Bus — that are **not atomic**. The current code even catches the
-  publish failure and returns success anyway, so a product can exist with **no event ever sent**
-  (inventory silently never updates). That is a real correctness gap.
-- **What the Outbox solves it with:** in the **same transaction** that writes the `Product`, write an
-  `OutboxMessage` row (the event) — via a Cosmos **transactional batch** (same partition key). A
-  separate relay process reads unpublished outbox rows and pushes them to Service Bus, marking them
-  sent. Now the event is **guaranteed** to eventually publish because it was committed atomically with
-  the product. This closes the dual-write gap flagged in the PRD/LLD.
+### Outbox pattern — for ProductService ✅ IMPLEMENTED
+- **The dual-write problem it closed:** `ProductService.CreateAsync` used to do two non-atomic writes
+  — save to Cosmos **and** publish to Service Bus — and even caught the publish failure while
+  returning success, so a product could exist with **no event ever sent**.
+- **How it's implemented now:** the pending event is stored as an **embedded outbox record on the
+  Product document** (`Product.Outbox` → `OutboxMessage`), written in the **single atomic
+  `CreateItemAsync`**. A background `OutboxPublisherService` (a `BackgroundService`) polls for
+  documents whose `outbox.status = "Pending"`, publishes them via `IMessagePublisher` (re-using the
+  stored CorrelationId), and marks them `Published`.
+- **Why embedded, not a separate outbox document + transactional batch:** the `Products` container is
+  partitioned on `/id`, so an aggregate and a separate outbox document can never share a partition-key
+  value — a multi-document transactional batch is impossible here. A single-document write is the only
+  truly atomic option, so the outbox lives inside the aggregate. (With a different partition key,
+  separate outbox documents in a transactional batch would be the alternative.)
+- **Delivery semantics:** at-least-once. The InventoryService consumer is idempotent (it sets an
+  absolute quantity from the event), so a duplicate is a no-op. A consumer-side **Inbox** (below)
+  would make this explicit and cover non-idempotent future consumers.
 
 ---
 

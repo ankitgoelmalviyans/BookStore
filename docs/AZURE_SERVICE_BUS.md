@@ -118,9 +118,18 @@ business-level CorrelationId exists (see `docs/LLD.md`, "TraceId vs CorrelationI
 // Core/Messaging/IMessagePublisher.cs
 public interface IMessagePublisher
 {
-    Task PublishAsync<T>(T message, string topic) where T : class;
+    // correlationId is optional: the outbox publisher supplies it explicitly (it runs outside an
+    // HTTP request, so there's no ambient HttpContext); callers on the request path can omit it.
+    Task PublishAsync<T>(T message, string topic, string? correlationId = null) where T : class;
 }
 ```
+
+> **Transactional Outbox (implemented).** ProductService no longer publishes inline during the create
+> request. Instead `CreateAsync` writes an **embedded outbox record atomically with the product**
+> (single `CreateItemAsync`), and a background `OutboxPublisherService` drains pending records to
+> Service Bus via this interface — passing the stored `correlationId` so the async trace survives.
+> This closes the old best-effort dual-write gap (a product could be saved but its event lost). See
+> `docs/ROADMAP.md` → "Outbox pattern" for the design and the `/id`-partition reasoning.
 
 ### The current implementation (Infrastructure layer)
 ```csharp
