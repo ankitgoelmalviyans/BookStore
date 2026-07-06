@@ -174,7 +174,7 @@ These are **PLANNED**, not built. They are documented in `docs/ROADMAP.md`.
 | **KEDA autoscaling on Service Bus queue depth** | Phase 4 |
 | **OpenTelemetry OTLP export** to App Insights | Phase 4 — spans created today but no exporter |
 | **cert-manager TLS on ingress** | ClusterIssuer is created, but TLS is effectively pending a non-`nip.io` domain |
-| **Unit / integration tests** | Phase 5 — CI builds and validates but runs no test suite yet |
+| Unit / integration tests | *Started* — an xUnit suite for `ProductService.CreateAsync` (outbox behaviour) now runs in CI; broader coverage + integration tests are Phase 5 |
 
 ### Known gaps flagged honestly
 - **Symmetric JWT key shared across services** — fine for a monorepo demo; asymmetric signing is the production target.

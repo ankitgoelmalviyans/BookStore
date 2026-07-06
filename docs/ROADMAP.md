@@ -150,8 +150,11 @@ Built and deployed today, verified against the code:
 
 ## Phase 5 — Production Hardening (PLANNED)
 
-- **Tests:** unit tests with **xUnit v3** (the `IMessagePublisher`/`IProductRepository` interfaces
-  make this straightforward) + integration tests. CI builds today but runs no test suite.
+- **Tests:** *started* — an **xUnit** unit-test project
+  (`tests/ProductService.UnitTests`) covers `ProductService.CreateAsync`'s outbox behaviour (the crux
+  of the dual-write fix) and runs in CI via a `dotnet test` step. Remaining: broaden coverage to the
+  other services and add integration tests. (The `IMessagePublisher`/`IProductRepository` interfaces
+  keep this straightforward — the suite uses hand-rolled fakes, no mocking library.)
 - **PodDisruptionBudget** — protect availability during node drains/upgrades.
 - **.NET 10 upgrade** — from the current `net8.0`.
 - **Managed Identity for ACR** — replace the `ACR_USERNAME`/`ACR_PASSWORD` GitHub Secrets with
