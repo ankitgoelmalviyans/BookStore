@@ -9,8 +9,8 @@ namespace BookStore.ProductService.Core.Messaging;
 public interface IOutboxStore
 {
     /// <summary>Returns up to <paramref name="maxItems"/> products whose embedded outbox is Pending.</summary>
-    Task<IReadOnlyList<Product>> GetPendingAsync(int maxItems);
+    Task<IReadOnlyList<Product>> GetPendingAsync(int maxItems, CancellationToken cancellationToken = default);
 
     /// <summary>Marks the product's embedded outbox record as Published and persists it.</summary>
-    Task MarkPublishedAsync(Product product);
+    Task MarkPublishedAsync(Product product, CancellationToken cancellationToken = default);
 }

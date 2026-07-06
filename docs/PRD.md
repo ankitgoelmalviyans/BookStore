@@ -82,12 +82,12 @@ Everything below is present in the codebase today.
 |------------|--------|
 | `GET /api/products` | Returns all products from Cosmos `Products` container |
 | `GET /api/products/{id}` | Returns one product, `404` if not found |
-| `POST /api/products` | Creates a product, then **publishes `ProductCreatedEvent`** to Service Bus topic `product-events` |
+| `POST /api/products` | Creates a product and **atomically records a `ProductCreatedEvent` in the embedded transactional outbox** (single document write); the background `OutboxPublisherService` then drains it to Service Bus topic `product-events` |
 | `PUT /api/products/{id}` | Upserts a product (`400` if id mismatch, `404` if not found) |
 | `DELETE /api/products/{id}` | Deletes a product, `204` on success, `404` if not found |
 | `[Authorize]` | All product endpoints require a valid JWT bearer token |
 | `GET /health` | Health endpoint |
-| Event publishing | `AzureServiceBusProducer` stamps the request's `CorrelationId` onto the message's `ApplicationProperties` |
+| Event publishing | `OutboxPublisherService` drains pending outbox records via `AzureServiceBusProducer`, which stamps the stored `CorrelationId` onto the message (native `CorrelationId` + `ApplicationProperties`) |
 
 ### InventoryService (`BookStore.ProductSCA/BookStore.InventoryService`)
 

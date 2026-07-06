@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Text.Json;
 using System.Threading.Tasks;
+using BookStore.ProductService.Core.Messaging;
 
 namespace BookStore.ProductService.API.Middleware
 {
@@ -34,7 +35,7 @@ namespace BookStore.ProductService.API.Middleware
                     context.Request.Method,
                     context.Request.Path);
 
-                var correlationId = context.Items["X-Correlation-Id"]?.ToString();
+                var correlationId = context.Items[CorrelationConstants.HttpContextItemKey]?.ToString();
 
                 var problem = new ProblemDetails
                 {

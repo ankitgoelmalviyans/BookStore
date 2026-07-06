@@ -25,7 +25,9 @@ namespace BookStore.ProductService.Extensions
             services.AddScoped<IProductRepository, CosmosProductRepository>();
             services.AddScoped<IProductService, BookStore.ProductService.Application.Services.ProductService>();
 
-            services.AddScoped<IMessagePublisher, AzureServiceBusProducer>();
+            // Singleton so the producer's cached ServiceBusSenders live for the app lifetime and are
+            // disposed on shutdown (IHttpContextAccessor is safe to inject into a singleton).
+            services.AddSingleton<IMessagePublisher, AzureServiceBusProducer>();
 
             // Transactional outbox: store over the Products container + a background drain publisher.
             services.AddScoped<IOutboxStore, CosmosOutboxStore>();

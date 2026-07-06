@@ -133,19 +133,25 @@ public interface IMessagePublisher
 
 ### The current implementation (Infrastructure layer)
 ```csharp
-// Infrastructure/Messaging/AzureServiceBusProducer.cs
-public class AzureServiceBusProducer : IMessagePublisher
+// Infrastructure/Messaging/AzureServiceBusProducer.cs  (Singleton; IAsyncDisposable)
+public class AzureServiceBusProducer : IMessagePublisher, IAsyncDisposable
 {
     private readonly ServiceBusClient _client;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    // ServiceBusSender is meant to be cached for the app lifetime — one per topic, not per publish.
+    private readonly ConcurrentDictionary<string, ServiceBusSender> _senders = new();
 
-    public async Task PublishAsync<T>(T eventMessage, string topic) where T : class
+    public async Task PublishAsync<T>(T eventMessage, string topic, string? correlationId = null) where T : class
     {
-        var sender = _client.CreateSender(topic);
+        var sender = _senders.GetOrAdd(topic, t => _client.CreateSender(t));
         var message = new ServiceBusMessage(JsonSerializer.Serialize(eventMessage));
-        var correlationId = _httpContextAccessor.HttpContext?.Items["X-Correlation-Id"]?.ToString()
-                            ?? Guid.NewGuid().ToString();
-        message.ApplicationProperties["CorrelationId"] = correlationId;
+
+        var effectiveCorrelationId = correlationId                                  // outbox publisher
+            ?? _httpContextAccessor.HttpContext?.Items[CorrelationConstants.HttpContextItemKey]?.ToString()
+            ?? Guid.NewGuid().ToString();
+
+        message.CorrelationId = effectiveCorrelationId;                             // native (SDK filters)
+        message.ApplicationProperties["CorrelationId"] = effectiveCorrelationId;    // consumer contract
         await sender.SendMessageAsync(message);
     }
 }

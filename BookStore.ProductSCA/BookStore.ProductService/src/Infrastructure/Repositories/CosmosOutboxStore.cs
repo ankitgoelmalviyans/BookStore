@@ -19,7 +19,7 @@ public class CosmosOutboxStore : IOutboxStore
         _container = database.GetContainer(configuration["CosmosDb:ContainerName"]);
     }
 
-    public async Task<IReadOnlyList<Product>> GetPendingAsync(int maxItems)
+    public async Task<IReadOnlyList<Product>> GetPendingAsync(int maxItems, CancellationToken cancellationToken = default)
     {
         var query = new QueryDefinition("SELECT * FROM c WHERE c.outbox.status = @status")
             .WithParameter("@status", OutboxMessage.Pending);
@@ -31,14 +31,14 @@ public class CosmosOutboxStore : IOutboxStore
         var results = new List<Product>();
         if (iterator.HasMoreResults)
         {
-            var response = await iterator.ReadNextAsync();
+            var response = await iterator.ReadNextAsync(cancellationToken);
             results.AddRange(response);
         }
 
         return results;
     }
 
-    public async Task MarkPublishedAsync(Product product)
+    public async Task MarkPublishedAsync(Product product, CancellationToken cancellationToken = default)
     {
         if (product.Outbox is null)
             return;
@@ -46,6 +46,9 @@ public class CosmosOutboxStore : IOutboxStore
         product.Outbox.Status = OutboxMessage.Published;
         product.Outbox.PublishedAt = DateTime.UtcNow;
 
-        await _container.UpsertItemAsync(product, new PartitionKey(product.Id.ToString()));
+        await _container.UpsertItemAsync(
+            product,
+            new PartitionKey(product.Id.ToString()),
+            cancellationToken: cancellationToken);
     }
 }

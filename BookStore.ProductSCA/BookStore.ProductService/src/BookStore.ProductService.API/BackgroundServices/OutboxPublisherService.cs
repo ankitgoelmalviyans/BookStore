@@ -71,7 +71,7 @@ namespace BookStore.ProductService.API.BackgroundServices
             var outboxStore = scope.ServiceProvider.GetRequiredService<IOutboxStore>();
             var publisher = scope.ServiceProvider.GetRequiredService<IMessagePublisher>();
 
-            var pending = await outboxStore.GetPendingAsync(_batchSize);
+            var pending = await outboxStore.GetPendingAsync(_batchSize, stoppingToken);
 
             foreach (var product in pending)
             {
@@ -89,7 +89,7 @@ namespace BookStore.ProductService.API.BackgroundServices
                 using (LogContext.PushProperty("CorrelationId", outbox.CorrelationId))
                 {
                     await publisher.PublishAsync(outbox.Payload, outbox.Topic, outbox.CorrelationId);
-                    await outboxStore.MarkPublishedAsync(product);
+                    await outboxStore.MarkPublishedAsync(product, stoppingToken);
 
                     _logger.LogInformation(
                         "Outbox event {EventId} ({EventType}) published to topic '{Topic}'",
