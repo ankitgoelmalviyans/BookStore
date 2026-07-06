@@ -143,6 +143,24 @@ resource inventoryContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/
   }
 }
 
+// InventoryService's Inbox pattern: one document per processed integration EventId, keyed/partitioned
+// on /id so a duplicate delivery is a cheap point read. defaultTtl auto-expires records after 30 days
+// (2,592,000s) so this dedup log doesn't grow unbounded — no manual cleanup job needed.
+resource processedMessagesContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-02-15-preview' = {
+  parent: cosmosDb
+  name: 'ProcessedMessages'
+  properties: {
+    resource: {
+      id: 'ProcessedMessages'
+      partitionKey: {
+        paths: ['/id']
+        kind: 'Hash'
+      }
+      defaultTtl: 2592000
+    }
+  }
+}
+
 // ─── Key Vault ────────────────────────────────────────────────────────────────
 
 resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {

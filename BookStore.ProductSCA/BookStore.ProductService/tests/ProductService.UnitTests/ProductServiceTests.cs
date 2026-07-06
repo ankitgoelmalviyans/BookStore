@@ -48,6 +48,7 @@ public class ProductServiceTests
         Assert.NotEqual(Guid.Empty, outbox.EventId);
 
         var payload = Assert.IsType<ProductCreatedEvent>(outbox.Payload);
+        Assert.Equal(outbox.EventId, payload.EventId);
         Assert.Equal(persisted.Id, payload.Id);
         Assert.Equal("The Pragmatic Programmer", payload.Name);
         Assert.Equal(39.99m, payload.Price);

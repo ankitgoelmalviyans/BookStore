@@ -25,9 +25,9 @@ Each ADR follows: **Decision → Why → Alternatives considered → Trade-offs.
 
 ### ADR-2 — Cosmos DB (not SQL Server)
 
-- **Decision:** Cosmos DB (SQL/Core API), database `BookStoreDB`, containers `Products` and
-  `Inventory`, both partitioned on `/id`, **Session** consistency, **free tier** enabled.
-  See `infrastructure/bicep/main.bicep`.
+- **Decision:** Cosmos DB (SQL/Core API), database `BookStoreDB`, containers `Products`,
+  `Inventory`, and `ProcessedMessages` (Inbox dedup log, 30-day TTL), all partitioned on `/id`,
+  **Session** consistency, **free tier** enabled. See `infrastructure/bicep/main.bicep`.
 - **Why:** Free tier → near-zero always-on cost. Schema-flexible documents suit the small,
   evolving catalog. Single-digit-ms reads by partition key. First-party Azure PaaS, no VM to run.
 - **Alternatives:** Azure SQL (relational, migrations, joins); PostgreSQL; a shared SQL Server.

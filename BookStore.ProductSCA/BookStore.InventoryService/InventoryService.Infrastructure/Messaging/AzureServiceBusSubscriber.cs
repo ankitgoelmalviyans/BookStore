@@ -14,11 +14,16 @@ namespace BookStore.InventoryService.Infrastructure.Messaging
     {
         private readonly IConfiguration _config;
         private readonly IInventoryRepository _repository;
+        private readonly IInboxStore _inboxStore;
 
-        public AzureServiceBusSubscriber(IConfiguration config, IInventoryRepository repository)
+        public AzureServiceBusSubscriber(
+            IConfiguration config,
+            IInventoryRepository repository,
+            IInboxStore inboxStore)
         {
             _config = config;
             _repository = repository;
+            _inboxStore = inboxStore;
         }
 
         public void Subscribe()
@@ -67,9 +72,34 @@ namespace BookStore.InventoryService.Infrastructure.Messaging
                     {
                         if (productEvent != null)
                         {
+                            // Inbox pattern: Service Bus is at-least-once, so this exact message can
+                            // arrive again (e.g. the previous delivery completed the work but the
+                            // Complete acknowledgement never reached the broker). EventId.Empty means
+                            // an older/unversioned producer didn't stamp one — skip the dedup check
+                            // rather than reject a message we can't key on.
+                            if (productEvent.EventId != Guid.Empty
+                                && await _inboxStore.HasBeenProcessedAsync(
+                                    productEvent.EventId, args.CancellationToken))
+                            {
+                                Log.Information(
+                                    "Duplicate ProductCreatedEvent {EventId} — already processed, skipping",
+                                    productEvent.EventId);
+                                await args.CompleteMessageAsync(args.Message);
+                                return;
+                            }
+
                             Log.Information("Received ProductCreatedEvent: {Name} - Qty: {Quantity}",
                                 productEvent.Name, productEvent.Quantity);
                             _repository.UpdateInventory(productEvent.Id, productEvent.Quantity);
+
+                            // Mark AFTER the business effect succeeds, never before: if this process
+                            // died mid-update, the event must still look "unprocessed" on redelivery
+                            // so the update actually gets (re)applied instead of being skipped.
+                            if (productEvent.EventId != Guid.Empty)
+                            {
+                                await _inboxStore.MarkProcessedAsync(
+                                    productEvent.EventId, args.CancellationToken);
+                            }
                         }
 
                         await args.CompleteMessageAsync(args.Message);

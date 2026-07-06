@@ -14,12 +14,15 @@ Built and deployed today, verified against the code:
   Cosmos `Products` container, publishes `ProductCreatedEvent` to Service Bus, `[Authorize]` on all
   endpoints, HPA enabled (1→3).
 - **InventoryService** — subscribes to `product-events`/`inventory-subscription`, upserts the Cosmos
-  `Inventory` container on each event, manual completion with dead-letter/abandon handling, JWT auth.
+  `Inventory` container on each event, manual completion with dead-letter/abandon handling, JWT auth,
+  and an **Inbox** (`IInboxStore` + `ProcessedMessages` container) that dedupes on `EventId` so a
+  redelivered message is a no-op.
 - **product-ui** — Angular 17 + Material; login, product list/form, inventory view; `AuthInterceptor`
   (Bearer + CorrelationId); hosted on GitHub Pages.
 - **Messaging** — Azure Service Bus (Standard): topic `product-events`, subscription
   `inventory-subscription`.
-- **Data** — Cosmos DB (free tier, Session): `BookStoreDB` with `Products` + `Inventory`, both `/id`.
+- **Data** — Cosmos DB (free tier, Session): `BookStoreDB` with `Products`, `Inventory`, and
+  `ProcessedMessages` (Inbox dedup log, 30-day TTL), all partitioned on `/id`.
 - **Infra** — AKS (1× B2s), ACR (Basic), Key Vault (RBAC), NGINX Ingress, static IP
   `104.211.94.129` + nip.io, cert-manager (TLS PARTIAL); all as Bicep.
 - **CI/CD** — GitHub Actions: `ci.yml`, `cd-costopt.yml`, `cd-ui.yml`, `infra-bicep.yml`,
@@ -60,13 +63,30 @@ Built and deployed today, verified against the code:
   Statelessness means it scales horizontally trivially (any replica can handle any message) and needs
   no schema, no migrations, no consistency story. Its only concern is idempotency (below).
 
-### Inbox pattern — for every Service Bus consumer
-- **What:** a "processed message id" table; before handling a message, check whether its id was
+### Inbox pattern — for InventoryService ✅ IMPLEMENTED
+- **What:** a "processed message id" record; before handling a message, check whether its id was
   already processed; if so, skip. **Why idempotency matters:** Service Bus (like all brokers) is
   **at-least-once** — a message can be delivered more than once (e.g. the handler succeeded but the
-  `Complete` call was lost, so it redelivers). Without dedupe, InventoryService could double-apply an
-  update. The Inbox makes consumption **idempotent**. Also covers DLQ handling: a poison message
-  (already dead-lettered on bad JSON today) gets a documented replay/inspection workflow.
+  `Complete` call was lost, so it redelivers). Without dedupe, a future non-idempotent consumer could
+  double-apply an update.
+- **How it's implemented:** `IInboxStore.HasBeenProcessedAsync(eventId)` is checked in
+  `AzureServiceBusSubscriber` before calling `UpdateInventory`; on success,
+  `MarkProcessedAsync(eventId)` is called — **after**, never before, so a crash mid-update still
+  allows a clean retry on redelivery rather than silently losing the update. The dedup key is
+  `ProductCreatedEvent.EventId`, which ProductService now stamps on the payload from its
+  `OutboxMessage.EventId` (see the Outbox entry below).
+- **Storage:** a dedicated Cosmos `ProcessedMessages` container (partitioned/keyed on `/id` =
+  `eventId`), separate from `Inventory` since the dedup key belongs to the event, not to any one
+  product. A 30-day `defaultTtl` auto-expires records so the dedup log never grows unbounded — no
+  cleanup job needed. An `InMemoryInboxStore` variant exists for local/dev, selected the same way as
+  `InMemoryInventoryRepository` (via `UseCosmosDb`).
+- **Known trade-off:** if InventoryService scales beyond one replica, two instances could both pass
+  the "has it been processed" check before either marks it — a rare double-apply. Tolerable today
+  because the update itself is also naturally idempotent (absolute quantity); a lease or change-feed
+  based single-owner processor would close this if replica count grows (same caveat already noted for
+  the Outbox's multi-replica race).
+- **DLQ handling:** a poison message (already dead-lettered on bad JSON today) still needs a
+  documented replay/inspection workflow — that piece remains **PLANNED**.
 
 ### Outbox pattern — for ProductService ✅ IMPLEMENTED
 - **The dual-write problem it closed:** `ProductService.CreateAsync` used to do two non-atomic writes
@@ -82,9 +102,8 @@ Built and deployed today, verified against the code:
   value — a multi-document transactional batch is impossible here. A single-document write is the only
   truly atomic option, so the outbox lives inside the aggregate. (With a different partition key,
   separate outbox documents in a transactional batch would be the alternative.)
-- **Delivery semantics:** at-least-once. The InventoryService consumer is idempotent (it sets an
-  absolute quantity from the event), so a duplicate is a no-op. A consumer-side **Inbox** (below)
-  would make this explicit and cover non-idempotent future consumers.
+- **Delivery semantics:** at-least-once. The InventoryService consumer explicitly deduplicates via
+  its own **Inbox** (above) rather than relying solely on the update happening to be idempotent.
 
 ---
 

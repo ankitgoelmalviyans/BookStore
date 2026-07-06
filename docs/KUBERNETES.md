@@ -210,7 +210,7 @@ kubectl describe configmap <name> -n bookstore
 | **External URL times out** | **Azure LB health probe hitting `/` returns 404 → LB marks backend unhealthy** | Annotate the ingress LB service health-probe path to `/healthz` (see war story) |
 | **404 from NGINX** | Ingress path/rewrite mismatch, or wrong Host | `kubectl describe ingress`; confirm the path regex `/auth(/\|$)(.*)` + `rewrite-target: /$2`; use the correct `*.nip.io` Host header |
 | **Service Bus errors** | Bad/empty `AzureServiceBus__ConnectionString`, or topic/subscription missing | Check the secret; confirm topic `product-events` + subscription `inventory-subscription` exist (Bicep creates them) |
-| **Cosmos errors** | Empty endpoint/key, wrong DB/container, or throttling (429) | Check `CosmosDb__*` secret values; confirm DB `BookStoreDB` + containers `Products`/`Inventory`; transient 429s → the subscriber abandons+retries |
+| **Cosmos errors** | Empty endpoint/key, wrong DB/container, or throttling (429) | Check `CosmosDb__*` secret values; confirm DB `BookStoreDB` + containers `Products`/`Inventory`/`ProcessedMessages`; transient 429s → the subscriber abandons+retries |
 | **CD pipeline fails at ACR** | Rotated/incorrect `ACR_USERNAME`/`ACR_PASSWORD`, or ACR admin disabled | Refresh the GitHub Secrets from `az acr credential show`; (Managed Identity for ACR is a Phase-5 fix) |
 | **AKS API unreachable after session expiry** | Cluster was stopped, or kubeconfig token expired | `az aks start …` then `az aks get-credentials … --overwrite-existing` |
 
