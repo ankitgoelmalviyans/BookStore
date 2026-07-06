@@ -78,7 +78,8 @@ namespace BookStore.InventoryService.Infrastructure.Messaging
                             // an older/unversioned producer didn't stamp one — skip the dedup check
                             // rather than reject a message we can't key on.
                             if (productEvent.EventId != Guid.Empty
-                                && await _inboxStore.HasBeenProcessedAsync(productEvent.EventId))
+                                && await _inboxStore.HasBeenProcessedAsync(
+                                    productEvent.EventId, args.CancellationToken))
                             {
                                 Log.Information(
                                     "Duplicate ProductCreatedEvent {EventId} — already processed, skipping",
@@ -96,7 +97,8 @@ namespace BookStore.InventoryService.Infrastructure.Messaging
                             // so the update actually gets (re)applied instead of being skipped.
                             if (productEvent.EventId != Guid.Empty)
                             {
-                                await _inboxStore.MarkProcessedAsync(productEvent.EventId);
+                                await _inboxStore.MarkProcessedAsync(
+                                    productEvent.EventId, args.CancellationToken);
                             }
                         }
 

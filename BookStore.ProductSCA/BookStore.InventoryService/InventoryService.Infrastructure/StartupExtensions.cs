@@ -1,6 +1,7 @@
 using BookStore.InventoryService.Application.Interfaces;
 using BookStore.InventoryService.Infrastructure.Messaging;
 using BookStore.InventoryService.Infrastructure.Repositories;
+using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -14,6 +15,11 @@ namespace BookStore.InventoryService.Infrastructure
 
             if (useCosmos)
             {
+                // One CosmosClient per account for the app lifetime (Cosmos SDK guidance), shared by
+                // the inventory repository and the inbox store rather than each newing up its own.
+                services.AddSingleton(_ => new CosmosClient(
+                    configuration["CosmosDb:CosmosEndpoint"],
+                    configuration["CosmosDb:AccountKey"]));
                 services.AddSingleton<IInventoryRepository, CosmosInventoryRepository>();
                 services.AddSingleton<IInboxStore, CosmosInboxStore>();
             }

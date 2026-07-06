@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace BookStore.InventoryService.Application.Interfaces
@@ -14,11 +15,11 @@ namespace BookStore.InventoryService.Application.Interfaces
     public interface IInboxStore
     {
         /// <summary>True if <paramref name="eventId"/> has already been successfully processed.</summary>
-        Task<bool> HasBeenProcessedAsync(Guid eventId);
+        Task<bool> HasBeenProcessedAsync(Guid eventId, CancellationToken cancellationToken = default);
 
         /// <summary>Records <paramref name="eventId"/> as processed. Call only after the business
         /// effect (e.g. the inventory update) has already succeeded — never before — so a failure
         /// partway through still allows a clean retry on redelivery.</summary>
-        Task MarkProcessedAsync(Guid eventId);
+        Task MarkProcessedAsync(Guid eventId, CancellationToken cancellationToken = default);
     }
 }

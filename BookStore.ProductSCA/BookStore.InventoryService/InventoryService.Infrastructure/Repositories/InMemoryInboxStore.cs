@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Threading;
 using System.Threading.Tasks;
 using BookStore.InventoryService.Application.Interfaces;
 
@@ -13,10 +14,10 @@ namespace BookStore.InventoryService.Infrastructure.Repositories
     {
         private readonly ConcurrentDictionary<Guid, byte> _processedEventIds = new();
 
-        public Task<bool> HasBeenProcessedAsync(Guid eventId) =>
+        public Task<bool> HasBeenProcessedAsync(Guid eventId, CancellationToken cancellationToken = default) =>
             Task.FromResult(_processedEventIds.ContainsKey(eventId));
 
-        public Task MarkProcessedAsync(Guid eventId)
+        public Task MarkProcessedAsync(Guid eventId, CancellationToken cancellationToken = default)
         {
             _processedEventIds[eventId] = 0;
             return Task.CompletedTask;
