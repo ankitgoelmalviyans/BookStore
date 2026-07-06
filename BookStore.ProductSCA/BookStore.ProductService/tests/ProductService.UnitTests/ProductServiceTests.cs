@@ -33,7 +33,7 @@ public class ProductServiceTests
         // (so it's written atomically) before the repository persists it.
         var repo = new FakeProductRepository();
         var service = BuildService(repo, topic: "product-events");
-        var product = new Product { Name = "The Pragmatic Programmer", Price = 39.99m, Quantity = 5 };
+        var product = new Product { Name = "The Pragmatic Programmer", Price = 39.99m };
 
         await service.CreateAsync(product, correlationId: "corr-123");
 
@@ -52,7 +52,6 @@ public class ProductServiceTests
         Assert.Equal(persisted.Id, payload.Id);
         Assert.Equal("The Pragmatic Programmer", payload.Name);
         Assert.Equal(39.99m, payload.Price);
-        Assert.Equal(5, payload.Quantity);
     }
 
     [Fact]

@@ -63,5 +63,23 @@ namespace BookStore.InventoryService.Infrastructure.Repositories
                 _container.CreateItemAsync(newItem, new PartitionKey(productId.ToString())).Wait();
             }
         }
+
+        public bool TryDecrementStock(Guid productId, int quantity)
+        {
+            // Read-then-write, same as UpdateInventory above: under concurrent decrements this has a
+            // race window (no ETag/optimistic-concurrency check on the upsert). Acceptable for this
+            // project's traffic level; a real high-contention inventory system would pass the read's
+            // ETag as an IfMatchEtagAccessCondition on the upsert and retry on a 412 conflict.
+            var item = GetByProductId(productId);
+            if (item == null || item.Quantity < quantity)
+            {
+                return false;
+            }
+
+            item.Quantity -= quantity;
+            item.LastUpdated = DateTime.UtcNow;
+            _container.UpsertItemAsync(item, new PartitionKey(item.ProductId.ToString())).Wait();
+            return true;
+        }
     }
 }

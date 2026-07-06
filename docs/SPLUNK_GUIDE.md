@@ -59,9 +59,8 @@ Kubernetes metadata as top-level fields:
   "_time": "2026-07-05T12:29:25.460+00:00",
   "Timestamp": "2026-07-05T12:29:25.46+00:00",
   "Level": "Information",
-  "MessageTemplate": "Received ProductCreatedEvent: {Name} - Qty: {Quantity}",
+  "MessageTemplate": "Received ProductCreatedEvent: {Name} — initializing inventory record at zero stock",
   "Name": "The Pragmatic Programmer",
-  "Quantity": 12,
   "Application": "BookStore.InventoryService",
   "CorrelationId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
   "TraceId": "4bf92f3577b34da6a3ce929d0e0e4736",
@@ -82,7 +81,7 @@ Kubernetes metadata as top-level fields:
 ```
 - **Serilog fields:** `Timestamp`, `Level`, `MessageTemplate`, `Application`, `CorrelationId`,
   `TraceId`, `SpanId`, `OperationName`, `MachineName`, `ThreadId`.
-- **Message-template placeholders** become their own fields (e.g. `Name`, `Quantity`).
+- **Message-template placeholders** become their own fields (e.g. `Name`).
 - **Kubernetes metadata (added by Fluent Bit):** `kubernetes.pod_name`, `kubernetes.namespace_name`,
   `kubernetes.container_name`, `kubernetes.host`.
 - **Fluent Bit modify:** `environment`, `platform`.

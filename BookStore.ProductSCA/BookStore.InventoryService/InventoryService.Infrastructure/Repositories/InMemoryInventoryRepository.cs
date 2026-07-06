@@ -34,5 +34,18 @@ namespace BookStore.InventoryService.Infrastructure.Repositories
                 });
             }
         }
+
+        public bool TryDecrementStock(Guid productId, int quantity)
+        {
+            var item = GetByProductId(productId);
+            if (item == null || item.Quantity < quantity)
+            {
+                return false;
+            }
+
+            item.Quantity -= quantity;
+            item.LastUpdated = DateTime.UtcNow;
+            return true;
+        }
     }
 }

@@ -105,9 +105,16 @@ namespace BookStore.InventoryService.Infrastructure.Messaging
                                 return;
                             }
 
-                            Log.Information("Received ProductCreatedEvent: {Name} - Qty: {Quantity}",
-                                productEvent.Name, productEvent.Quantity);
-                            _repository.UpdateInventory(productEvent.Id, productEvent.Quantity);
+                            // Product no longer carries Quantity (the catalog isn't the stock owner),
+                            // so a new product starts with zero stock — it must be explicitly restocked
+                            // via POST /api/Inventory. Setting a constant (0) here is what keeps this
+                            // idempotent under the Inbox pattern's redelivery guarantee: the dedup check
+                            // above already short-circuits genuine duplicate deliveries of this exact
+                            // EventId before reaching this line, so this only ever runs once per real
+                            // product-created event — it will not clobber stock added afterward.
+                            Log.Information("Received ProductCreatedEvent: {Name} — initializing inventory record at zero stock",
+                                productEvent.Name);
+                            _repository.UpdateInventory(productEvent.Id, 0);
 
                             // Mark AFTER the business effect succeeds, never before: if this process
                             // died mid-update, the event must still look "unprocessed" on redelivery
