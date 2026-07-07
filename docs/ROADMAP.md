@@ -136,17 +136,39 @@ Built and deployed today, verified against the code:
 
 ## Phase 4 — Enterprise Demo Profile (PLANNED)
 
-### Istio service mesh — canary deployments
-- **Why Istio:** traffic management, mTLS security, and mesh-level observability without app changes.
-- **Canary:** shift traffic to a new version gradually — **10% → 25% → 50% → 100%** — watching error
-  rates at each step. Configured via a `VirtualService` (weighted routing between `v1`/`v2` subsets)
-  and a `DestinationRule` (defines the subsets).
-- **How to test:** fire 100 requests and confirm ~10 hit `v2` at the 10% stage:
-  ```bash
-  for i in $(seq 1 100); do curl -s http://104.211.94.129.nip.io/product/api/products \
-    -H "Authorization: Bearer $TOKEN" -o /dev/null -w "%{http_code}\n"; done
-  # inspect version header / per-version pod logs to confirm the ~10/90 split
-  ```
+### Istio service mesh ✅ PARTIALLY IMPLEMENTED (Product + Inventory only)
+- **What shipped:** a minimal `istiod` control plane
+  (`infrastructure/istio/istio-operator-minimal.yaml` — no ingress gateway, tuned-down resource
+  requests) installed via a `workflow_dispatch` step in `infra-bicep.yml`. Sidecar injection is
+  **opt-in per-pod** (`sidecar.istio.io/inject`), scoped to Product and Inventory only — AuthService
+  is deliberately not meshed (kept out of scope for this pass, not a security decision).
+- **mTLS is PERMISSIVE, not STRICT.** NGINX Ingress isn't meshed and routes all real user traffic to
+  these two services — STRICT mode would reject that traffic outright the moment it was applied. See
+  `infrastructure/istio/peer-authentication.yaml` for the full reasoning. Move to STRICT only once
+  NGINX itself is meshed (or replaced by Istio's own gateway) — a bigger, separate decision.
+- **Resilience without app code:** a `VirtualService`/`DestinationRule` pair
+  (`infrastructure/istio/virtual-service-resilience.yaml`) gives InventoryService retries + timeout +
+  connection-pool limits — the "Polly without writing Polly" story. Safe to apply by default since it
+  only affects traffic from meshed pods (NGINX bypasses it entirely).
+- **Envoy access logs → Splunk:** the existing Fluent Bit pipeline's container allowlist now includes
+  `istio-proxy`, so every proxied call is searchable in Splunk regardless of whether the app itself
+  logged anything — see `docs/LLD.md` for the app-log-vs-infra-log distinction this closes.
+- **Deliberately NOT applied:** `infrastructure/istio/authorization-policy-reference.yaml`. Neither
+  service calls the other over HTTP today (they talk via Service Bus) — there's no real access
+  pattern to safely restrict yet, and a naive restrictive policy risks blocking the pod's own health
+  probe. Kept as the template for when a real synchronous caller (e.g. a future OrderService calling
+  InventoryService.TryDecrementStock) exists.
+- **Still PLANNED — weighted canary:** shifting traffic gradually across **10% → 25% → 50% → 100%**
+  needs a real `v1`/`v2` subset deployment (two Deployments/labels for the same service) to route
+  between. Today there's only one version of each service running — nothing to canary yet. Once one
+  exists, the mechanism is exactly the `VirtualService` weighted-routing pattern originally described
+  here.
+- **Still PLANNED — Istio's own Ingress Gateway, Kiali.** Staying on NGINX for the front door (adding
+  Istio's gateway means another pod and possibly a second Azure LoadBalancer/Public IP). Kiali needs
+  Prometheus as a data source, which doesn't fit this node's remaining headroom alongside everything
+  already running.
+- See `infrastructure/istio/README.md` for the full install/verify/rollback sequence, and exactly
+  what is/isn't safe to apply on a single `Standard_B2s` node.
 
 ### APIM full integration
 - **Why:** move JWT validation, rate limiting, and API-key management **up to the gateway**. Today

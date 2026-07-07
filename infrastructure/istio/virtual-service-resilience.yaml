@@ -1,0 +1,49 @@
+# Safe to apply by default — unlike the AuthorizationPolicy reference file, this can't break real
+# user traffic. NGINX Ingress has no sidecar, so its calls to inventoryservice bypass Istio's L7
+# routing entirely (plain Kubernetes Service DNS/ClusterIP) — this VirtualService only affects
+# traffic FROM meshed pods (today: none exist yet; this is groundwork for a future OrderService).
+#
+# The "Polly without code" example from docs/LLD.md: retries + timeout declared here, not written
+# in C#.
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: inventoryservice-resilience
+  namespace: bookstore
+spec:
+  hosts:
+    - inventoryservice
+  http:
+    - timeout: 3s
+      retries:
+        attempts: 2
+        perTryTimeout: 1s
+        retryOn: 5xx,reset,connect-failure,refused-stream
+      route:
+        - destination:
+            host: inventoryservice
+            port:
+              number: 80
+---
+# Connection pool limits are meaningful even at 1 replica (they cap concurrent requests before
+# Envoy starts rejecting locally, which prevents overload). Outlier detection genuinely is NOT —
+# it ejects unhealthy endpoints from a load-balancing pool, and there's only one endpoint to eject
+# with a single replica. Config is here as the correct starting point for when inventoryservice is
+# scaled beyond 1 replica; don't expect to observe ejection behavior before then.
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: inventoryservice-destination
+  namespace: bookstore
+spec:
+  host: inventoryservice
+  trafficPolicy:
+    connectionPool:
+      http:
+        http1MaxPendingRequests: 10
+        maxRequestsPerConnection: 10
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 100

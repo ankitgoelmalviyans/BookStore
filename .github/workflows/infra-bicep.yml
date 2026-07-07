@@ -139,6 +139,37 @@ jobs:
             --set installCRDs=true \
             --wait
 
+      - name: Install istioctl
+        run: |
+          curl -L https://istio.io/downloadIstio | sh -
+          ISTIO_DIR=$(find "$PWD" -maxdepth 1 -name "istio-*" -type d | head -n1)
+          echo "$ISTIO_DIR/bin" >> $GITHUB_PATH
+
+      - name: Install Istio (minimal profile — see infrastructure/istio/istio-operator-minimal.yaml)
+        run: |
+          istioctl install -f infrastructure/istio/istio-operator-minimal.yaml -y --skip-confirmation
+
+          echo "Waiting for istiod to become ready..."
+          kubectl -n istio-system rollout status deployment/istiod --timeout=180s
+
+      - name: Apply Istio mTLS policy
+        run: |
+          kubectl apply -f infrastructure/istio/peer-authentication.yaml
+
+      - name: Check node fit after Istio install
+        run: |
+          echo "=========================================="
+          echo "Node resource usage after Istio control plane install:"
+          echo "(If this is already tight, do NOT proceed to inject sidecars —"
+          echo " see infrastructure/istio/README.md for the rollback command.)"
+          echo "=========================================="
+          kubectl top nodes || echo "metrics-server data not ready yet — check again in a minute."
+          kubectl get pods -n istio-system -o wide
+          echo ""
+          echo "NOTE: Product/Inventory pods do NOT have sidecars yet — the injection annotation"
+          echo "only takes effect when a pod is (re)created. Run cd-costopt.yml next (or push any"
+          echo "commit) so those two services' pods get recreated and pick up the sidecar."
+
       - name: Create Let's Encrypt ClusterIssuer
         run: |
           cat <<EOF | kubectl apply -f -

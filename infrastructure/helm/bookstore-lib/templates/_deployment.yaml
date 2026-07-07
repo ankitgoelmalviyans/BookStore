@@ -16,6 +16,18 @@ spec:
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "80"
+        {{- if .Values.istio.inject }}
+        # Opt-in per-pod injection, not namespace-wide — this is what lets Product/Inventory be
+        # meshed while AuthService (no istio.inject value set) stays out of it. See
+        # infrastructure/istio/README.md for the full install sequence.
+        sidecar.istio.io/inject: "true"
+        # Deliberately tuned well under Istio's own sidecar defaults — see
+        # infrastructure/istio/istio-operator-minimal.yaml for why (single tight node).
+        sidecar.istio.io/proxyCPU: "50m"
+        sidecar.istio.io/proxyMemory: "64Mi"
+        sidecar.istio.io/proxyCPULimit: "100m"
+        sidecar.istio.io/proxyMemoryLimit: "128Mi"
+        {{- end }}
     spec:
       containers:
         - name: {{ .Values.service.name }}

@@ -15,6 +15,12 @@ ingress:
   host: ""
   path: /auth
 
+istio:
+  # Deliberately NOT meshed — see infrastructure/istio/peer-authentication.yaml for why (kept out
+  # of scope for this first pass, not a security decision). Explicit false, not omitted, because
+  # the shared deployment template's {{ .Values.istio.inject }} check needs this key to exist.
+  inject: false
+
 resources:
   requests:
     cpu: 100m

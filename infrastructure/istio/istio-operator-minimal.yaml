@@ -1,0 +1,68 @@
+# Minimal Istio install for BookStore Profile A (single Standard_B2s node).
+#
+# Deliberately excludes:
+#   - istio-ingressgateway: NGINX stays the front door. Adding Istio's own gateway means another
+#     pod AND potentially a second Azure LoadBalancer/Public IP — a real recurring cost, not just
+#     compute. Not worth it for a mesh scoped to internal (east-west) traffic only.
+#   - Any telemetry add-ons (Kiali, Prometheus, Grafana, Jaeger/Tempo). Kiali needs Prometheus as a
+#     data source; Prometheus alone commonly wants 200-500m CPU / 512Mi-1Gi even tuned down — more
+#     than this node's entire remaining headroom. See docs/TRACING.md for how to get distributed
+#     tracing without hosting anything on this cluster (Azure Application Insights, or Splunk
+#     Observability Cloud / Jaeger / Tempo if you go that route instead).
+#
+# Resource requests below are deliberately tuned well under Istio's out-of-the-box defaults
+# (istiod commonly defaults to 500m CPU / 2Gi memory) because this cluster has ~1 vCPU / ~1.5-2GiB
+# of real headroom total, shared with authservice/productservice/inventoryservice, NGINX ingress,
+# cert-manager, and fluent-bit. If istiod fails to schedule with these limits, that's the concrete
+# signal this doesn't fit on the current node — see the README in this folder before increasing them.
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+metadata:
+  name: bookstore-minimal
+  namespace: istio-system
+spec:
+  profile: minimal
+
+  components:
+    pilot:
+      k8s:
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 300m
+            memory: 512Mi
+        # Single node, single replica — HA doesn't apply here and a 2nd istiod replica would just
+        # double this footprint for no benefit at this scale.
+        replicaCount: 1
+
+    # No ingressGateways entry here — omitting the component entirely rather than setting
+    # enabled: false, so nothing related to it is even considered for scheduling.
+
+  meshConfig:
+    # Access logs are what make Envoy useful for the "infra-level logging" use case documented in
+    # docs/LLD.md — every proxied call gets logged here regardless of whether the app itself logs
+    # anything, and Fluent Bit already tails every container's stdout in this namespace.
+    accessLogFile: /dev/stdout
+    accessLogEncoding: JSON
+
+    # Tracing is intentionally NOT configured here (no sampling rate, no provider) — that's the
+    # OtlpEndpoint / Program.cs-level concern documented in docs/TRACING.md, not an Istio mesh
+    # concern. Keeping the mesh config trace-provider-free avoids Istio trying to talk to a
+    # collector that doesn't exist.
+
+  values:
+    global:
+      proxy:
+        # Applies to every injected sidecar (Product + Inventory only, per the per-pod annotation
+        # wiring in bookstore-lib's deployment template — Auth is deliberately not meshed).
+        # Istio's own sidecar defaults are similar to istiod's — too much for 2 extra containers on
+        # this node. These numbers are a starting point for "practice traffic," not real load.
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
