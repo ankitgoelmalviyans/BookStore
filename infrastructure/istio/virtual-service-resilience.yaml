@@ -14,11 +14,31 @@ spec:
   hosts:
     - inventoryservice
   http:
-    - timeout: 3s
+    # Idempotent reads: retrying on 5xx is safe here — a failed GET has no side effect to
+    # duplicate, so retrying after a server error (not just a connection failure) can't cause harm.
+    - match:
+        - method:
+            exact: GET
+      timeout: 3s
       retries:
         attempts: 2
         perTryTimeout: 1s
         retryOn: 5xx,reset,connect-failure,refused-stream
+      route:
+        - destination:
+            host: inventoryservice
+            port:
+              number: 80
+    # Everything else — writes (POST/PUT/DELETE), including the future decrement endpoint. A 5xx
+    # means the request DID reach the server; we can't tell whether the write already applied
+    # before it failed, so retrying on 5xx here risks Envoy resending an already-successful write
+    # (e.g. double-decrementing stock). Only retry conditions where the request is guaranteed to
+    # have never reached the server at all — no 5xx in this list, deliberately.
+    - timeout: 3s
+      retries:
+        attempts: 2
+        perTryTimeout: 1s
+        retryOn: reset,connect-failure,refused-stream
       route:
         - destination:
             host: inventoryservice

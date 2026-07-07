@@ -140,8 +140,13 @@ jobs:
             --wait
 
       - name: Install istioctl
+        env:
+          # Pinned, not "latest" — an unpinned curl|sh means a rerun months from now can silently
+          # install a different, untested istioctl/control-plane version. Bump deliberately; see
+          # https://istio.io/latest/docs/releases/supported-releases/ for current supported versions.
+          ISTIO_VERSION: "1.30.2"
         run: |
-          curl -L https://istio.io/downloadIstio | sh -
+          curl -L https://istio.io/downloadIstio | ISTIO_VERSION="$ISTIO_VERSION" sh -
           ISTIO_DIR=$(find "$PWD" -maxdepth 1 -name "istio-*" -type d | head -n1)
           echo "$ISTIO_DIR/bin" >> $GITHUB_PATH
 
@@ -154,6 +159,12 @@ jobs:
 
       - name: Apply Istio mTLS policy
         run: |
+          # peer-authentication.yaml targets namespace: bookstore, but this workflow (unlike
+          # cd-costopt.yml) never otherwise creates it. On a genuinely fresh cluster — the exact
+          # scenario this "Always-On" infra workflow exists for — the apply below would fail
+          # outright without this. Idempotent, same pattern cd-costopt.yml already uses.
+          kubectl get namespace bookstore || kubectl create namespace bookstore
+
           kubectl apply -f infrastructure/istio/peer-authentication.yaml
 
       - name: Check node fit after Istio install

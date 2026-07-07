@@ -339,9 +339,12 @@ a backend actually built for spans:
 | **Jaeger** | Purpose-built tracing UI, fairly self-contained (ships its own query/UI, doesn't need Grafana) | Runs **on your AKS node** — real pod(s), real CPU/memory competing with everything else | Best self-hosted fit *if* you insist on self-hosting — simpler than Tempo without a Grafana stack already in place. Still not free in the "won't cost much" sense discussed for Istio — same node-headroom math applies. |
 | **Tempo** (Grafana Labs) | Cheap at real scale (object storage, doesn't index every span field) | Also runs on-cluster; its value depends on **also** running Grafana, which isn't deployed here | Worse fit than Jaeger for this project specifically — Tempo alone has a thin API, not much of a UI without Grafana sitting in front of it. |
 
-**Bottom line:** given everything already established about this node's tight resource budget (see
-`infrastructure/istio/README.md`), Application Insights is the only option in this table that doesn't
-add pods competing with Istio and the app services for the same `Standard_B2s`. Point
-`Otel:OtlpEndpoint` at an Application Insights connection string (via the
-`Azure.Monitor.OpenTelemetry.Exporter` package) when ready — no other code changes needed, since spans
-are already being created.
+**Bottom line:** given the node's tight resource budget (see `infrastructure/istio/README.md`), prefer
+a managed SaaS backend (Application Insights or Splunk Observability Cloud) over self-hosting Jaeger or
+Tempo, since only the managed options avoid adding pods that'd compete with Istio and the app services
+for the same `Standard_B2s`. **Application Insights is the recommended default** — same Azure footprint
+as the rest of this stack, and a one-package swap (`Azure.Monitor.OpenTelemetry.Exporter`) once
+`Otel:OtlpEndpoint` is pointed at a connection string; no other code changes needed, since spans are
+already being created. Reach for Splunk Observability Cloud instead specifically if having traces and
+logs correlated in one Splunk-branded UI outweighs paying for a second product on top of the Splunk
+Cloud Platform subscription you already have.

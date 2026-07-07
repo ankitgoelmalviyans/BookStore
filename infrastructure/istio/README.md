@@ -11,8 +11,8 @@ reference.
 | `istio-operator-minimal.yaml` | `istiod` control plane, no ingress gateway, tuned-down resource requests | `.github/workflows/infra-bicep.yml` (manual `workflow_dispatch`) |
 | `peer-authentication.yaml` | mTLS in **PERMISSIVE** mode (not STRICT — see the file's own comment for why STRICT would break live traffic through NGINX) | Same pipeline run |
 | `virtual-service-resilience.yaml` | Retries/timeout/connection-pool policy for `inventoryservice` — the "Polly without code" example | Safe to apply anytime; doesn't touch real ingress traffic |
-| `authorization-policy-reference.yaml` | **NOT applied.** Reference only — see the file's own comment for why applying it today would break the live site |
-| `fault-injection-demo.yaml` | **NOT applied by default.** Apply manually for a short demo, then delete |
+| `authorization-policy-reference.yaml` | **NOT applied.** Reference only — see the file's own comment for why applying it today would break the live site | Reference only |
+| `fault-injection-demo.yaml` | **NOT applied by default.** Apply manually for a short demo, then delete | Manual demo only |
 
 ## Install
 
@@ -38,7 +38,10 @@ reference.
 
 Watch for `Pending` pods or `Insufficient cpu`/`Insufficient memory` events:
 ```bash
-kubectl get pods -n bookstore -n istio-system
+# kubectl only honors the LAST -n flag when given twice — these must be separate commands,
+# not `kubectl get pods -n bookstore -n istio-system` (which silently only checks istio-system).
+kubectl get pods -n bookstore
+kubectl get pods -n istio-system
 kubectl get events -n bookstore --sort-by='.lastTimestamp' | grep -i insufficient
 ```
 
