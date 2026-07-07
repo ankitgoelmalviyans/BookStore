@@ -1,0 +1,28 @@
+# NOT for continuous use. Apply manually for a short demo, watch the retry policy in
+# virtual-service-resilience.yaml actually engage, then delete it. This is how you PROVE the
+# resilience policy works instead of just trusting the YAML.
+#
+# Safe to apply even to the live cluster: NGINX Ingress isn't meshed, so this fault injection —
+# like the VirtualService it's layered onto — only affects traffic FROM meshed pods, never real
+# ingress traffic. See README.md in this folder for the exact command to actually exercise this
+# (there's no real synchronous caller of InventoryService yet, so you generate mesh traffic
+# manually via `kubectl exec` into productservice's pod and curl inventoryservice from inside it).
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: inventoryservice-fault-injection-demo
+  namespace: bookstore
+spec:
+  hosts:
+    - inventoryservice
+  http:
+    - fault:
+        abort:
+          percentage:
+            value: 50.0
+          httpStatus: 503
+      route:
+        - destination:
+            host: inventoryservice
+            port:
+              number: 80

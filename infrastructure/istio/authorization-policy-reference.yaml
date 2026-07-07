@@ -1,0 +1,35 @@
+# NOT applied by default — this is a reference/learning example, not a live policy.
+#
+# Why: an AuthorizationPolicy scoped to a workload becomes default-deny for anything not explicitly
+# matched. ProductService and InventoryService don't actually call each other over HTTP today (they
+# communicate async via Service Bus) — there's no real "only X may call Y" access pattern to
+# restrict yet. And since NGINX Ingress routes ALL real user traffic to these pods and isn't
+# meshed (see peer-authentication.yaml), a naive restrictive policy would need to correctly
+# allow-list kubelet's /health probe traffic AND every real ingress route — miss one (e.g. /health)
+# and Kubernetes starts restarting a perfectly healthy pod. Applying this without that groundwork
+# is a good way to take down the live site, not a safe copy-paste example.
+#
+# The concrete, honest use case for this policy type: once a synchronous internal caller exists —
+# e.g. a future OrderService calling InventoryService.TryDecrementStock directly during checkout —
+# THIS is what "only OrderService's mesh identity may call Inventory's decrement endpoint" looks
+# like. Keep this file as the template for that day; don't apply it before then.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: inventoryservice-decrement-from-orderservice-only
+  namespace: bookstore
+spec:
+  selector:
+    matchLabels:
+      app: inventoryservice
+  action: ALLOW
+  rules:
+    # Real user traffic and health probes MUST be allowed too, or this breaks the live site the
+    # moment it's applied — see the warning above. This rule alone is deliberately incomplete.
+    - to:
+        - operation:
+            paths: ["/api/inventory/*/decrement"]
+            methods: ["POST"]
+      from:
+        - source:
+            principals: ["cluster.local/ns/bookstore/sa/orderservice"]

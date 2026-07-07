@@ -1,0 +1,23 @@
+# mTLS PERMISSIVE (not STRICT) for the bookstore namespace — this is deliberate, not a half-measure.
+#
+# NGINX Ingress Controller routes ALL real user traffic to Product/Inventory today, and it has no
+# Istio sidecar (meshing the ingress controller itself is out of scope for this change). Under
+# STRICT mode, a sidecar's inbound listener requires every connection to already be mTLS-wrapped
+# with a valid Istio-issued client cert — NGINX's plain-HTTP requests would be rejected outright,
+# taking down the live site for these two services. PERMISSIVE accepts EITHER mTLS or plaintext on
+# the same port, so:
+#   - NGINX -> Product/Inventory (real user traffic): keeps working exactly as before, unencrypted
+#     at this hop (same as today — no regression).
+#   - Meshed pod -> meshed pod (e.g. a future OrderService calling Inventory directly): gets mTLS
+#     automatically, no code change needed on either side.
+#
+# Once NGINX itself is meshed (or replaced by Istio's own ingress gateway — a bigger, separate
+# decision), this can move to STRICT. Until then, STRICT here is not "more secure," it's "broken."
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: bookstore-mtls-permissive
+  namespace: bookstore
+spec:
+  mtls:
+    mode: PERMISSIVE

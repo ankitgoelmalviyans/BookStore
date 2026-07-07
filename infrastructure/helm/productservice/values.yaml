@@ -15,6 +15,11 @@ ingress:
   host: ""
   path: /product
 
+istio:
+  # Meshed — see infrastructure/istio/README.md. Product's sidecar is what lets it make mTLS'd,
+  # retry-aware calls to InventoryService once one exists; today it's mesh-ready groundwork.
+  inject: true
+
 resources:
   requests:
     cpu: 100m

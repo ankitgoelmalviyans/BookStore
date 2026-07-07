@@ -16,6 +16,21 @@ spec:
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "80"
+        {{- if (.Values.istio | default dict).inject }}
+        # Opt-in per-pod injection, not namespace-wide — this is what lets Product/Inventory be
+        # meshed while AuthService (istio.inject: false) stays out of it. `default dict` guards
+        # against a future chart consumer omitting the `istio:` key entirely rather than setting
+        # inject: false — without it, that omission is a nil-pointer template render failure, not
+        # a safe "not meshed" default. See infrastructure/istio/README.md for the full install
+        # sequence.
+        sidecar.istio.io/inject: "true"
+        # Deliberately tuned well under Istio's own sidecar defaults — see
+        # infrastructure/istio/istio-operator-minimal.yaml for why (single tight node).
+        sidecar.istio.io/proxyCPU: "50m"
+        sidecar.istio.io/proxyMemory: "64Mi"
+        sidecar.istio.io/proxyCPULimit: "100m"
+        sidecar.istio.io/proxyMemoryLimit: "128Mi"
+        {{- end }}
     spec:
       containers:
         - name: {{ .Values.service.name }}

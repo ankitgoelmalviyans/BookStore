@@ -167,7 +167,7 @@ Fluent Bit DaemonSet (one pod per node):
   tail (Parser cri_bookstore)   → split CRI wrapper, set _time
   filter kubernetes             → add pod_name / namespace_name / container_name / host
   filter grep (exclude)         → drop fluent-bit's own logs
-  filter grep (regex)           → keep only authservice|productservice|inventoryservice
+  filter grep (regex)           → keep only authservice|productservice|inventoryservice|istio-proxy
   filter parser json_serilog    → parse Serilog JSON inside "message" into real fields
   filter nest (lift Properties) → hoist CorrelationId/TraceId/Application to top level
   filter modify                 → add environment=Production, platform=BookStore-AKS
@@ -195,6 +195,37 @@ cd-costopt.yml (CD — Profile A):
   ▼
 Pods running the new image; UI separately via cd-ui.yml → gh-pages
 ```
+
+### 5. Istio-meshed call flow (Product ↔ Inventory)
+
+```text
+Browser ──HTTPS──▶ NGINX Ingress (NOT meshed — no sidecar)
+                       │  plain HTTP inside the cluster, same as before Istio existed
+                       ▼
+              ┌─────────────────────┐
+              │  productservice pod  │
+              │  ┌────────────────┐  │
+              │  │ istio-proxy    │  │  ◀── sidecar, injected via pod annotation
+              │  │ (Envoy)        │  │      (sidecar.istio.io/inject: "true")
+              │  └───────┬────────┘  │
+              │          │ mTLS      │
+              └──────────┼───────────┘
+                         │  (only exists once a real caller does this —
+                         │   today: none. This is mesh-ready groundwork.)
+              ┌──────────▼───────────┐
+              │  inventoryservice pod │
+              │  ┌────────────────┐  │
+              │  │ istio-proxy    │  │  ◀── enforces retries/timeout
+              │  │ (Envoy)        │  │      (virtual-service-resilience.yaml)
+              │  └───────┬────────┘  │
+              └──────────┼───────────┘
+                         ▼
+                inventoryservice container
+```
+NGINX bypasses the mesh's L7 routing entirely (no sidecar to consult it), so real ingress traffic to
+Product/Inventory is **unaffected** by any of this — that's why mTLS here is PERMISSIVE, not STRICT.
+See `infrastructure/istio/README.md` for how to actually generate mesh traffic to observe (there's no
+real synchronous caller between these two services yet — they still talk via Service Bus).
 
 ---
 
@@ -251,7 +282,8 @@ Pods running the new image; UI separately via cd-ui.yml → gh-pages
    AI layer:  Book Knowledge RAG (Cosmos vector search) · BookStore AI Agent (Semantic Kernel intent        │
               routing) · Natural-Language→Cosmos queries       LLM: GitHub Models (A) / Azure OpenAI (B)     │
                                                                                                              │
-   Mesh/scale/telemetry:  Istio canary (10→25→50→100%) · KEDA scale on Service Bus queue depth ·             │
+   Mesh/scale/telemetry:  Istio mTLS + retries ✅ PARTIAL (Product+Inventory) · Istio canary (still         │
+                          PLANNED — needs real v1/v2 subsets) · KEDA scale on Service Bus queue depth ·      │
                           OpenTelemetry OTLP → Azure Application Insights                                    │
    └─────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```

@@ -181,6 +181,53 @@ ProcessMessageAsync:
 
 ---
 
+## Istio Service Mesh (Product + Inventory only)
+
+Full install/verify/rollback commands live in `infrastructure/istio/README.md` — this section covers
+the *why* behind each decision, since none of them are the tutorial-default choice.
+
+### Why PERMISSIVE mTLS, not STRICT
+`PeerAuthentication` in `STRICT` mode makes a sidecar's inbound listener reject any connection that
+isn't already mTLS-wrapped with a valid Istio-issued client cert. NGINX Ingress Controller — which
+routes 100% of real user traffic to Product and Inventory — has no sidecar and never will in this
+pass. Under `STRICT`, that traffic would be rejected outright: a namespace-wide policy that looks like
+"better security" would actually take the live site down for these two services. `PERMISSIVE` accepts
+either mTLS or plaintext on the same port, so NGINX's traffic keeps working unchanged while any future
+meshed-to-meshed call (e.g. an `OrderService` calling `InventoryService` directly) gets mTLS
+automatically, with no code change on either side.
+
+### Why `AuthorizationPolicy` is a reference file, not applied
+An `AuthorizationPolicy` scoped to a workload becomes **default-deny** for anything it doesn't
+explicitly allow — including kubelet's own `/health` liveness/readiness probe traffic. Neither
+Product nor Inventory calls the other over HTTP today (they communicate via Service Bus), so there's
+no real "only X may call Y" pattern to restrict yet, and applying a naive one risks Kubernetes
+concluding a perfectly healthy pod has failed its probe and restarting it. See
+`infrastructure/istio/authorization-policy-reference.yaml` for the concrete example this becomes once
+a real synchronous caller exists.
+
+### Why `VirtualService`/`DestinationRule` retries ARE applied by default
+Unlike the two policies above, this one can't break real traffic: NGINX bypasses Istio's L7 routing
+entirely (no sidecar to consult it), so a retry/timeout policy on `inventoryservice` only ever affects
+calls from *meshed* pods. It's the "Polly without code" example — retries, per-try timeout, and
+connection-pool limits declared as policy instead of a NuGet package and C# code. Outlier detection is
+configured too, but isn't meaningfully observable with a single replica per service — there's only one
+endpoint to evict from a load-balancing pool of one.
+
+### Why no Istio Ingress Gateway
+Adding Istio's own gateway means another pod, and possibly a second Azure LoadBalancer/Public IP — a
+real recurring cost, not just compute. NGINX already does the job for north-south traffic; Istio here
+is scoped to what NGINX genuinely can't do (mTLS, retries policy, per-call observability for
+east-west/internal traffic), not a wholesale ingress replacement.
+
+### Verifying any of this actually works
+There's no real traffic flowing through the mesh yet to casually observe (see the `AuthorizationPolicy`
+note above — no synchronous inter-service caller exists today). `infrastructure/istio/README.md` has
+the exact recipe: `kubectl exec` into productservice's pod (it's meshed) and curl inventoryservice from
+inside it — that call genuinely passes through both sidecars, so mTLS, retries, and fault injection are
+all real and inspectable, not just YAML you have to trust.
+
+---
+
 ## Middleware Deep Dive
 
 ### 1. CorrelationIdMiddleware (present in all three services)
@@ -270,3 +317,34 @@ granularity as TraceId. Storing it in `localStorage` (key `correlation_id`) mean
 **Rule for Splunk:** paste the **CorrelationId** to see the whole cross-service story for a browser
 session (survives Service Bus and page reloads). Use **TraceId** to zoom into the spans of a single
 HTTP request or its async continuation.
+
+### Where to send it — `Otel:OtlpEndpoint` backend options
+
+`Otel:OtlpEndpoint` (read in each service's `Program.cs`) is the address the OTLP exporter ships spans
+to, over the network, using the OTLP wire protocol. It's empty in every `appsettings.json` today, so
+spans are created (TraceId/SpanId still enrich Serilog) but never exported anywhere — there's no
+waterfall to look at yet. This is genuinely a different signal from what Splunk already gives you: log
+**correlation** (grouping existing log lines by TraceId — works today) vs. trace **visualization** (an
+automatic waterfall/flame-graph with per-hop latency, computed from span data — needs one of these).
+
+**Your existing Splunk Cloud Platform instance can't be the target.** It's a general-purpose log
+indexer (HEC ingestion, `prd-p-opur1.splunkcloud.com:8088`) with no native OTLP receiver and no
+concept of span hierarchy — it stores flat JSON events, not trace trees. Trace visualization needs
+a backend actually built for spans:
+
+| Backend | What you get | Cost on this cluster | Notes |
+|---|---|---|---|
+| **Azure Application Insights** | Managed APM: trace waterfall, service map, latency percentiles, all in the Azure Portal | **$0 pods** — fully managed PaaS, the exporter just sends data over the network | Same cloud as AKS/Cosmos/Service Bus already. Was the original Phase 4 plan before this doc existed. **Recommended given the node's resource constraints** — everything else in this table runs *on* the cluster and competes with Istio/app pods for the same tight `Standard_B2s` budget. |
+| **Splunk Observability Cloud** | Same class of APM as App Insights — native OTLP ingestion, trace waterfall, service map | **$0 pods** (managed SaaS) — but a **separate product/subscription** from Splunk Cloud Platform (the log product you already pay for) | Worth it specifically if you want traces and logs correlated in one Splunk-branded UI. Otherwise it's a second bill for capability App Insights already covers for free-on-compute. |
+| **Jaeger** | Purpose-built tracing UI, fairly self-contained (ships its own query/UI, doesn't need Grafana) | Runs **on your AKS node** — real pod(s), real CPU/memory competing with everything else | Best self-hosted fit *if* you insist on self-hosting — simpler than Tempo without a Grafana stack already in place. Still not free in the "won't cost much" sense discussed for Istio — same node-headroom math applies. |
+| **Tempo** (Grafana Labs) | Cheap at real scale (object storage, doesn't index every span field) | Also runs on-cluster; its value depends on **also** running Grafana, which isn't deployed here | Worse fit than Jaeger for this project specifically — Tempo alone has a thin API, not much of a UI without Grafana sitting in front of it. |
+
+**Bottom line:** given the node's tight resource budget (see `infrastructure/istio/README.md`), prefer
+a managed SaaS backend (Application Insights or Splunk Observability Cloud) over self-hosting Jaeger or
+Tempo, since only the managed options avoid adding pods that'd compete with Istio and the app services
+for the same `Standard_B2s`. **Application Insights is the recommended default** — same Azure footprint
+as the rest of this stack, and a one-package swap (`Azure.Monitor.OpenTelemetry.Exporter`) once
+`Otel:OtlpEndpoint` is pointed at a connection string; no other code changes needed, since spans are
+already being created. Reach for Splunk Observability Cloud instead specifically if having traces and
+logs correlated in one Splunk-branded UI outweighs paying for a second product on top of the Splunk
+Cloud Platform subscription you already have.

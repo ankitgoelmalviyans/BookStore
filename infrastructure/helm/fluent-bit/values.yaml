@@ -71,7 +71,10 @@ config:
     [FILTER]
         Name    grep
         Match   kube.*
-        Regex   $kubernetes['container_name'] ^(authservice|productservice|inventoryservice)$
+        # istio-proxy included: once sidecars are injected (see infrastructure/istio/README.md),
+        # this is what lets Envoy's own access logs reach Splunk instead of being silently dropped
+        # by this same allowlist.
+        Regex   $kubernetes['container_name'] ^(authservice|productservice|inventoryservice|istio-proxy)$
 
     # Parse the Serilog JSON that sits inside "message" into real fields.
     # Native JSON parser (no Lua/cjson). If a line is NOT JSON (e.g. a plain

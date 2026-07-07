@@ -15,6 +15,11 @@ ingress:
   host: ""
   path: /inventory
 
+istio:
+  # Meshed — see infrastructure/istio/README.md. Inventory is the target of
+  # virtual-service-resilience.yaml's retry/timeout policy.
+  inject: true
+
 resources:
   requests:
     cpu: 100m
