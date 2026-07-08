@@ -23,7 +23,6 @@ namespace BookStore.ProductService.Extensions
             services.AddScoped<IMessagePublisher, AzureServiceBusProducer>();
 
             services.AddHealthChecks();
-            services.AddAutoMapper(typeof(StartupExtensions).Assembly);
 
             services.AddSingleton<ExceptionMiddleware>();
 

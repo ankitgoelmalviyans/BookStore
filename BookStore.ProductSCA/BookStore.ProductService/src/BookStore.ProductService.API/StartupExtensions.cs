@@ -34,7 +34,9 @@ namespace BookStore.ProductService.Extensions
             services.AddHostedService<OutboxPublisherService>();
 
             services.AddHealthChecks();
-            services.AddAutoMapper(typeof(StartupExtensions).Assembly);
+            // AutoMapper removed — it was registered but never used (no Profiles, no IMapper
+            // injection, no Map<> calls anywhere), and AutoMapper 12.0.1 carried a High-severity
+            // advisory (GHSA-rvv3-g6hj-g44x). Removing the dead dependency eliminates it outright.
 
             services.AddSingleton<ExceptionMiddleware>();
             services.AddSingleton<SerilogEnrichingMiddleware>();
