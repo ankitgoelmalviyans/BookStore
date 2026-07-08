@@ -133,7 +133,9 @@ BookStore/
 │   ├── bicep/                              # main.bicep (core), main.demo.bicep (APIM)
 │   ├── helm/
 │   │   ├── bookstore-lib/                  # library chart: _deployment, _ingress, _service, _hpa
-│   │   ├── authservice/ productservice/ inventoryservice/
+│   │   ├── authservice/
+│   │   ├── productservice/
+│   │   ├── inventoryservice/
 │   │   ├── values-costopt.yaml             # Profile A
 │   │   └── values-demo.yaml                # Profile B
 │   └── istio/                              # minimal mesh (mTLS, retries) + its own README
