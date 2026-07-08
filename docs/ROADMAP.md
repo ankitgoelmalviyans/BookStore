@@ -227,7 +227,11 @@ Built and deployed today, verified against the code:
   `npm audit fix --force`, which would *downgrade* `@angular-devkit/build-angular` to an Angular-8-era
   `0.802.2` and break the build. **The real fix is a staged 17 → 18 → 19 → 20+ migration** (each a
   major with breaking changes), done with `ng update` version-by-version and a full UI test pass at
-  each step — a deliberate effort of its own, not a `npm audit fix`. Note most of the remaining
-  advisories are **build-time devDependencies** (they run on the CI runner/dev machine, never ship to
-  the browser), so their real-world exposure for a deployed static site is low; the genuinely
-  browser-shipped ones are the `@angular/*` runtime packages, which the migration resolves.
+  each step — a deliberate effort of its own, not a `npm audit fix`. The remaining advisories split
+  into two distinct risk categories, not "high vs. low": most are **build-time devDependencies**
+  (webpack, esbuild, vite, …) that never reach the browser, but they are **build-environment
+  supply-chain risk** — a compromised version can execute arbitrary code via install/lifecycle
+  scripts during `npm ci`/build on the CI runner and developer machines, potentially exfiltrating
+  secrets or tampering with the built artifact. The rest are the **browser-shipped `@angular/*`
+  runtime packages** (i18n/SVG XSS, XSRF token leakage), whose exposure is the end user's browser.
+  Both matter; the Angular migration resolves both.
