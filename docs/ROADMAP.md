@@ -217,3 +217,17 @@ Built and deployed today, verified against the code:
   plain Kubernetes Secrets.
 - **Real TLS** — a purchased domain to unblock Let's Encrypt on the ingress (removing the nip.io
   HTTP-01 limitation).
+- **Angular major-version upgrade (dependency security).** A dependency-security pass cleared the
+  .NET side entirely (0 vulnerable NuGet packages) and the safely-fixable npm subset via non-force
+  `npm audit fix` (removed the lone critical, `shell-quote`, plus ~20 others). The **~50 remaining
+  npm advisories are gated behind an Angular major upgrade** and cannot be fixed in place: the app is
+  on **Angular 17, which is past end-of-life**, so there is no patched 17.x for the runtime XSS/DoS
+  advisories (`@angular/core` i18n/SVG XSS, `@angular/common` XSRF token leakage, etc.), and the
+  build-toolchain advisories (webpack, esbuild, vite, rollup, …) only "fix" via
+  `npm audit fix --force`, which would *downgrade* `@angular-devkit/build-angular` to an Angular-8-era
+  `0.802.2` and break the build. **The real fix is a staged 17 → 18 → 19 → 20+ migration** (each a
+  major with breaking changes), done with `ng update` version-by-version and a full UI test pass at
+  each step — a deliberate effort of its own, not a `npm audit fix`. Note most of the remaining
+  advisories are **build-time devDependencies** (they run on the CI runner/dev machine, never ship to
+  the browser), so their real-world exposure for a deployed static site is low; the genuinely
+  browser-shipped ones are the `@angular/*` runtime packages, which the migration resolves.
