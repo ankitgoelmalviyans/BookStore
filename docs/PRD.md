@@ -44,11 +44,11 @@ personal Azure subscription in the **Central India** region.
 | # | As a… | I want to… | So that… |
 |---|-------|------------|----------|
 | US-1 | Customer | log in with a username and password | I get a JWT and can access the catalog securely |
-| US-2 | Customer | browse the list of books (products) | I can see what's available, with prices and quantities |
+| US-2 | Customer | browse the list of books (products) | I can see what's available, with names, descriptions, and prices (stock is owned by InventoryService, not the catalog) |
 | US-3 | Customer | view a single book's details by id | I can decide whether to buy it |
 | US-4 | Admin | create a new product in the catalog | the book becomes available to customers |
 | US-5 | Admin | update or delete a product | I can correct a price/description or retire a title |
-| US-6 | System (Inventory) | automatically create/update an inventory record whenever a product is created | stock levels stay in sync with the catalog without a manual step |
+| US-6 | System (Inventory) | automatically create an inventory record (at zero stock) whenever a product is created | every product has a stock row from day one, ready to be restocked/decremented — no manual setup step |
 | US-7 | Customer/Admin | query inventory for a given product id | I can see current stock for a title |
 | US-8 | Developer | trace a single request across all three services using one CorrelationId | I can debug a failure end-to-end in Splunk without guessing |
 | US-9 | Developer | see structured JSON logs enriched with TraceId/SpanId in Splunk | I can correlate application logs with distributed traces |
@@ -95,9 +95,10 @@ Everything below is present in the codebase today.
 |------------|--------|
 | `GET /api/inventory` | Returns all inventory rows from Cosmos `Inventory` container |
 | `GET /api/inventory/{productId}` | Returns the inventory row for a product, `404` if none |
-| `POST /api/inventory` | Manually upserts an inventory quantity for a product |
+| `POST /api/inventory` | Sets (restocks) the absolute stock quantity for a product |
+| `POST /api/inventory/{productId}/decrement` | Bounds-checked stock decrement — `409 Conflict` on insufficient stock. The one operation the catalog genuinely cannot do; this is what makes Inventory the owner of stock, not a mirror |
 | `POST /api/inventory/test-subscribe` | Test hook that manually invokes the Service Bus subscriber |
-| Event consumption | `AzureServiceBusSubscriber` (started at app startup) subscribes to `product-events` / `inventory-subscription`, and on each `ProductCreatedEvent` upserts an inventory row keyed by `ProductId` |
+| Event consumption | `AzureServiceBusSubscriber` (started at app startup) subscribes to `product-events` / `inventory-subscription`, and on each `ProductCreatedEvent` initializes an inventory row (zero stock) keyed by `ProductId` |
 | Message safety | `AutoCompleteMessages = false`; malformed messages are dead-lettered, transient failures are abandoned for retry (→ DLQ after `MaxDeliveryCount`) |
 | Idempotent consumption (Inbox) | `IInboxStore` dedupes on `ProductCreatedEvent.EventId` before applying an update — a redelivered message is a no-op |
 | `[Authorize]` | Inventory endpoints require a valid JWT; `Program.cs` configures `AddJwtBearer` |

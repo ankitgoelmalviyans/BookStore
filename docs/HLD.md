@@ -253,8 +253,10 @@ real synchronous caller between these two services yet — they still talk via S
 - **Subscribes:** `product-events` via `inventory-subscription`, deduplicated via `IInboxStore`
   before applying an update.
 - **Does NOT:** create products, call ProductService, or decrement stock on orders (there is no
-  OrderService yet — **PLANNED**). Today "update inventory" means "set quantity from the product
-  create event."
+  OrderService yet — **PLANNED**). On a `ProductCreated` event it **initializes the row at zero
+  stock** (the event carries no quantity — the catalog doesn't own stock); stock is then changed
+  explicitly via `POST /api/inventory` (restock) and `POST /api/inventory/{productId}/decrement`
+  (bounds-checked). A future OrderService is what would call `decrement` during checkout.
 
 ### product-ui
 - **Owns:** the browser experience (login, product list/form, inventory view) and CorrelationId

@@ -131,20 +131,28 @@ BookStore/
 │                                            # any current CI/CD workflow
 ├── infrastructure/
 │   ├── bicep/                              # main.bicep (core), main.demo.bicep (APIM)
-│   └── helm/
-│       ├── bookstore-lib/                  # library chart: _deployment, _ingress, _service, _hpa
-│       ├── authservice/ productservice/ inventoryservice/
-│       ├── values-costopt.yaml             # Profile A
-│       └── values-demo.yaml                # Profile B
+│   ├── helm/
+│   │   ├── bookstore-lib/                  # library chart: _deployment, _ingress, _service, _hpa
+│   │   ├── authservice/
+│   │   ├── productservice/
+│   │   ├── inventoryservice/
+│   │   ├── values-costopt.yaml             # Profile A
+│   │   └── values-demo.yaml                # Profile B
+│   └── istio/                              # minimal mesh (mTLS, retries) + its own README
+├── docs/                                   # ← all platform/architecture docs live here
+│                                            # HLD, LLD, PRD, TRD, ROADMAP, KUBERNETES,
+│                                            # DOTNET_CONCEPTS, AZURE_SERVICE_BUS, SPLUNK_GUIDE,
+│                                            # INTERVIEW_QA, splunk-searches
 ├── azure-pipelines-reference/              # preserved Azure DevOps YAML pipelines from the
 │                                            # project's original CI/CD, kept for reference only —
 │                                            # superseded by .github/workflows/
-├── misc docs/                              # working notes (Copilot training, interview prep,
-│                                            # containerization notes, git/yaml guides)
 ├── .github/workflows/                      # ci.yml, cd-costopt.yml, cd-ui.yml,
 │                                            # infra-bicep.yml, infra-demo.yml
 └── README.md
 ```
+
+📚 **Full documentation lives in [`docs/`](docs/)** — architecture (HLD/LLD), requirements
+(PRD/TRD), the [roadmap](docs/ROADMAP.md), and operational guides (Kubernetes, Splunk, Service Bus).
 
 ---
 

@@ -51,7 +51,10 @@ Each ADR follows: **Decision → Why → Alternatives considered → Trade-offs.
 ### ADR-4 — `IMessagePublisher` interface with injectable implementation
 
 - **Decision:** `Core/Messaging/IMessagePublisher.cs` defines `PublishAsync<T>(T message, string
-  topic)`; `AzureServiceBusProducer` implements it; DI binds them in `StartupExtensions`.
+  topic, string? correlationId = null, string? traceParent = null)`; `AzureServiceBusProducer`
+  implements it; DI binds them in `StartupExtensions`. (The optional `correlationId`/`traceParent`
+  were added so the background outbox publisher — which runs outside any HTTP request — can supply
+  the stored correlation and W3C trace context explicitly; see ADR-11/ADR-12.)
 - **Why:** The Application layer (`ProductService.CreateAsync`) depends on the **interface**, not
   Service Bus. Swapping to Kafka/RabbitMQ is a new implementation class + a one-line DI change, with
   zero business-logic edits. It also makes the publisher trivially mockable in tests.
@@ -175,6 +178,23 @@ Each ADR follows: **Decision → Why → Alternatives considered → Trade-offs.
 - **Alternatives:** A Europe/US region.
 - **Trade-offs:** Single-region → no geo-redundancy (acceptable for a portfolio); some preview SKUs
   differ by region. Latency + availability of needed SKUs drove the choice.
+
+### ADR-15 — Minimal Istio mesh for Product + Inventory (PARTIAL)
+
+- **Decision:** A minimal `istiod` control plane (no ingress gateway), with sidecar injection scoped
+  **per-pod** to ProductService and InventoryService only (AuthService is not meshed). mTLS is
+  **PERMISSIVE** (not STRICT), plus a `VirtualService`/`DestinationRule` giving InventoryService
+  retries/timeouts. Installed via `infra-bicep.yml`; manifests + rationale in
+  `infrastructure/istio/`. See `docs/LLD.md` and `docs/ROADMAP.md` for the full write-up.
+- **Why:** Learn/demonstrate a service mesh (mTLS, resilience-as-config, per-call observability for
+  east-west traffic) on the existing single node at ~zero added cost, without an ingress-gateway pod
+  or a second Load Balancer.
+- **Alternatives:** NGINX-only (already does north-south canary via annotations — no mesh needed);
+  full Istio profile with gateway + Kiali (too heavy for one `Standard_B2s`).
+- **Trade-offs:** **PERMISSIVE, not STRICT** — NGINX (unmeshed) routes real traffic to these pods, so
+  STRICT would reject it and break the live site. Weighted canary is still **PLANNED** (needs real
+  `v1`/`v2` subsets, which don't exist yet). Sidecars add ~2 pods' worth of memory on a tight node —
+  the reason the footprint is deliberately tuned down.
 
 ---
 
