@@ -78,7 +78,9 @@ services.AddHttpContextAccessor();
 services.AddSingleton<CosmosClient>(sp => new CosmosClient(endpoint, key));   // Singleton
 services.AddScoped<IProductRepository, CosmosProductRepository>();            // Scoped
 services.AddScoped<IProductService, ProductService>();                        // Scoped
-services.AddScoped<IMessagePublisher, AzureServiceBusProducer>();             // Scoped
+services.AddSingleton<IMessagePublisher, AzureServiceBusProducer>();          // Singleton
+services.AddScoped<IOutboxStore, CosmosOutboxStore>();                        // Scoped (outbox)
+services.AddHostedService<OutboxPublisherService>();                          // Singleton (background drain)
 services.AddSingleton<ServiceBusClient>(sp => new ServiceBusClient(conn));    // Singleton
 services.AddSingleton<ExceptionMiddleware>();                                 // Singleton (IMiddleware)
 services.AddSingleton<SerilogEnrichingMiddleware>();                          // Singleton (IMiddleware)
@@ -86,6 +88,12 @@ services.AddSingleton<SerilogEnrichingMiddleware>();                          //
 - **Why `CosmosClient` is Singleton:** it's an expensive, thread-safe object that holds a connection
   pool. Creating one per request would exhaust sockets and tank performance. Microsoft explicitly
   recommends a single long-lived instance. Same reasoning for the Singleton `ServiceBusClient`.
+- **Why `IMessagePublisher` (`AzureServiceBusProducer`) is Singleton:** it caches per-topic
+  `ServiceBusSender`s for the app's lifetime (creating one per publish would churn AMQP links,
+  costly in the outbox drain loop). It's safe to inject `IHttpContextAccessor` into a Singleton.
+- **Why the outbox publisher is a `HostedService`:** it's a long-running background loop, not a
+  per-request object. Being a Singleton, it opens a DI **scope per cycle** to resolve the Scoped
+  `IOutboxStore`.
 - **Why repositories/services are Scoped:** they're cheap, request-bound, and often hold per-request
   state (e.g. the CorrelationId flows via `IHttpContextAccessor`). Scoped is the ASP.NET default for
   "one per request."
@@ -157,7 +165,7 @@ action arguments; query params bind by name.
 |---------|--------|
 | **AuthService** | `POST /api/auth/login` |
 | **ProductService** | `GET /api/products`, `GET /api/products/{id}`, `POST /api/products`, `PUT /api/products/{id}`, `DELETE /api/products/{id}` (all `[Authorize]`) |
-| **InventoryService** | `GET /api/inventory`, `GET /api/inventory/{productId}`, `POST /api/inventory`, `POST /api/inventory/test-subscribe` (all `[Authorize]`) |
+| **InventoryService** | `GET /api/inventory`, `GET /api/inventory/{productId}`, `POST /api/inventory` (restock), `POST /api/inventory/{productId}/decrement` (bounds-checked, `409` on insufficient stock), `POST /api/inventory/test-subscribe` (all `[Authorize]`) |
 
 ### How NGINX Ingress path rewriting works
 The browser calls the **external** path, NGINX strips the service prefix, the pod sees its **native**
