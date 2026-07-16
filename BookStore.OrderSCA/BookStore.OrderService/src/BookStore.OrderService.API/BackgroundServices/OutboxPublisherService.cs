@@ -22,6 +22,7 @@ namespace BookStore.OrderService.API.BackgroundServices
         private readonly ILogger<OutboxPublisherService> _logger;
         private readonly TimeSpan _pollingInterval;
         private readonly int _batchSize;
+        private readonly int _maxRetries;
 
         public OutboxPublisherService(
             IServiceScopeFactory scopeFactory,
@@ -33,6 +34,7 @@ namespace BookStore.OrderService.API.BackgroundServices
             _pollingInterval = TimeSpan.FromSeconds(
                 configuration.GetValue<int?>("Outbox:PollingIntervalSeconds") ?? 10);
             _batchSize = configuration.GetValue<int?>("Outbox:BatchSize") ?? 20;
+            _maxRetries = configuration.GetValue<int?>("Outbox:MaxRetries") ?? 10;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -81,27 +83,59 @@ namespace BookStore.OrderService.API.BackgroundServices
                     break;
                 }
 
-                // Only OrderCreated is emitted in this increment; deserialize to the typed event so
-                // the producer serializes it consistently (and so a future EventType switch has an
-                // obvious seam).
-                var payload = JsonSerializer.Deserialize<OrderCreatedEvent>(message.Payload);
-                if (payload is null)
+                // Isolate each record: a single malformed payload or a transient publish error must
+                // not abort the whole batch (which would also let one poison record at the head block
+                // every newer one). On failure we increment the retry count and, past the budget,
+                // move the record to the terminal Failed state so it stops being re-fetched.
+                try
                 {
-                    _logger.LogWarning(
-                        "Outbox record {EventId} has an unparseable payload; skipping", message.EventId);
-                    continue;
+                    await PublishOneAsync(message, outboxStore, publisher, stoppingToken);
                 }
-
-                using (LogContext.PushProperty("CorrelationId", message.CorrelationId))
+                catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
                 {
-                    await publisher.PublishAsync(
-                        payload, message.Topic, message.CorrelationId, message.TraceParent);
-                    await outboxStore.MarkPublishedAsync(message, stoppingToken);
+                    _logger.LogError(ex,
+                        "Outbox record {EventId} failed to publish (attempt {Attempt}); will retry up to {MaxRetries}",
+                        message.EventId, message.RetryCount + 1, _maxRetries);
+                    await outboxStore.RecordFailureAsync(message, _maxRetries, stoppingToken);
 
-                    _logger.LogInformation(
-                        "Outbox event {EventId} ({EventType}) published to topic '{Topic}'",
-                        message.EventId, message.EventType, message.Topic);
+                    if (message.Status == OutboxMessage.Failed)
+                    {
+                        _logger.LogError(
+                            "Outbox record {EventId} exhausted its retry budget and was moved to Failed; manual reconciliation required",
+                            message.EventId);
+                    }
                 }
+            }
+        }
+
+        private async Task PublishOneAsync(
+            OutboxMessage message,
+            IOutboxStore outboxStore,
+            IMessagePublisher publisher,
+            CancellationToken stoppingToken)
+        {
+            // Only OrderCreated is emitted in this increment; deserialize to the typed event so the
+            // producer serializes it consistently (and so a future EventType switch has an obvious
+            // seam). A null/unparseable payload is treated as a failure so it counts toward the retry
+            // budget and eventually dead-letters, rather than silently staying Pending forever.
+            var payload = JsonSerializer.Deserialize<OrderCreatedEvent>(message.Payload);
+            if (payload is null)
+            {
+                _logger.LogWarning(
+                    "Outbox record {EventId} has an unparseable payload; recording as a failed attempt", message.EventId);
+                await outboxStore.RecordFailureAsync(message, _maxRetries, stoppingToken);
+                return;
+            }
+
+            using (LogContext.PushProperty("CorrelationId", message.CorrelationId))
+            {
+                await publisher.PublishAsync(
+                    payload, message.Topic, message.CorrelationId, message.TraceParent);
+                await outboxStore.MarkPublishedAsync(message, stoppingToken);
+
+                _logger.LogInformation(
+                    "Outbox event {EventId} ({EventType}) published to topic '{Topic}'",
+                    message.EventId, message.EventType, message.Topic);
             }
         }
     }

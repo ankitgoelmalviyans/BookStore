@@ -16,6 +16,11 @@ public class OutboxMessage
     public const string Pending = "Pending";
     public const string Published = "Published";
 
+    /// <summary>Terminal state for a record the drain could not publish within its retry budget —
+    /// no longer picked up, surfaced via an Error log for manual reconciliation (mirrors the Service
+    /// Bus dead-letter posture in docs/TRD.md ADR-17).</summary>
+    public const string Failed = "Failed";
+
     /// <summary>Primary key AND the domain event id downstream consumers deduplicate on (Inbox pattern).</summary>
     public Guid EventId { get; set; }
 
@@ -37,4 +42,7 @@ public class OutboxMessage
     public DateTime CreatedAt { get; set; }
 
     public DateTime? PublishedAt { get; set; }
+
+    /// <summary>Number of failed publish attempts so far; drives the transition to <see cref="Failed"/>.</summary>
+    public int RetryCount { get; set; }
 }

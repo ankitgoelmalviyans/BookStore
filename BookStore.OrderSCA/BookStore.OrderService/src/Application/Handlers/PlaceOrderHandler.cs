@@ -39,7 +39,8 @@ public class PlaceOrderHandler : IPlaceOrderHandler
     {
         Validate(command);
 
-        var topic = _configuration["AzureServiceBus:TopicName"] ?? "order-events";
+        var configuredTopic = _configuration["AzureServiceBus:TopicName"];
+        var topic = string.IsNullOrWhiteSpace(configuredTopic) ? "order-events" : configuredTopic;
         var orderId = Guid.NewGuid();
 
         var items = command.Items
@@ -107,6 +108,11 @@ public class PlaceOrderHandler : IPlaceOrderHandler
 
     private static void Validate(PlaceOrderCommand command)
     {
+        if (command is null)
+        {
+            throw new ArgumentException("A command is required.");
+        }
+
         if (string.IsNullOrWhiteSpace(command.CustomerId))
         {
             throw new ArgumentException("CustomerId is required.");
@@ -119,6 +125,11 @@ public class PlaceOrderHandler : IPlaceOrderHandler
 
         foreach (var item in command.Items)
         {
+            if (item is null)
+            {
+                throw new ArgumentException("Order items cannot be null.");
+            }
+
             if (item.ProductId == Guid.Empty)
             {
                 throw new ArgumentException("Each item must reference a ProductId.");

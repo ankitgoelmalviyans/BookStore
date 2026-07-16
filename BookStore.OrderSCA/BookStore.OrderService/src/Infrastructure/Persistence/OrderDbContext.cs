@@ -52,6 +52,7 @@ public class OrderDbContext : DbContext
             entity.Property(m => m.Status).HasMaxLength(50).IsRequired();
             entity.Property(m => m.CorrelationId).HasMaxLength(200);
             entity.Property(m => m.TraceParent).HasMaxLength(200);
+            entity.Property(m => m.RetryCount);
             // Drain query filters on Status — index it so polling stays cheap as the table grows.
             entity.HasIndex(m => m.Status);
         });

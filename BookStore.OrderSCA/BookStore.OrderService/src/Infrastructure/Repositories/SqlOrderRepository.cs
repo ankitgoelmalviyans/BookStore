@@ -10,6 +10,11 @@ namespace BookStore.OrderService.Infrastructure.Repositories;
 /// </summary>
 public class SqlOrderRepository : IOrderRepository
 {
+    // Upper bound on a single customer-history read so the query can never materialise an unbounded
+    // number of orders (and their items) into memory. Returns the most recent N; full cursor-based
+    // pagination is a documented follow-up (docs/ROADMAP.md) if history depth ever warrants it.
+    private const int MaxHistoryResults = 100;
+
     private readonly OrderDbContext _db;
 
     public SqlOrderRepository(OrderDbContext db)
@@ -44,6 +49,7 @@ public class SqlOrderRepository : IOrderRepository
             .Include(o => o.Items)
             .Where(o => o.CustomerId == customerId)
             .OrderByDescending(o => o.CreatedAt)
+            .Take(MaxHistoryResults)
             .ToListAsync(cancellationToken);
     }
 }

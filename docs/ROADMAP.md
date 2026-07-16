@@ -54,11 +54,19 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
 > with the **command side** (`PlaceOrder` → atomic `Order` + `OrderItems` + `OrderOutbox` via one EF
 > Core `SaveChangesAsync`), the **query side** (order-by-id, customer history), the background
 > `OutboxPublisherService` draining `OrderCreated` to `order-events`, unit tests, a Helm chart, and a
-> `build-order` CI job. **Still pending:** the saga *inbound* handlers (subscribing to
+> `build-order` CI job. Orders are placed for the **authenticated** caller (CustomerId from the JWT
+> `sub`, never the request body), reads are scoped to the caller, the history query is bounded, and the
+> outbox drain isolates per-record failures with a bounded-retry → `Failed` dead-letter (ADR-17
+> posture). **Still pending:** the saga *inbound* handlers (subscribing to
 > `InventoryReservationFailed`/`PaymentProcessed`/`PaymentFailed` to move the order to
-> `Confirmed`/`Cancelled` and emit `OrderCancelled`) — they depend on the other services existing —
-> plus the Azure SQL Bicep + `cd-costopt` deploy wiring (gated on provisioning the database, which has
-> a cost the operator controls). See §"Pipeline changes this phase requires".
+> `Confirmed`/`Cancelled` and emit `OrderCancelled`) — they depend on the other services existing;
+> **server-side price resolution** — today the line `UnitPrice` is taken from the request, which is a
+> known trust gap: OrderService must resolve authoritative prices from a product-catalog source it
+> doesn't own yet (either a sync read from ProductService or, choreography-consistently, a local
+> `ProductPrices` projection fed by `product-events`, which already carries `Price`) — tracked as the
+> next OrderService increment; plus the Azure SQL Bicep + `cd-costopt` deploy wiring (gated on
+> provisioning the database, which has a cost the operator controls). See §"Pipeline changes this
+> phase requires".
 
 - **What:** owns orders, with a **separate write model and read model**, backed by its own Azure SQL
   Database (Serverless). Tables: `Orders` (`Id`, `CustomerId`, `Status`, `Total`, `CreatedAt`),

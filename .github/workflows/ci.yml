@@ -144,6 +144,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # This job only builds/tests — it never pushes — so don't leave the token in .git/config.
+          persist-credentials: false
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4

@@ -13,4 +13,11 @@ public interface IOutboxStore
 
     /// <summary>Marks the outbox record Published and persists it.</summary>
     Task MarkPublishedAsync(OutboxMessage message, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Records a failed publish attempt: increments the retry count and, once it reaches
+    /// <paramref name="maxRetries"/>, moves the record to the terminal <c>Failed</c> state so the
+    /// drain stops retrying it (and stops it blocking newer records).
+    /// </summary>
+    Task RecordFailureAsync(OutboxMessage message, int maxRetries, CancellationToken cancellationToken = default);
 }

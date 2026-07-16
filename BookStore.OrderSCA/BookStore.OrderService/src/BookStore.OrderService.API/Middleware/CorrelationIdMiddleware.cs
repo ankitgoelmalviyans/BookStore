@@ -9,6 +9,11 @@ public class CorrelationIdMiddleware
     private readonly RequestDelegate _next;
     private const string CorrelationIdHeader = CorrelationConstants.HttpContextItemKey;
 
+    // Matches the OrderOutbox.CorrelationId column length. An over-long (or empty) client-supplied
+    // header must not flow through to a persisted outbox record and blow up the SaveChanges — if it
+    // isn't a sane value, we mint a fresh one instead of trusting it.
+    private const int MaxCorrelationIdLength = 200;
+
     public CorrelationIdMiddleware(RequestDelegate next)
     {
         _next = next;
@@ -16,9 +21,10 @@ public class CorrelationIdMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        // Read from incoming header or generate a new one
-        var correlationId = context.Request.Headers[CorrelationIdHeader]
-            .FirstOrDefault() ?? Guid.NewGuid().ToString();
+        // Read from the incoming header; accept it only if it's present and within the persisted
+        // length limit, otherwise generate a new one.
+        var incoming = context.Request.Headers[CorrelationIdHeader].FirstOrDefault();
+        var correlationId = IsAcceptable(incoming) ? incoming! : Guid.NewGuid().ToString();
 
         // Store in HttpContext for use in controllers/services
         context.Items[CorrelationIdHeader] = correlationId;
@@ -41,4 +47,7 @@ public class CorrelationIdMiddleware
             await _next(context);
         }
     }
+
+    private static bool IsAcceptable(string? value) =>
+        !string.IsNullOrWhiteSpace(value) && value.Length <= MaxCorrelationIdLength;
 }

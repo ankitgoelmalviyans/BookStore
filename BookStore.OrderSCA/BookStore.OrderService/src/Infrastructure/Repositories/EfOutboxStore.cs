@@ -33,4 +33,15 @@ public class EfOutboxStore : IOutboxStore
         _db.OutboxMessages.Update(message);
         await _db.SaveChangesAsync(cancellationToken);
     }
+
+    public async Task RecordFailureAsync(OutboxMessage message, int maxRetries, CancellationToken cancellationToken = default)
+    {
+        message.RetryCount++;
+        if (message.RetryCount >= maxRetries)
+        {
+            message.Status = OutboxMessage.Failed;
+        }
+        _db.OutboxMessages.Update(message);
+        await _db.SaveChangesAsync(cancellationToken);
+    }
 }
