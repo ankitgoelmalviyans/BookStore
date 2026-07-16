@@ -273,8 +273,11 @@ InventoryService.ReserveStock — writes ONE OrderReservations doc (Cosmos, part
   │                                                      ▼ drained ──▶ topic payment-events
   │                                                        ──▶ OrderService: Order.status = Cancelled
   │                                                             └─ publish OrderCancelled
-  │                                                                  ──▶ InventoryService.ReleaseInventory
-  │                                                                       (Reserved → Available)  [COMPENSATION]
+  │                                                                  ──▶ InventoryService: ONE atomic
+  │                                                                       OrderReservations write —
+  │                                                                       Reserved → PendingRelease
+  │                                                                       [COMPENSATION, durable the
+  │                                                                        instant this write commits]
   │
   └─ a line fails ─▶ SAME OrderReservations doc, one atomic write: mark the already-reserved lines
                       PendingRelease + Outbox = InventoryReservationFailed
@@ -285,10 +288,17 @@ InventoryService.ReserveStock — writes ONE OrderReservations doc (Cosmos, part
                         │         needed here — the physical release is InventoryService's own,
                         │         already-durable PendingRelease work, not a cross-service step)
                         │
-                        └─▶ background ReservationReleaseWorker retries the physical Cosmos
-                              release (Reserved → Available) for each PendingRelease line until it
-                              succeeds; guarded so re-releasing an already-Available line is a
-                              no-op — safe to retry after a crash without double-crediting stock
+                        └─▶ background ReservationReleaseWorker (also drives the OrderCancelled path
+                              above) retries the physical Cosmos release (Reserved → Available) for
+                              each PendingRelease line with backoff; guarded so re-releasing an
+                              already-Available line is a no-op — safe after a crash. Exhausts its
+                              retry budget → line flips to terminal ReleaseFailed + an Error log for
+                              manual reconciliation (same posture as a dead-lettered Service Bus
+                              message) — never retried silently forever.
+
+Webhook dedup note (PaymentService, above): the `event.id` check is a DB-**unique-constrained**
+insert, not a `SELECT`-then-decide — see `docs/TRD.md` ADR-19 for why a plain check-then-act race is
+unsafe if PaymentService ever runs more than one replica.
 ```
 
 **Why InventoryReserved gates PaymentService, not OrderCreated directly:** if PaymentService also

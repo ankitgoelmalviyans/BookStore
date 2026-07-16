@@ -105,6 +105,17 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
   point. The saga-level compensation (`OrderCancelled` → `ReleaseInventory`) only applies to the case
   where reservation **fully succeeded** and a later, different service (PaymentService) is the one
   that fails.
+- **`OrderCancelled` → `ReleaseInventory`, and its recovery contract:** on `OrderCancelled`,
+  InventoryService does the **same** one-document `OrderReservations` write — flip that order's
+  `Reserved` lines to `PendingRelease` — before touching any physical stock. No further outbound event
+  is needed for this action (nothing downstream subscribes to "inventory released"), so the durable
+  `PendingRelease` flag itself stands in for an outbox record: it's the crash-safe statement of work
+  still owed, written atomically the same way as the reservation-failure path above. The same
+  `ReservationReleaseWorker` then retries the physical release with backoff, idempotent against
+  already-released lines. **If it keeps failing** past a bounded retry budget (same posture as the
+  existing Service Bus `MaxDeliveryCount` dead-letter behavior), the worker stops, flips that line to a
+  terminal `ReleaseFailed` state, and logs an `Error`-level, CorrelationId-tagged line for manual
+  reconciliation — deliberately not retried forever, and deliberately not auto-resolved.
 
 ### PaymentService — Stripe test mode, Azure SQL
 
@@ -119,16 +130,20 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
   — consumed by OrderService (`order-payment-outcome-subscription`) and NotificationService
   (`notification-payment-subscription`).
 - **Webhook handling is one atomic SQL transaction, publish only after commit:** Stripe confirms the
-  charge asynchronously via a webhook, and webhook deliveries are themselves at-least-once (Stripe
-  retries on anything but a `2xx`). On each webhook call, PaymentService does the **dedup check, the
-  `Payments.Status` transition, and the `PaymentOutbox` insert (`PaymentProcessed`/`PaymentFailed`) in
-  a single `SaveChangesAsync()`** — never as separate steps that could partially apply on a crash. The
-  dedup check itself is against a persisted table of processed Stripe `event.id`s (inserted in that
-  same transaction); an `event.id` already present is skipped before any state change. Only after that
-  transaction commits does the existing `OutboxPublisherService` drain `PaymentOutbox` and publish to
-  `payment-events` — the drain-from-committed-rows pattern already used by ProductService/OrderService
-  means the event is never published ahead of (or without) the state it describes actually being
-  durable.
+  charge asynchronously via a webhook (verified via `Stripe-Signature` + `STRIPE_WEBHOOK_SECRET` — a
+  separate secret from the outbound `STRIPE_TEST_SECRET_KEY`), and webhook deliveries are themselves
+  at-least-once (Stripe retries on anything but a `2xx`). On each webhook call, PaymentService does the
+  **dedup check, the `Payments.Status` transition, and the `PaymentOutbox` insert
+  (`PaymentProcessed`/`PaymentFailed`) in a single `SaveChangesAsync()`** — never as separate steps
+  that could partially apply on a crash. Only after that transaction commits does the existing
+  `OutboxPublisherService` drain `PaymentOutbox` and publish to `payment-events` — the
+  drain-from-committed-rows pattern already used by ProductService/OrderService means the event is
+  never published ahead of (or without) the state it describes actually being durable.
+- **Dedup under concurrency needs a DB constraint, not a `SELECT` check:** two replicas (or two
+  near-simultaneous Stripe deliveries of the same event) can both `SELECT` and both see "not processed
+  yet" before either commits. The `event.id` dedup column has a **`UNIQUE` constraint**, and the dedup
+  step *is* inserting that `event.id` — a duplicate-key violation (not a preceding `SELECT`) is what
+  actually stops the second concurrent transaction, which is caught and treated as a no-op.
 - **Test cards:** Stripe's own well-known test numbers drive the demo — `4242 4242 4242 4242` (and
   the equally standard `4111 1111 1111 1111`) succeed; Stripe also ships dedicated decline-simulation
   numbers (e.g. a card that always returns `card_declined`) for exercising the `PaymentFailed` →

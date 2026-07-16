@@ -249,6 +249,24 @@ Each ADR follows: **Decision → Why → Alternatives considered → Trade-offs.
   publishing `OrderCancelled`, which InventoryService subscribes to as the **compensating
   transaction** — `ReleaseInventory` puts the reserved stock back. See `docs/ROADMAP.md` Phase 2 for
   the full sequence.
+- **`ReleaseInventory` recovery contract:** on `OrderCancelled`, InventoryService does **one atomic**
+  `OrderReservations` document write flipping that order's `Reserved` lines to `PendingRelease` —
+  the same document/field the partial-reservation-failure path already uses (see the HLD §6 note), so
+  this transition is durable the instant it commits, before any physical release is attempted. No new
+  outbound event is needed for this action itself — nothing downstream subscribes to "inventory was
+  released" — so `PendingRelease` **is** the durable record of the work still owed, standing in for an
+  outbox entry where there is no external event to publish. The background `ReservationReleaseWorker`
+  (the same worker used for reservation-failure cleanup) then retries the physical `Reserved →
+  Available` write for each `PendingRelease` line with backoff, guarded so re-releasing an
+  already-`Available` line is a no-op on any retry. If a line is still `PendingRelease` after a bounded
+  number of attempts (mirroring the existing Service Bus `MaxDeliveryCount` dead-letter pattern already
+  used for poison messages), the worker stops retrying automatically, flips that line to a terminal
+  `ReleaseFailed` state, and emits an `Error`-level structured log (CorrelationId-tagged, Splunk-visible
+  by the existing pipeline) — this is a genuine operational escalation requiring manual reconciliation,
+  not a silently-forever-retried background task. `ReleaseFailed` is intentionally **not**
+  auto-recovered: an operator investigates why the physical release keeps failing (e.g. the underlying
+  `Inventory` document was deleted or corrupted) and resolves it out of band, same posture as inspecting
+  a dead-lettered Service Bus message today.
 - **Why:** ProductService→InventoryService is already choreography (ADR-1) — everything here reuses
   the same Outbox/Inbox/`IMessagePublisher` machinery that's already built and proven, rather than
   introducing a second integration style (a stateful orchestrator with its own persistence and
@@ -338,7 +356,15 @@ Each ADR follows: **Decision → Why → Alternatives considered → Trade-offs.
   "recorded as seen" and "applied the state change" is impossible — either the whole thing committed or
   none of it did. The existing `OutboxPublisherService` only ever drains **committed** `PaymentOutbox`
   rows, so the saga event reaches Service Bus strictly after that transaction is durable, never before.
-  A retried delivery whose `event.id` is already present is skipped before touching `Payments` at all.
+- **A plain "`SELECT` to check, then `INSERT`" is not enough under concurrency:** if PaymentService
+  ever runs more than one replica (or Stripe fires two near-simultaneous deliveries of the same
+  event), two transactions can both `SELECT` and both see "not seen yet" before either commits — a
+  classic check-then-act race that would let both apply the state change. The `event.id` column
+  carries a **database-enforced `UNIQUE` constraint**, and the dedup step is the `INSERT` of that
+  `event.id` **itself** (not a preceding `SELECT`) — the DB, not application logic, is what actually
+  prevents two concurrent transactions from both winning. A duplicate-key violation on that insert is
+  caught and treated as a no-op: the transaction is abandoned, no `Payments` state change is applied,
+  and no `PaymentOutbox` row is written for that delivery.
 
 ### ADR-20 — No personal Azure account credentials in CI/CD (scoped secrets only) — PLANNED
 
@@ -390,7 +416,8 @@ Each ADR follows: **Decision → Why → Alternatives considered → Trade-offs.
 | InventoryService → Service Bus | AMQP (SDK) | **PLANNED** — subscribes `order-events`/`inventory-order-subscription`; publishes `InventoryReserved`/`InventoryReservationFailed` to topic `inventory-events` |
 | PaymentService ← Service Bus | AMQP (SDK) | **PLANNED** — subscribes `inventory-events`/`payment-subscription` (only on `InventoryReserved`) |
 | PaymentService → Service Bus | AMQP (SDK) | **PLANNED** — publishes `PaymentProcessed`/`PaymentFailed` to topic `payment-events`, drained from `PaymentOutbox` after the webhook transaction commits (ADR-19) |
-| PaymentService → Stripe | HTTPS/REST | **PLANNED** — test-mode secret key; `Stripe-Signature` webhook verification; idempotency key = `InventoryReserved` event id (ADR-19) |
+| PaymentService → Stripe | HTTPS/REST | **PLANNED** — outbound PaymentIntent create/confirm, authenticated with `STRIPE_TEST_SECRET_KEY`; idempotency key = `InventoryReserved` event id (ADR-19) |
+| Stripe → PaymentService | HTTPS/REST (webhook) | **PLANNED** — inbound webhook delivery; verified via `Stripe-Signature` header + `STRIPE_WEBHOOK_SECRET`; `event.id` deduped via a DB-unique-constrained insert, one SQL transaction with the state change (ADR-19) |
 | OrderService ← Service Bus | AMQP (SDK) | **PLANNED** — subscribes `inventory-events`/`order-inventory-outcome-subscription` (`InventoryReservationFailed`) and `payment-events`/`order-payment-outcome-subscription` (`PaymentProcessed`, `PaymentFailed`) |
 | InventoryService → Cosmos (`OrderReservations`) | Cosmos SDK v3 | **PLANNED** — new container, partition `/orderId`; per-order reservation state + embedded outbox (ADR-16 pattern reused on Cosmos, see `docs/HLD.md` §6) |
 | OrderService/PaymentService → Azure SQL | EF Core / `Microsoft.Data.SqlClient` | **PLANNED** — Serverless tier, one logical database per service (ADR-16) |
