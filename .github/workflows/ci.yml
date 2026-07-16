@@ -135,6 +135,48 @@ jobs:
           tags: inventoryservice:ci
 
   # ─────────────────────────────────────────
+  # JOB 3b — Build and test OrderService
+  # ─────────────────────────────────────────
+  build-order:
+    name: Build OrderService
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore
+        run: |
+          dotnet restore \
+            BookStore.OrderSCA/BookStore.OrderService/BookStore.OrderService.sln
+
+      - name: Build
+        run: |
+          dotnet build \
+            BookStore.OrderSCA/BookStore.OrderService/BookStore.OrderService.sln \
+            --no-restore \
+            --configuration Release
+
+      - name: Test
+        run: |
+          dotnet test \
+            BookStore.OrderSCA/BookStore.OrderService/tests/OrderService.UnitTests/OrderService.UnitTests.csproj \
+            --configuration Release
+
+      - name: Docker build check
+        uses: docker/build-push-action@v5
+        with:
+          context: BookStore.OrderSCA/BookStore.OrderService/src
+          file: BookStore.OrderSCA/BookStore.OrderService/src/BookStore.OrderService.API/Dockerfile
+          push: false
+          tags: orderservice:ci
+
+  # ─────────────────────────────────────────
   # JOB 4 — Build Angular UI
   # ─────────────────────────────────────────
   build-ui:
@@ -185,12 +227,14 @@ jobs:
           helm dependency update infrastructure/helm/authservice
           helm dependency update infrastructure/helm/productservice
           helm dependency update infrastructure/helm/inventoryservice
+          helm dependency update infrastructure/helm/orderservice
 
       - name: Helm lint
         run: |
           helm lint infrastructure/helm/authservice
           helm lint infrastructure/helm/productservice
           helm lint infrastructure/helm/inventoryservice
+          helm lint infrastructure/helm/orderservice
 
       - name: Helm dry run — Profile A
         run: |
@@ -207,6 +251,12 @@ jobs:
             > /dev/null
 
           helm template inventoryservice infrastructure/helm/inventoryservice \
+            --values infrastructure/helm/values-costopt.yaml \
+            --set ingress.host=1.2.3.4.nip.io \
+            --set image.tag=ci-test \
+            > /dev/null
+
+          helm template orderservice infrastructure/helm/orderservice \
             --values infrastructure/helm/values-costopt.yaml \
             --set ingress.host=1.2.3.4.nip.io \
             --set image.tag=ci-test \
@@ -301,6 +351,7 @@ jobs:
       - build-auth
       - build-product
       - build-inventory
+      - build-order
       - build-ui
       - validate-helm
       - validate-bicep
@@ -315,6 +366,7 @@ jobs:
           echo "✓ AuthService builds"
           echo "✓ ProductService builds"
           echo "✓ InventoryService builds"
+          echo "✓ OrderService builds"
           echo "✓ Angular UI builds"
           echo "✓ Helm charts valid"
           echo "✓ Bicep templates valid"

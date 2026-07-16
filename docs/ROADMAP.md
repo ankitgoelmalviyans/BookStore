@@ -49,6 +49,17 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
 
 ### OrderService — full CQRS, Azure SQL
 
+> **Implementation status — increment 1 ✅ (code built, not yet deployed).** The service exists under
+> `BookStore.OrderSCA/BookStore.OrderService/` (Clean Architecture: Core/Application/Infrastructure/API),
+> with the **command side** (`PlaceOrder` → atomic `Order` + `OrderItems` + `OrderOutbox` via one EF
+> Core `SaveChangesAsync`), the **query side** (order-by-id, customer history), the background
+> `OutboxPublisherService` draining `OrderCreated` to `order-events`, unit tests, a Helm chart, and a
+> `build-order` CI job. **Still pending:** the saga *inbound* handlers (subscribing to
+> `InventoryReservationFailed`/`PaymentProcessed`/`PaymentFailed` to move the order to
+> `Confirmed`/`Cancelled` and emit `OrderCancelled`) — they depend on the other services existing —
+> plus the Azure SQL Bicep + `cd-costopt` deploy wiring (gated on provisioning the database, which has
+> a cost the operator controls). See §"Pipeline changes this phase requires".
+
 - **What:** owns orders, with a **separate write model and read model**, backed by its own Azure SQL
   Database (Serverless). Tables: `Orders` (`Id`, `CustomerId`, `Status`, `Total`, `CreatedAt`),
   `OrderItems` (`OrderId` FK, `ProductId`, `Quantity`, `UnitPrice`), `OrderOutbox`

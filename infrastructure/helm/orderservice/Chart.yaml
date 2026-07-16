@@ -1,0 +1,10 @@
+apiVersion: v2
+name: orderservice
+description: BookStore Order Service
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+dependencies:
+  - name: bookstore-lib
+    version: "0.1.0"
+    repository: "file://../bookstore-lib"

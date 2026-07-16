@@ -21,6 +21,14 @@ inventoryservice:
   ingress:
     host: ""               # set by pipeline: $INGRESS_IP.nip.io
 
+# Phase 2 (planned deploy) — chart + CI validation exist; CD deploy is gated on the Azure SQL
+# database being provisioned first (see docs/ROADMAP.md pipeline notes).
+orderservice:
+  image:
+    tag: ""                # set by pipeline: ${{ github.sha }}
+  ingress:
+    host: ""               # set by pipeline: $INGRESS_IP.nip.io
+
 # Gateway — Profile A uses NGINX Ingress (free, inside AKS)
 # No APIM in this profile
 gateway:
