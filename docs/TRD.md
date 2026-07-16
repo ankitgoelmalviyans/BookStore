@@ -265,9 +265,10 @@ Each ADR follows: **Decision → Why → Alternatives considered → Trade-offs.
   saga grows past this size.
 - **Idempotency is mandatory at every step, not optional:** Service Bus is at-least-once end to end
   (ADR — see the existing Inbox writeup), and choreography multiplies the number of at-least-once
-  consumers from one (InventoryService, Phase 1) to five (InventoryService on `OrderCreated` **and**
-  `OrderCancelled`, PaymentService on `InventoryReserved`, OrderService on
-  `InventoryReserved`/`InventoryReservationFailed`/`PaymentProcessed`/`PaymentFailed`). Every one of
+  consumers from one (InventoryService, Phase 1) to seven (InventoryService on `OrderCreated` **and**
+  `OrderCancelled` — 2; PaymentService on `InventoryReserved` — 1; OrderService on
+  `InventoryReserved`/`InventoryReservationFailed`/`PaymentProcessed`/`PaymentFailed` — 4). Every one
+  of
   them reuses the same `IInboxStore` dedup pattern already proven in Phase 1, plus a monotonic
   state-transition guard in its own domain model (e.g. OrderService only moves `Pending → Confirmed`,
   never re-applies onto an already-`Cancelled` order) so a duplicate or out-of-order delivery that
@@ -329,11 +330,15 @@ Each ADR follows: **Decision → Why → Alternatives considered → Trade-offs.
   **inbound** webhook deliveries from Stripe. A leaked API key lets someone make charges as you; a
   leaked webhook secret lets someone forge fake "payment succeeded" callbacks — different blast radius,
   hence two separate GitHub/Kubernetes secrets, never one shared value.
-- **Webhook delivery is itself at-least-once and needs its own dedup:** Stripe retries a webhook
-  delivery that doesn't get a `2xx` response, so PaymentService persists each processed Stripe
-  `event.id` (a small dedup table/column, same shape as the existing Inbox — see ADR-17) **before**
-  emitting `PaymentProcessed`/`PaymentFailed`, and skips any `event.id` already seen. Without this, a
-  retried webhook delivery could re-emit a saga event and double-apply the outcome downstream.
+- **Webhook delivery is itself at-least-once, and the fix is one transaction, not "dedup then act":**
+  Stripe retries a webhook delivery that doesn't get a `2xx` response. PaymentService does **not**
+  persist the processed `event.id` as a separate step before/after the state change — the dedup check
+  against a persisted `event.id` table, the `Payments.Status` transition, and the `PaymentOutbox`
+  insert (`PaymentProcessed`/`PaymentFailed`) all happen in **one SQL transaction**, so a crash between
+  "recorded as seen" and "applied the state change" is impossible — either the whole thing committed or
+  none of it did. The existing `OutboxPublisherService` only ever drains **committed** `PaymentOutbox`
+  rows, so the saga event reaches Service Bus strictly after that transaction is durable, never before.
+  A retried delivery whose `event.id` is already present is skipped before touching `Payments` at all.
 
 ### ADR-20 — No personal Azure account credentials in CI/CD (scoped secrets only) — PLANNED
 
@@ -384,10 +389,13 @@ Each ADR follows: **Decision → Why → Alternatives considered → Trade-offs.
 | OrderService → Service Bus | AMQP (SDK) | **PLANNED** — publishes `OrderCreated`/`OrderCancelled` to topic `order-events` via the existing `IMessagePublisher` |
 | InventoryService → Service Bus | AMQP (SDK) | **PLANNED** — subscribes `order-events`/`inventory-order-subscription`; publishes `InventoryReserved`/`InventoryReservationFailed` to topic `inventory-events` |
 | PaymentService ← Service Bus | AMQP (SDK) | **PLANNED** — subscribes `inventory-events`/`payment-subscription` (only on `InventoryReserved`) |
+| PaymentService → Service Bus | AMQP (SDK) | **PLANNED** — publishes `PaymentProcessed`/`PaymentFailed` to topic `payment-events`, drained from `PaymentOutbox` after the webhook transaction commits (ADR-19) |
 | PaymentService → Stripe | HTTPS/REST | **PLANNED** — test-mode secret key; `Stripe-Signature` webhook verification; idempotency key = `InventoryReserved` event id (ADR-19) |
+| OrderService ← Service Bus | AMQP (SDK) | **PLANNED** — subscribes `inventory-events`/`order-inventory-outcome-subscription` (`InventoryReservationFailed`) and `payment-events`/`order-payment-outcome-subscription` (`PaymentProcessed`, `PaymentFailed`) |
+| InventoryService → Cosmos (`OrderReservations`) | Cosmos SDK v3 | **PLANNED** — new container, partition `/orderId`; per-order reservation state + embedded outbox (ADR-16 pattern reused on Cosmos, see `docs/HLD.md` §6) |
 | OrderService/PaymentService → Azure SQL | EF Core / `Microsoft.Data.SqlClient` | **PLANNED** — Serverless tier, one logical database per service (ADR-16) |
 | Angular → OrderService / PaymentService | HTTPS/REST | **PLANNED** — new lazy-loaded modules in `product-ui`; `ORDER_API_URL`/`PAYMENT_API_URL` tokens (ADR-18) |
-| NotificationService ← Service Bus | AMQP (SDK) | **PLANNED** — subscribes `order-events` (`OrderCreated`, `OrderCancelled`) and `inventory-events` (`PaymentProcessed`, `PaymentFailed`); stateless, logs a simulated email/SMS per event, no publishes |
+| NotificationService ← Service Bus | AMQP (SDK) | **PLANNED** — subscribes `order-events`/`notification-order-subscription` (`OrderCreated`, `OrderCancelled`) and `payment-events`/`notification-payment-subscription` (`PaymentProcessed`, `PaymentFailed`); stateless, logs a simulated email/SMS per event, no publishes |
 
 ---
 

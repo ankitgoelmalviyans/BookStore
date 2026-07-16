@@ -245,9 +245,11 @@ OrderService.PlaceOrder
 
 OrderService OutboxPublisherService ──▶ Service Bus topic order-events
   ▼ subscription: inventory-order-subscription
-InventoryService.ReserveStock (Cosmos: Available → Reserved per line item)
+InventoryService.ReserveStock — writes ONE OrderReservations doc (Cosmos, partition /orderId):
+  attempts each line's Available→Reserved move against the (per-product) Inventory container
   │
-  ├─ success ─▶ publish InventoryReserved ──▶ topic inventory-events
+  ├─ all lines succeed ─▶ OrderReservations.Outbox = InventoryReserved  [one atomic doc write]
+  │                        ▼ drained by OutboxPublisherService ──▶ topic inventory-events
   │                                              │ subscription: payment-subscription
   │                                              ▼
   │                                   PaymentService.ChargeOrder
@@ -255,32 +257,55 @@ InventoryService.ReserveStock (Cosmos: Available → Reserved per line item)
   │                                     ▼
   │                                   Stripe API (test mode) — PaymentIntent create/confirm
   │                                     │
-  │                                     ├─ succeeded ─▶ Azure SQL: Payments(status=Captured) +
-  │                                     │                PaymentOutbox row (one transaction)
-  │                                     │                ▼ publish PaymentProcessed
-  │                                     │                  ──▶ subscription: order-outcome-subscription
+  │                                     ├─ succeeded ─▶ ONE SQL transaction: Payments(status=Captured)
+  │                                     │                + PaymentOutbox row (PaymentProcessed)
+  │                                     │                ▼ drained by OutboxPublisherService
+  │                                     │                  ──▶ topic payment-events
+  │                                     │                  │ subscriptions: order-payment-outcome-
+  │                                     │                  │ subscription, notification-payment-
+  │                                     │                  │ subscription
   │                                     │                  ▼
   │                                     │                OrderService: Order.status = Confirmed
+  │                                     │                NotificationService: log "order confirmed"
   │                                     │
-  │                                     └─ declined ──▶ Payments(status=Failed) + publish PaymentFailed
+  │                                     └─ declined ──▶ ONE SQL transaction: Payments(status=Failed)
+  │                                                      + PaymentOutbox row (PaymentFailed)
+  │                                                      ▼ drained ──▶ topic payment-events
   │                                                        ──▶ OrderService: Order.status = Cancelled
   │                                                             └─ publish OrderCancelled
   │                                                                  ──▶ InventoryService.ReleaseInventory
   │                                                                       (Reserved → Available)  [COMPENSATION]
   │
-  └─ failure on any line item ─▶ InventoryService releases any lines it already reserved for THIS
-                                  order (partial-reservation rollback, handled locally — see
-                                  docs/ROADMAP.md) ─▶ publish InventoryReservationFailed
-                                    ──▶ OrderService: Order.status = Cancelled  (no SAGA-level
-                                        compensation needed here — by the time this event is
-                                        published, InventoryService has already released everything
-                                        it held for this order itself)
+  └─ a line fails ─▶ SAME OrderReservations doc, one atomic write: mark the already-reserved lines
+                      PendingRelease + Outbox = InventoryReservationFailed
+                        │
+                        ├─▶ drained by OutboxPublisherService ──▶ topic inventory-events
+                        │     (fires immediately — does NOT wait on the physical releases below)
+                        │     ──▶ OrderService: Order.status = Cancelled  (no SAGA-level compensation
+                        │         needed here — the physical release is InventoryService's own,
+                        │         already-durable PendingRelease work, not a cross-service step)
+                        │
+                        └─▶ background ReservationReleaseWorker retries the physical Cosmos
+                              release (Reserved → Available) for each PendingRelease line until it
+                              succeeds; guarded so re-releasing an already-Available line is a
+                              no-op — safe to retry after a crash without double-crediting stock
 ```
 
 **Why InventoryReserved gates PaymentService, not OrderCreated directly:** if PaymentService also
 subscribed to `order-events`, it could race InventoryService and charge a card for stock that turns
 out to be unavailable. Subscribing one step downstream makes "reserve, then charge" an enforced
 ordering instead of two independent consumers racing the same source event.
+
+**Why a per-order `OrderReservations` document, not a direct write to the per-product `Inventory`
+container:** `Inventory` is partitioned on `/id`/`ProductId` (ADR-2), so a multi-line order's
+reservations span multiple partitions — no single atomic write covers all of them. `OrderReservations`
+is a *new* Cosmos container partitioned on `/orderId`, one document per order, so the "which lines
+reserved, which need releasing, what event is pending" state **and** its embedded Outbox field commit
+atomically in one document write — the same embedded-outbox trick ProductService already uses (ADR-16),
+applied here to make the reservation outcome (not just the eventual publish) crash-safe. The
+`InventoryReservationFailed`/`InventoryReserved` event reaches Service Bus reliably the moment that
+document write commits, regardless of whether the slower, per-product physical release/reserve calls
+that follow have finished yet.
 
 ---
 
@@ -328,16 +353,20 @@ ordering instead of two independent consumers racing the same source event.
    (JWT + rate-limit policy)         │                │                ▲                                    │
                                      │ ProductCreated │ OrderCreated   │                                    │
                                      ▼                ▼                │                                    │
-                          ┌────────── Azure Service Bus (topics) ──────────┐                                 │
-                          │  product-events   order-events   inventory-events │                               │
-                          └───┬─────────────┬──────────────────┬────────────┘                                │
-                              ▼             ▼                  ▼                                              │
-                       InventoryService  OrderService      PaymentService     NotificationService             │
-                       (Inbox — DONE;    (CQRS r/w,        (subscribes       (stateless, subscribes           │
-                        reserve/release   Azure SQL         inventory-events  order-events +                  │
-                        on order-events)  Outbox)           only, not         inventory-events)               │
-                                                             order-events —                                    │
-                                                             see ADR-17)                                       │
+                          ┌── Azure Service Bus (topics) ──────────────────────────────────┐                 │
+                          │  product-events   order-events   inventory-events   payment-events │             │
+                          └───┬─────────────┬──────────────────┬───────────────────┬────────┘                │
+                              ▼             ▼                  ▼                    ▼                         │
+                       InventoryService  OrderService      PaymentService      (payment-events is             │
+                       (Inbox — DONE;    (CQRS r/w, Azure  (subscribes         published BY PaymentService,   │
+                        publishes         SQL Outbox;      inventory-events    consumed by OrderService +     │
+                        inventory-events; subscribes       only, not          NotificationService — see       │
+                        subscribes        inventory-events order-events —      the row to the left)           │
+                        order-events)     + payment-events see ADR-17)                                        │
+                                          for outcomes)                                                        │
+                                                                                                                │
+                       NotificationService: subscribes order-events (OrderCreated, OrderCancelled) +           │
+                       payment-events (PaymentProcessed, PaymentFailed) — stateless, no publishes              │
    Saga style: CHOREOGRAPHY (ADR-17) — each service reacts to events and emits its own next event;            │
               there is no separate SagaOrchestrator service.                                                   │
                                                                                                              │

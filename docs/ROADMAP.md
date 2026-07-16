@@ -70,25 +70,41 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
 
 ### InventoryService — gains the reservation step
 
-- **What:** subscribes to `order-events`/`inventory-order-subscription`. On `OrderCreated`, attempts
-  to move stock from `Available` to `Reserved` **line item by line item** (each product lives in its
-  own Cosmos partition keyed by `ProductId`, so a multi-item order can't be one atomic transactional
-  batch across products — see ADR-2). If every line reserves successfully, publishes
-  `InventoryReserved`. If a later line fails (e.g. line 3 of 3 is out of stock), InventoryService
-  **releases the lines it already reserved for that same order** (lines 1–2) before publishing
-  `InventoryReservationFailed` — so a partial failure never leaves stock silently held against an
-  order that will never be paid for. Also subscribes to `OrderCancelled` (the saga's compensating
-  event, below) and runs the same `ReleaseInventory` logic for a fully-reserved order whose payment
+- **What:** subscribes to `order-events`/`inventory-order-subscription`. On `OrderCreated`, upserts a
+  **new Cosmos container `OrderReservations`** (partitioned `/orderId`, one document per order —
+  distinct from the per-product `Inventory` container) and attempts to move stock from `Available` to
+  `Reserved` **line item by line item** (each product lives in its own `Inventory` partition, so a
+  multi-item order can't be one atomic transactional batch across products — see ADR-2). What *is*
+  atomic is the `OrderReservations` document write that records the outcome:
+  - **all lines succeed** → one document write: mark all lines `Reserved` + embed
+    `InventoryReserved` in the document's `Outbox` field (same embedded-outbox shape ProductService
+    already uses, ADR-16) → drained by `OutboxPublisherService` to topic `inventory-events`.
+  - **a line fails** (e.g. line 3 of 3 is out of stock) → one document write: mark the
+    already-reserved lines (1–2) `PendingRelease` + embed `InventoryReservationFailed` in the same
+    `Outbox` field → drained to `inventory-events` **immediately**, without waiting for the physical
+    per-product release calls. A background `ReservationReleaseWorker` then retries the actual
+    `Reserved → Available` Cosmos writes for each `PendingRelease` line until they succeed — guarded
+    so re-releasing an already-`Available` line is a no-op, safe to retry after a crash.
+  Also subscribes to `OrderCancelled` (the saga's compensating event, below) and drives the same
+  `OrderReservations`/`ReservationReleaseWorker` release path for a fully-reserved order whose payment
   failed downstream.
 - **Why reservation happens before payment:** charging a card for stock that isn't actually available
   is the failure mode this ordering avoids — inventory is reserved (cheap, fully reversible) *before*
   PaymentService is even invoked.
-- **Partial-failure compensation is local, not a saga step:** because the rollback of lines 1–2 above
-  happens **inside InventoryService's own handler**, before any `InventoryReserved` event is ever
-  published, it's not a cross-service compensating transaction — no other service has acted on the
-  order yet at that point. The saga-level compensation (`OrderCancelled` → `ReleaseInventory`) only
-  applies to the case where reservation **fully succeeded** and a later, different service
-  (PaymentService) is the one that fails.
+- **Why this needs its own outbox, not just a synchronous release-then-publish:** releasing stock
+  (potentially several per-product Cosmos writes) and publishing `InventoryReservationFailed` are not
+  naturally one atomic step, so doing them as two plain sequential calls risks a crash between them —
+  stock released but the event never sent (order stuck `Pending` forever), or the reverse. Recording
+  the outcome + pending event in **one** `OrderReservations` document write first, then letting the
+  existing Outbox-drain and a retrying background worker finish the slower physical work, makes both
+  halves independently crash-safe and keeps OrderService's cancellation prompt rather than blocked on
+  every line's physical release completing.
+- **Partial-failure compensation is local, not a saga step:** the rollback of lines 1–2 above is
+  **InventoryService's own responsibility** (via `OrderReservations`/`ReservationReleaseWorker`), not
+  a cross-service compensating transaction — no other service has acted on the order yet at that
+  point. The saga-level compensation (`OrderCancelled` → `ReleaseInventory`) only applies to the case
+  where reservation **fully succeeded** and a later, different service (PaymentService) is the one
+  that fails.
 
 ### PaymentService — Stripe test mode, Azure SQL
 
@@ -98,10 +114,21 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
   (test-mode secret key) to create/confirm a PaymentIntent for the order total, using the
   `InventoryReserved` event id as the **idempotency key** so a redelivered Service Bus message can't
   double-charge. Own SQL database: `Payments` (`Id`, `OrderId`, `StripePaymentIntentId`, `Status`,
-  `Amount`) + `PaymentOutbox` (same pattern as OrderService). Publishes `PaymentProcessed` on a
-  successful capture or `PaymentFailed` (with Stripe's decline reason mapped through) on failure —
-  written atomically with the `Payments` row via the outbox table, then drained by its own
-  `OutboxPublisherService`.
+  `Amount`) + `PaymentOutbox` (same pattern as OrderService). Publishes `PaymentProcessed` (successful
+  capture) or `PaymentFailed` (Stripe's decline reason mapped through) to topic **`payment-events`**
+  — consumed by OrderService (`order-payment-outcome-subscription`) and NotificationService
+  (`notification-payment-subscription`).
+- **Webhook handling is one atomic SQL transaction, publish only after commit:** Stripe confirms the
+  charge asynchronously via a webhook, and webhook deliveries are themselves at-least-once (Stripe
+  retries on anything but a `2xx`). On each webhook call, PaymentService does the **dedup check, the
+  `Payments.Status` transition, and the `PaymentOutbox` insert (`PaymentProcessed`/`PaymentFailed`) in
+  a single `SaveChangesAsync()`** — never as separate steps that could partially apply on a crash. The
+  dedup check itself is against a persisted table of processed Stripe `event.id`s (inserted in that
+  same transaction); an `event.id` already present is skipped before any state change. Only after that
+  transaction commits does the existing `OutboxPublisherService` drain `PaymentOutbox` and publish to
+  `payment-events` — the drain-from-committed-rows pattern already used by ProductService/OrderService
+  means the event is never published ahead of (or without) the state it describes actually being
+  durable.
 - **Test cards:** Stripe's own well-known test numbers drive the demo — `4242 4242 4242 4242` (and
   the equally standard `4111 1111 1111 1111`) succeed; Stripe also ships dedicated decline-simulation
   numbers (e.g. a card that always returns `card_declined`) for exercising the `PaymentFailed` →
@@ -110,9 +137,11 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
 - **What is the Saga pattern:** a distributed transaction expressed as a **sequence of local
   transactions**, each with a **compensating action** to undo it if a later step fails — because you
   cannot hold an ACID transaction across OrderService, InventoryService, and PaymentService, each with
-  its own database. Flow: `OrderCreated → InventoryReserved → PaymentProcessed`. If the charge fails
-  (`PaymentFailed`), OrderService marks the order `Cancelled` and publishes `OrderCancelled`, which
-  InventoryService consumes as the compensating `ReleaseInventory`. **Why needed:** there is no
+  its own database. Flow: `OrderCreated` (topic `order-events`) → `InventoryReserved` (topic
+  `inventory-events`) → `PaymentProcessed`/`PaymentFailed` (topic `payment-events`). If the charge
+  fails (`PaymentFailed`), OrderService marks the order `Cancelled` and publishes `OrderCancelled`
+  (topic `order-events`), which InventoryService consumes as the compensating `ReleaseInventory`.
+  **Why needed:** there is no
   two-phase commit across microservices with separate databases; the Saga gives eventual consistency
   with explicit rollback semantics. **Why choreography, not orchestration:** ADR-17 — reuses the
   Outbox/Inbox/`IMessagePublisher` shape already built for ProductService→InventoryService rather
@@ -137,9 +166,10 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
 
 ### NotificationService — stateless
 
-- **What:** subscribes to multiple events (`OrderCreated`, `PaymentProcessed`, `PaymentFailed`,
-  `OrderCancelled`, …), simulates email/SMS by logging a structured line (CorrelationId-tagged, like
-  everything else), holds **no database**.
+- **What:** subscribes to topic `order-events` (`OrderCreated`, `OrderCancelled`) via
+  `notification-order-subscription` and topic `payment-events` (`PaymentProcessed`, `PaymentFailed`)
+  via `notification-payment-subscription`; simulates email/SMS by logging a structured line
+  (CorrelationId-tagged, like everything else), holds **no database**, publishes nothing.
 - **Why stateless is right here:** a notifier is pure input→side-effect; it owns no domain data.
   Statelessness means it scales horizontally trivially (any replica can handle any message) and needs
   no schema, no migrations, no consistency story. Its only concern is idempotency (below).
@@ -173,9 +203,18 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
   new charts (new `orderservice`/`paymentservice`/`notificationservice` Helm charts, built off the
   existing `bookstore-lib` library chart pattern).
 - **`cd-ui.yml`:** unchanged structurally — same app, two more `#{...}#` tokens to replace.
-- **New Service Bus topology:** topics `order-events` (subscription `inventory-order-subscription`)
-  and `inventory-events` (subscriptions `payment-subscription`, `order-outcome-subscription` for
-  OrderService's own listener), alongside the existing `product-events`/`inventory-subscription`.
+- **New Service Bus topology:** alongside the existing `product-events`/`inventory-subscription`:
+  - `order-events` (`OrderCreated`, `OrderCancelled`) — subscriptions `inventory-order-subscription`
+    (InventoryService) and `notification-order-subscription` (NotificationService)
+  - `inventory-events` (`InventoryReserved`, `InventoryReservationFailed`) — subscriptions
+    `payment-subscription` (PaymentService) and `order-inventory-outcome-subscription` (OrderService)
+  - `payment-events` (`PaymentProcessed`, `PaymentFailed`) — subscriptions
+    `order-payment-outcome-subscription` (OrderService) and `notification-payment-subscription`
+    (NotificationService)
+- **New Cosmos container:** `OrderReservations` (partition `/orderId`) — InventoryService's per-order
+  reservation-outcome tracking + embedded outbox, added to `main.bicep` alongside the existing
+  `Products`/`Inventory`/`ProcessedMessages` containers (see the durability note in `docs/HLD.md`
+  §6).
 - **JWT gap to close alongside this work:** InventoryService still doesn't enforce JWT validation
   (flagged in `README.md` §10) — worth closing when InventoryService gains a new inbound subscriber
   surface (the reservation step) rather than leaving it for later.
