@@ -31,10 +31,32 @@ namespace BookStore.OrderService.API.BackgroundServices
         {
             _scopeFactory = scopeFactory;
             _logger = logger;
-            _pollingInterval = TimeSpan.FromSeconds(
-                configuration.GetValue<int?>("Outbox:PollingIntervalSeconds") ?? 10);
+
+            // The `?? default` only guards a MISSING key; an explicit non-positive value (e.g.
+            // "BatchSize": 0) would still get through and misbehave — a zero interval busy-loops the
+            // DB, a zero batch drains nothing, a zero retry budget dead-letters on the first blip.
+            // Reject it at construction (startup) so the worker never runs with invalid settings.
+            var pollingSeconds = configuration.GetValue<int?>("Outbox:PollingIntervalSeconds") ?? 10;
             _batchSize = configuration.GetValue<int?>("Outbox:BatchSize") ?? 20;
             _maxRetries = configuration.GetValue<int?>("Outbox:MaxRetries") ?? 10;
+
+            if (pollingSeconds <= 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    "Outbox:PollingIntervalSeconds", pollingSeconds, "Outbox:PollingIntervalSeconds must be greater than zero.");
+            }
+            if (_batchSize <= 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    "Outbox:BatchSize", _batchSize, "Outbox:BatchSize must be greater than zero.");
+            }
+            if (_maxRetries <= 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    "Outbox:MaxRetries", _maxRetries, "Outbox:MaxRetries must be greater than zero.");
+            }
+
+            _pollingInterval = TimeSpan.FromSeconds(pollingSeconds);
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
