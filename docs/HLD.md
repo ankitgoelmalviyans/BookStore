@@ -227,6 +227,57 @@ Product/Inventory is **unaffected** by any of this — that's why mTLS here is P
 See `infrastructure/istio/README.md` for how to actually generate mesh traffic to observe (there's no
 real synchronous caller between these two services yet — they still talk via Service Bus).
 
+### 6. Order placement saga (PLANNED — Phase 2, see `docs/ROADMAP.md` + `docs/TRD.md` ADR-16..19)
+
+Choreography: each service reacts to an event and emits its own next event. No orchestrator holds
+the state machine — it lives in the sum of these subscriptions.
+
+```text
+Angular OrderForm
+  │ POST /order/api/orders  { items }   (Bearer + X-Correlation-Id)
+  ▼
+OrderService.PlaceOrder
+  └─ ONE Azure SQL transaction: INSERT Order(status=Pending) + OrderItems + OrderOutbox row
+  ▼
+201 Created (Pending) ──▶ Angular shows "Order placed, processing..."
+
+        ... asynchronously, decoupled by the broker ...
+
+OrderService OutboxPublisherService ──▶ Service Bus topic order-events
+  ▼ subscription: inventory-order-subscription
+InventoryService.ReserveStock (Cosmos: Available → Reserved per line item)
+  │
+  ├─ success ─▶ publish InventoryReserved ──▶ topic inventory-events
+  │                                              │ subscription: payment-subscription
+  │                                              ▼
+  │                                   PaymentService.ChargeOrder
+  │                                     idempotency key = InventoryReserved.EventId
+  │                                     ▼
+  │                                   Stripe API (test mode) — PaymentIntent create/confirm
+  │                                     │
+  │                                     ├─ succeeded ─▶ Azure SQL: Payments(status=Captured) +
+  │                                     │                PaymentOutbox row (one transaction)
+  │                                     │                ▼ publish PaymentProcessed
+  │                                     │                  ──▶ subscription: order-outcome-subscription
+  │                                     │                  ▼
+  │                                     │                OrderService: Order.status = Confirmed
+  │                                     │
+  │                                     └─ declined ──▶ Payments(status=Failed) + publish PaymentFailed
+  │                                                        ──▶ OrderService: Order.status = Cancelled
+  │                                                             └─ publish OrderCancelled
+  │                                                                  ──▶ InventoryService.ReleaseInventory
+  │                                                                       (Reserved → Available)  [COMPENSATION]
+  │
+  └─ failure (insufficient stock) ─▶ publish InventoryReservationFailed
+                                        ──▶ OrderService: Order.status = Cancelled  (no compensation
+                                            needed — nothing was reserved to release)
+```
+
+**Why InventoryReserved gates PaymentService, not OrderCreated directly:** if PaymentService also
+subscribed to `order-events`, it could race InventoryService and charge a card for stock that turns
+out to be unavailable. Subscribing one step downstream makes "reserve, then charge" an enforced
+ordering instead of two independent consumers racing the same source event.
+
 ---
 
 ## Service Boundaries

@@ -35,34 +35,122 @@ Built and deployed today, verified against the code:
 
 ---
 
-## Phase 2 — New Services (PLANNED)
+## Phase 2 — New Services (PLANNED — finalized design, see `docs/TRD.md` ADR-16..20)
 
-### OrderService — full CQRS
-- **What:** a service owning orders, with a **separate write model and read model**, on Cosmos DB;
-  publishes `OrderCreated` to a new topic.
+Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
+1. **Persistence:** Order/Payment get their own **Azure SQL Database (Serverless)**, in the same
+   Azure account/resource group as everything else — polyglot persistence, not a Cosmos migration
+   (ADR-16).
+2. **Saga style:** **choreography**, reusing the existing Outbox/Inbox/`IMessagePublisher` machinery
+   — no new orchestrator service (ADR-17).
+3. **UI:** new lazy-loaded modules inside the existing `product-ui` Angular app, not a separate app
+   per service (ADR-18).
+4. **Payments:** real **Stripe, test mode** — not a self-built mock (ADR-19).
+
+### OrderService — full CQRS, Azure SQL
+
+- **What:** owns orders, with a **separate write model and read model**, backed by its own Azure SQL
+  Database (Serverless). Tables: `Orders` (`Id`, `CustomerId`, `Status`, `Total`, `CreatedAt`),
+  `OrderItems` (`OrderId` FK, `ProductId`, `Quantity`, `UnitPrice`), `OrderOutbox`
+  (`Id`/`EventId`, `Type`, `Payload`, `Status`, `CreatedAt` — same shape as ProductService's outbox,
+  but now a real separate table instead of an embedded document field, because SQL gives a genuine
+  multi-table transaction). `Status` moves `Pending → Confirmed → Cancelled`. A denormalised
+  `OrderSummary` read table (or a view) serves `GetOrderHistory` without joining the write tables on
+  every query.
 - **What is CQRS:** Command Query Responsibility Segregation splits the model that **changes** state
   (commands: `PlaceOrder`) from the model that **reads** it (queries: `GetOrderHistory`). Writes go
   through command handlers that enforce invariants; reads hit a denormalised projection optimised for
   the query. **Why here:** order writes (validate, reserve, charge) and order reads (customer history,
   dashboards) have very different shapes and scaling needs; separating them lets each evolve/scale
   independently and keeps the read side fast.
+- **Write path:** `POST /api/orders` → validate → `SaveChangesAsync()` writes `Order` + `OrderItems` +
+  an `OrderOutbox` row in **one SQL transaction** (true atomicity — no embedded-outbox workaround
+  needed, unlike ProductService/Cosmos) → a background `OutboxPublisherService` (same pattern as
+  ProductService's) drains `OrderOutbox` and publishes `OrderCreated` to topic `order-events`.
 
-### PaymentService — Saga orchestration
-- **What:** subscribes to `OrderCreated`, attempts payment, publishes `PaymentProcessed` (or
-  `PaymentFailed`).
+### InventoryService — gains the reservation step
+
+- **What:** subscribes to `order-events`/`inventory-order-subscription`. On `OrderCreated`, attempts
+  to move stock from `Available` to `Reserved` for each line item; publishes `InventoryReserved` on
+  success or `InventoryReservationFailed` (with a reason, e.g. insufficient stock) to topic
+  `inventory-events`. Also subscribes to `OrderCancelled` (the saga's compensating event, below) and
+  runs `ReleaseInventory` — moving the held stock back from `Reserved` to `Available`.
+- **Why reservation happens before payment:** charging a card for stock that isn't actually available
+  is the failure mode this ordering avoids — inventory is reserved (cheap, fully reversible) *before*
+  PaymentService is even invoked.
+
+### PaymentService — Stripe test mode, Azure SQL
+
+- **What:** subscribes to `inventory-events`/`payment-subscription`, but **only acts on
+  `InventoryReserved`** (not on `OrderCreated` directly — that's what makes "reserve, then charge"
+  an enforced ordering rather than a race between two independent subscribers). Calls Stripe
+  (test-mode secret key) to create/confirm a PaymentIntent for the order total, using the
+  `InventoryReserved` event id as the **idempotency key** so a redelivered Service Bus message can't
+  double-charge. Own SQL database: `Payments` (`Id`, `OrderId`, `StripePaymentIntentId`, `Status`,
+  `Amount`) + `PaymentOutbox` (same pattern as OrderService). Publishes `PaymentProcessed` on a
+  successful capture or `PaymentFailed` (with Stripe's decline reason mapped through) on failure —
+  written atomically with the `Payments` row via the outbox table, then drained by its own
+  `OutboxPublisherService`.
+- **Test cards:** Stripe's own well-known test numbers drive the demo — `4242 4242 4242 4242` (and
+  the equally standard `4111 1111 1111 1111`) succeed; Stripe also ships dedicated decline-simulation
+  numbers (e.g. a card that always returns `card_declined`) for exercising the `PaymentFailed` →
+  compensation path deterministically in a demo or an integration test, without needing real error
+  injection.
 - **What is the Saga pattern:** a distributed transaction expressed as a **sequence of local
   transactions**, each with a **compensating action** to undo it if a later step fails — because you
-  cannot hold an ACID transaction across ProductService, OrderService, and PaymentService. Example
-  flow: `OrderCreated → reserve inventory → charge payment`. If the charge fails, emit a compensating
-  `ReleaseInventory`. **Why needed:** there is no two-phase commit across microservices with separate
-  databases; the Saga gives eventual consistency with explicit rollback semantics.
+  cannot hold an ACID transaction across OrderService, InventoryService, and PaymentService, each with
+  its own database. Flow: `OrderCreated → InventoryReserved → PaymentProcessed`. If the charge fails
+  (`PaymentFailed`), OrderService marks the order `Cancelled` and publishes `OrderCancelled`, which
+  InventoryService consumes as the compensating `ReleaseInventory`. **Why needed:** there is no
+  two-phase commit across microservices with separate databases; the Saga gives eventual consistency
+  with explicit rollback semantics. **Why choreography, not orchestration:** ADR-17 — reuses the
+  Outbox/Inbox/`IMessagePublisher` shape already built for ProductService→InventoryService rather
+  than introducing a second, stateful integration style for a single 3-participant saga.
 
 ### NotificationService — stateless
-- **What:** subscribes to multiple events (`OrderCreated`, `PaymentProcessed`, …), simulates
-  email/SMS, holds **no database**.
+
+- **What:** subscribes to multiple events (`OrderCreated`, `PaymentProcessed`, `PaymentFailed`,
+  `OrderCancelled`, …), simulates email/SMS by logging a structured line (CorrelationId-tagged, like
+  everything else), holds **no database**.
 - **Why stateless is right here:** a notifier is pure input→side-effect; it owns no domain data.
   Statelessness means it scales horizontally trivially (any replica can handle any message) and needs
   no schema, no migrations, no consistency story. Its only concern is idempotency (below).
+
+### UI — lazy-loaded modules in `product-ui`
+
+- **What:** an `order` and a `payment` Angular feature module (routed, lazy-loaded), added to the
+  existing `product-ui` app — no new Angular workspace, no new `cd-ui.yml` pipeline. `environment.prod.ts`
+  gains `ORDER_API_URL`/`PAYMENT_API_URL` tokens, replaced by `cd-ui.yml` the same way the existing
+  three are today. `AuthInterceptor` (Bearer + CorrelationId) covers the new modules automatically —
+  it's already global.
+- **Why not micro-frontends/separate apps:** ADR-18 — one login/shell for a single-operator project;
+  the SCS boundary that actually matters here (independent data ownership, independent deploy of the
+  *backend*) stays intact either way.
+
+### Pipeline changes this phase requires
+
+- **`ci.yml`:** three new build jobs (`build-order`, `build-payment`, `build-notification`, each
+  `dotnet restore`/`build` + Docker dry-run, mirroring `build-product`), a new `validate-ef-migrations`
+  job (`dotnet ef migrations script` or `bundle` against OrderService/PaymentService, verifying
+  migrations apply cleanly, since there's no `helm template` equivalent for schema drift), `helm lint`
+  extended to the three new charts, and the `ci-success` fan-in job's dependency list extended.
+- **`infra-bicep.yml` / `main.bicep`:** add the Azure SQL **Serverless** logical server + two
+  databases (Order, Payment), firewall rule allowing AKS egress, and Key Vault secrets for both
+  connection strings — all in the existing resource group (ADR-16/ADR-20, no second-account wiring
+  needed).
+- **`cd-costopt.yml`:** build+push the three new images in parallel with the existing ones; a new
+  step running EF Core migrations against the Serverless databases (`dotnet ef database update` or a
+  migration bundle) before the `helm upgrade`; new Kubernetes secrets for the SQL connection strings
+  and `STRIPE_TEST_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET`; `helm upgrade --install` extended to the three
+  new charts (new `orderservice`/`paymentservice`/`notificationservice` Helm charts, built off the
+  existing `bookstore-lib` library chart pattern).
+- **`cd-ui.yml`:** unchanged structurally — same app, two more `#{...}#` tokens to replace.
+- **New Service Bus topology:** topics `order-events` (subscription `inventory-order-subscription`)
+  and `inventory-events` (subscriptions `payment-subscription`, `order-outcome-subscription` for
+  OrderService's own listener), alongside the existing `product-events`/`inventory-subscription`.
+- **JWT gap to close alongside this work:** InventoryService still doesn't enforce JWT validation
+  (flagged in `README.md` §10) — worth closing when InventoryService gains a new inbound subscriber
+  surface (the reservation step) rather than leaving it for later.
 
 ### Inbox pattern — for InventoryService ✅ IMPLEMENTED
 - **What:** a "processed message id" record; before handling a message, check whether its id was

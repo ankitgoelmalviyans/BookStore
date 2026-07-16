@@ -196,6 +196,145 @@ Each ADR follows: **Decision → Why → Alternatives considered → Trade-offs.
   `v1`/`v2` subsets, which don't exist yet). Sidecars add ~2 pods' worth of memory on a tight node —
   the reason the footprint is deliberately tuned down.
 
+### ADR-16 — Azure SQL Database, Serverless tier, for Order/Payment (polyglot persistence, not Cosmos) — PLANNED
+
+- **Decision:** `OrderService` and `PaymentService` get a **relational** store —
+  Azure SQL Database, **Serverless** compute tier (auto-pause after a configurable idle delay,
+  billed per-second only while active) — added as a new resource in the existing `main.bicep`, in
+  the **same** resource group/Azure account as everything else. Tables: `Orders`, `OrderItems`,
+  `OrderOutbox` in one database/schema for OrderService; `Payments`, `PaymentOutbox` in a second
+  database/schema for PaymentService (separate logical databases so each service still owns its own
+  schema, matching the existing one-container-per-service Cosmos convention). Products/Inventory
+  **stay on Cosmos** — this is deliberately a **polyglot persistence** platform, not a migration off
+  Cosmos.
+- **Why:** An order is `Order` + N `OrderItems` + a payment record that must be consistent as a
+  unit — multi-row, multi-table invariants (an order total must equal the sum of its line items; a
+  payment must reference exactly one order) that a document model keyed on `/id` doesn't express
+  well. SQL Server also gives OrderService/PaymentService a **true multi-table transactional
+  Outbox** — Order row + Outbox row committed in one `SaveChanges()` — which is a strictly better
+  fit than the embedded-outbox-on-document workaround ProductService needed because its Cosmos
+  container is partitioned on `/id` (see ADR-2, `docs/ROADMAP.md` Outbox section). Serverless
+  auto-pause keeps the always-on cost close to Cosmos-free-tier territory instead of paying for a
+  provisioned vCore 24/7.
+- **Alternatives:** (a) Model Order+Payment in Cosmos using a single-partition transactional batch
+  (keeps everything on one engine, but caps the batch at one logical partition and still has no real
+  joins for reporting); (b) a SQL Server container inside the existing AKS node (zero Azure billing,
+  but the node is already a single `Standard_B2s` flagged in the roadmap as too tight for
+  Kiali+Prometheus — a DB engine competing with three .NET services for ~4 GB RAM is a real eviction
+  risk); (c) provisioning the database in the **second** Azure account instead (rejected — see
+  ADR-20, this only trades a solvable cost problem for an unnecessary cross-account credential
+  problem).
+- **Trade-offs:** A second database engine to operate (connection pooling, EF Core migrations, a
+  new class of secret — SQL connection string — to rotate) where before there was only Cosmos.
+  Serverless has a cold-start latency on the first query after auto-pause (a few seconds) — acceptable
+  for a low-traffic portfolio deployment, not something you'd accept for a latency-sensitive
+  production path. Two persistence technologies to reason about instead of one, accepted because it's
+  the honest answer for the OrderService/PaymentService data shape and is itself a demonstrable
+  "right tool for the job" decision rather than dogmatically staying on one engine.
+
+### ADR-17 — Choreography-based Saga for Order → Inventory → Payment (not a central orchestrator) — PLANNED
+
+- **Decision:** The Order-placement Saga is **choreographed** — each service reacts to events on
+  the bus and emits its own next event; there is no dedicated `SagaOrchestrator` service holding the
+  state machine. Flow: `OrderCreated` → InventoryService reserves stock, emits
+  `InventoryReserved`/`InventoryReservationFailed` → PaymentService (subscribed to
+  `InventoryReserved`, **not** `OrderCreated` directly, so payment is only attempted once stock is
+  actually held) charges via Stripe test mode, emits `PaymentProcessed`/`PaymentFailed` →
+  OrderService (subscribed to both services' outcomes) finalizes the order as `Confirmed` or
+  `Cancelled`. A `PaymentFailed` (or an `InventoryReservationFailed`) results in OrderService
+  publishing `OrderCancelled`, which InventoryService subscribes to as the **compensating
+  transaction** — `ReleaseInventory` puts the reserved stock back. See `docs/ROADMAP.md` Phase 2 for
+  the full sequence.
+- **Why:** ProductService→InventoryService is already choreography (ADR-1) — everything here reuses
+  the same Outbox/Inbox/`IMessagePublisher` machinery that's already built and proven, rather than
+  introducing a second integration style (a stateful orchestrator with its own persistence and
+  retry/timeout logic) for one saga. Fewer moving parts to build and explain.
+- **Alternatives:** Orchestration — a dedicated `OrderSagaOrchestrator` that calls each participant
+  and explicitly drives compensation. Orchestration centralizes the saga's state machine in one place
+  (easier to see "what step are we on" and to add new steps later) at the cost of a new stateful
+  service and a synchronous-call surface between the orchestrator and each participant.
+- **Trade-offs:** Choreography spreads the saga's logic across three services' event handlers — there
+  is no single place to read "the whole order flow," only the sum of each service's subscriptions.
+  That's a real cost as more steps get added (a `NotificationService`-scale fan-out is fine; a saga
+  with many conditional branches usually outgrows choreography and wants an orchestrator). Accepted
+  for a 3-participant saga; flagged as the concrete trigger for revisiting orchestration if a Phase 3+
+  saga grows past this size.
+
+### ADR-18 — Lazy-loaded Angular feature modules in `product-ui` (not micro-frontends, not per-SCS UIs) — PLANNED
+
+- **Decision:** Order and Payment UI ship as new **lazy-loaded Angular feature modules/routes**
+  inside the existing `product-ui` app — one Angular app, one shell (login, nav, `AuthInterceptor`),
+  one build/deploy pipeline (`cd-ui.yml`), each new module only aware of its own service's base URL
+  (`ORDER_API_URL`, `PAYMENT_API_URL` alongside the existing `AUTH_API_URL`/`PRODUCT_API_URL`/
+  `INVENTORY_API_URL` tokens).
+- **Why:** The textbook Self-Contained System pattern says each SCS owns its UI end-to-end, but for a
+  single-operator project that means N logins, N shells, and N deploy pipelines to keep in sync for
+  no user-facing benefit — the interesting SCS property here is **backend/data ownership**
+  (ProductService owns Cosmos `Products`, OrderService owns its own SQL database, no shared DB), not
+  UI deployment topology. One app with routed modules keeps that backend boundary intact while giving
+  users one coherent site.
+- **Alternatives:** (a) True micro-frontends via Webpack Module Federation — a shell app composing
+  independently-deployed remotes per SCS, the closest match to SCS orthodoxy and a stronger resume
+  signal, but a new build system, a new runtime-composition failure mode, and a real new pipeline per
+  remote; (b) fully separate standalone Angular apps per service with no runtime composition —
+  cheapest to build, worst UX (separate URLs, separate logins, no shared nav).
+- **Trade-offs:** A shared Angular app is a (mild) shared-deployment coupling — a bad build in the
+  Order module can block shipping a Payment-only change — mitigated by Angular's route-level lazy
+  loading keeping the modules code-split at the bundle level even though they ship from one
+  repo/pipeline. If a later phase wants the "true SCS UI" story for interview purposes, Module
+  Federation is the documented fallback (ADR keeps the alternative on record rather than closing the
+  door).
+
+### ADR-19 — Stripe, test mode, as the PaymentService gateway (not a self-built mock) — PLANNED
+
+- **Decision:** `PaymentService` integrates the real **Stripe API in test mode** (test secret key,
+  `4242 4242 4242 4242`/`4111 1111 1111 1111`-class dummy cards, Stripe's own decline-simulation card
+  numbers for the failure path) rather than hand-rolling a fake gateway. No real money ever moves —
+  test-mode keys and test-mode card numbers are entirely sandboxed by Stripe itself, free, with no
+  card network involved.
+- **Why:** Demonstrates integrating an actual third-party payment API — request signing, webhook
+  verification (`Stripe-Signature` header + endpoint secret), idempotency keys on the charge request
+  (so a Service Bus redelivery of the same `InventoryReserved` message can't double-charge), and
+  mapping Stripe's own decline reasons to `PaymentFailed` — which is a materially stronger story than
+  an in-repo `if (cardNumber == "4111...") return Approved;` stub.
+- **Alternatives:** A self-built `MockPaymentGateway` (Luhn-check + a lookup table of approve/decline
+  test numbers) — zero external dependency, fully deterministic, no network call, ideal for unit
+  tests and CI; Razorpay test mode (India-native, INR-first, equally free) as a regional alternative
+  to Stripe.
+- **Trade-offs:** A real outbound dependency and a new secret class (`STRIPE_TEST_SECRET_KEY`,
+  `STRIPE_WEBHOOK_SECRET`) to manage in CI/CD, and integration tests that hit Stripe's sandbox need
+  network access (unlike a pure in-memory mock). `PaymentService` still defines an `IPaymentGateway`
+  abstraction (same Dependency-Inversion shape as `IMessagePublisher`, ADR-4) with `StripeGateway` as
+  the only real implementation — kept swappable so a `FakePaymentGateway` test double can back unit
+  tests without needing Stripe network access, even though there is no second *production* gateway
+  implementation today.
+
+### ADR-20 — No personal Azure account credentials in CI/CD (scoped secrets only) — PLANNED
+
+- **Decision:** CI/CD pipelines never hold a human's personal Azure login. Where a pipeline needs
+  cloud access, it uses a **service principal scoped to exactly the resource group it deploys to**
+  (least privilege, independently rotatable, auditable as its own identity) — exactly the existing
+  `AZURE_CREDENTIALS` pattern already used for the primary account. Because ADR-16 keeps the new SQL
+  Database in the **same** Azure account/resource group as everything else, this decision has no
+  second-account wrinkle to solve for Phase 2: there's no cross-account credential to provision at
+  all. If a **future** need for the second Azure account arises and its pipeline service principal
+  can't be granted `Contributor` there, the resource gets created **once, manually**, using the
+  human's own login (never stored anywhere), and the pipeline is then handed only the narrowest
+  secret that actually does the job — e.g. a SQL **connection string** with a low-privilege login
+  (enough to run migrations/connect), not the Azure account credentials themselves.
+- **Why:** A personal login is over-scoped (full account rights, not "deploy this resource group"),
+  hard to rotate without breaking the human's own access, impossible to audit as a distinct identity
+  in Azure AD sign-in logs, and frequently against the terms of sponsored/free-credit subscriptions
+  that prohibit unattended/automated use of the personal account.
+- **Alternatives:** Store the human's own `az login` credentials (username/password or a long-lived
+  personal access token) as a GitHub secret and script around MFA — rejected outright; a
+  subscription-wide service principal instead of one scoped to a resource group — rejected as broader
+  than needed.
+- **Trade-offs:** A manual, undocumented-in-Bicep step whenever the second account genuinely is
+  needed (someone has to run the one-time provisioning command by hand) — acceptable because it's a
+  rare, deliberate action, not a repeated pipeline step, and it's the only way to keep the CD
+  pipeline's blast radius equal to "the resource group it's supposed to touch."
+
 ---
 
 ## Integration Points
@@ -216,6 +355,12 @@ Each ADR follows: **Decision → Why → Alternatives considered → Trade-offs.
 | GitHub Actions → ACR | docker login/push | `bookstoreaurega.azurecr.io`, tagged short-SHA |
 | GitHub Actions → AKS | `az aks get-credentials` + `helm upgrade --install` | Namespace `bookstore`, values `values-costopt.yaml` |
 | GitHub Actions → Azure | `azure/login` + Bicep | `infra-bicep.yml` deploys core resources |
+| OrderService → Service Bus | AMQP (SDK) | **PLANNED** — publishes `OrderCreated`/`OrderCancelled` to topic `order-events` via the existing `IMessagePublisher` |
+| InventoryService → Service Bus | AMQP (SDK) | **PLANNED** — subscribes `order-events`/`inventory-order-subscription`; publishes `InventoryReserved`/`InventoryReservationFailed` to topic `inventory-events` |
+| PaymentService ← Service Bus | AMQP (SDK) | **PLANNED** — subscribes `inventory-events`/`payment-subscription` (only on `InventoryReserved`) |
+| PaymentService → Stripe | HTTPS/REST | **PLANNED** — test-mode secret key; `Stripe-Signature` webhook verification; idempotency key = `InventoryReserved` event id (ADR-19) |
+| OrderService/PaymentService → Azure SQL | EF Core / `Microsoft.Data.SqlClient` | **PLANNED** — Serverless tier, one logical database per service (ADR-16) |
+| Angular → OrderService / PaymentService | HTTPS/REST | **PLANNED** — new lazy-loaded modules in `product-ui`; `ORDER_API_URL`/`PAYMENT_API_URL` tokens (ADR-18) |
 
 ---
 
