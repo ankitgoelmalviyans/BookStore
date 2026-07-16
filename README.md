@@ -90,6 +90,9 @@ No gRPC, no Kafka — all inter-service async messaging is Azure Service Bus (to
 | Packaging | Helm library chart pattern (`bookstore-lib`) consumed by `authservice`, `productservice`, `inventoryservice` charts |
 | CI/CD | GitHub Actions only |
 
+**Planned (Phase 2, not yet in the codebase):** Azure SQL Database (Serverless) for `OrderService`/
+`PaymentService`, Stripe (test mode) as the payment gateway. See §8 and `docs/TRD.md` ADR-16..20.
+
 ### Patterns found in the code
 
 - **Clean Architecture** in ProductService (`Core` → `Application` → `Infrastructure` → `API`); InventoryService follows the same idea with `Domain` in place of `Core`
@@ -312,10 +315,20 @@ CodeRabbit is installed directly as a GitHub App via [coderabbit.ai](https://cod
 
 ## 8. Roadmap
 
-### Phase 2 — New Services (Planned)
-- `OrderService` with full CQRS
-- `NotificationService`, event-driven
-- Inbox Pattern for idempotent consumers
+### Phase 2 — New Services (Planned — design finalized, see `docs/ROADMAP.md` + `docs/TRD.md` ADR-16..20)
+- `OrderService` with full CQRS, on its own **Azure SQL Database (Serverless)** — polyglot
+  persistence alongside Cosmos, not a migration off it
+- `PaymentService` — real **Stripe (test mode)** integration, its own Azure SQL database, idempotency
+  keys against Service Bus redelivery
+- `NotificationService`, event-driven, stateless
+- **Choreography-based Saga**: `OrderCreated → InventoryReserved → PaymentProcessed/Failed`, with
+  `OrderCancelled → ReleaseInventory` as the compensating transaction — reuses the existing
+  Outbox/Inbox/`IMessagePublisher` machinery, no new orchestrator service
+- UI: new **lazy-loaded feature modules** inside the existing `product-ui` Angular app (not a
+  separate app per service, not micro-frontends)
+- Both new databases stay in the **current** Azure account/resource group — no cross-account
+  credentials needed in CI/CD (see ADR-20)
+- Inbox Pattern for idempotent consumers ✅ implemented (Phase 1, InventoryService)
 
 ### Phase 3 — AI Layer (Planned)
 
@@ -342,7 +355,7 @@ Note: `values-costopt.yaml`/`values-demo.yaml` already stub out an `llm` block (
 | Decision | Choice | Reason |
 |---|---|---|
 | Region | Central India | Lowest-latency Azure region for the primary audience |
-| Database | Cosmos DB (free tier) | No Kafka/SQL — free-tier NoSQL keeps always-on cost near zero |
+| Database — Product/Inventory (Phase 1, current) | Cosmos DB (free tier) | No SQL Server needed here — free-tier NoSQL keeps always-on cost near zero for catalog/stock documents keyed by id |
 | Messaging | Azure Service Bus (topic + subscription) | Native Azure pub/sub, no extra cluster to run (Kafka was removed) |
 | DNS | `nip.io` wildcard | Avoids buying a domain for a portfolio project; trades away Let's Encrypt HTTP-01 (see ingress template TODOs) |
 | Frontend hosting | GitHub Pages | Free static hosting; keeps the Angular build off the AKS cost budget entirely |
@@ -350,6 +363,11 @@ Note: `values-costopt.yaml`/`values-demo.yaml` already stub out an `llm` block (
 | CI/CD tool | GitHub Actions | Consolidates CI/CD in GitHub alongside the code, replacing the legacy Azure DevOps pipelines (kept in `azure-pipelines-reference/` for history) |
 | Gateway — Profile A | NGINX Ingress | Free, runs inside the existing AKS node, no per-call cost |
 | Gateway — Profile B | Azure API Management (Consumption) | Pay-per-call enterprise gateway, provisioned only for demos and torn down after 4 hours |
+| Order/Payment database (Planned) | Azure SQL Database, Serverless tier | Multi-table ACID invariants (order totals, line items) that Cosmos's per-`/id` partitioning doesn't fit well; auto-pause keeps idle cost near-zero; polyglot alongside Cosmos, not a migration off it |
+| Order→Inventory→Payment saga (Planned) | Choreography, not orchestration | Reuses the Outbox/Inbox/`IMessagePublisher` machinery already built for Product→Inventory instead of a new stateful orchestrator, for a 3-participant saga |
+| Order/Payment UI (Planned) | Lazy-loaded modules in `product-ui` | One shell/login/pipeline for a single-operator project; the SCS boundary that matters (independent backend/data ownership) doesn't require independent UI deploys |
+| Payment gateway (Planned) | Stripe, test mode | Real third-party integration (signing, webhooks, idempotency keys) using Stripe's own free, sandboxed test-card numbers — no real money moves |
+| Second Azure account (Planned, if ever needed) | Manual one-time provisioning + scoped secret only | Personal login never goes in CI; a resource-group-scoped service principal or a narrow connection string is the only thing the pipeline ever holds |
 
 ---
 
