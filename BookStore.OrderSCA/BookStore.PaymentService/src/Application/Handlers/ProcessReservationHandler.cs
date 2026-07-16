@@ -74,6 +74,15 @@ public class ProcessReservationHandler : IProcessReservationHandler
             new ChargeRequest(reserved.OrderId, reserved.Amount, currency, dedupeKey.ToString(), paymentMethod),
             cancellationToken);
 
+        // A transient gateway fault is NOT a terminal decline: don't persist PaymentFailed or mark the
+        // message processed — throw so the subscriber abandons and Service Bus redelivers for a retry.
+        // The gateway idempotency key ensures the retry can't double-charge.
+        if (!charge.Succeeded && charge.Retryable)
+        {
+            throw new TransientPaymentException(
+                $"Transient payment gateway error for order {reserved.OrderId}: {charge.FailureReason}");
+        }
+
         var paymentId = Guid.NewGuid();
         var outboundEventId = Guid.NewGuid();
 

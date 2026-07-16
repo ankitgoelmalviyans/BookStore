@@ -50,9 +50,24 @@ public class StripePaymentGateway : IPaymentGateway
         catch (StripeException ex)
         {
             var reason = ex.StripeError?.Code ?? ex.StripeError?.Type ?? "stripe_error";
+
+            // Terminal (card decline) vs transient (transport/5xx/rate-limit). A transient fault must
+            // NOT cancel the order — classify it as retryable so the handler re-attempts on redelivery.
+            var status = (int)ex.HttpStatusCode;
+            var retryable = status == 429 || status >= 500
+                || ex.StripeError?.Type is "api_connection_error" or "api_error";
+
             _logger.LogWarning(ex,
-                "Stripe charge failed for order {OrderId}: {Reason}", request.OrderId, reason);
-            return ChargeResult.Failure(reason);
+                "Stripe charge {Kind} for order {OrderId}: {Reason}",
+                retryable ? "errored (retryable)" : "declined", request.OrderId, reason);
+
+            return retryable ? ChargeResult.TransientError(reason) : ChargeResult.Failure(reason);
+        }
+        catch (Exception ex)
+        {
+            // Non-Stripe exceptions here are transport/host failures (DNS, socket, TLS) — retryable.
+            _logger.LogWarning(ex, "Stripe charge errored (retryable) for order {OrderId}", request.OrderId);
+            return ChargeResult.TransientError("gateway_unavailable");
         }
     }
 

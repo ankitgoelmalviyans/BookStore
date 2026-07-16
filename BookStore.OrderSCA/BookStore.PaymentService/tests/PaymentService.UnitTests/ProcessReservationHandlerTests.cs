@@ -78,6 +78,19 @@ public class ProcessReservationHandlerTests
     }
 
     [Fact]
+    public async Task Transient_gateway_fault_throws_and_persists_nothing()
+    {
+        var repo = new FakePaymentRepository();
+        var gateway = new StubPaymentGateway(ChargeResult.TransientError("gateway_unavailable"));
+        var handler = CreateHandler(new FakeInboxStore(false), gateway, repo);
+
+        // A transient fault must NOT record PaymentFailed or mark the message processed — it throws so
+        // the subscriber abandons the message for redelivery.
+        await Assert.ThrowsAsync<TransientPaymentException>(() => handler.HandleAsync(Reserved()));
+        Assert.Equal(0, repo.SaveCallCount);
+    }
+
+    [Fact]
     public async Task Duplicate_event_is_skipped_without_charging()
     {
         var repo = new FakePaymentRepository();

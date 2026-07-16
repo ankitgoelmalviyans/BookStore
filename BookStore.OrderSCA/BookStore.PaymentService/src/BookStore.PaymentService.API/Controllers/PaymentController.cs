@@ -20,7 +20,7 @@ namespace BookStore.PaymentService.API.Controllers
         /// <summary>Read the payment recorded for an order (query side). Scoped to the caller — a
         /// payment for another customer's order is reported as not found rather than leaking it.</summary>
         [HttpGet("{orderId}")]
-        public async Task<IActionResult> GetByOrder(Guid orderId)
+        public async Task<IActionResult> GetByOrder(Guid orderId, CancellationToken cancellationToken)
         {
             var customerId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
                 ?? User.FindFirst("sub")?.Value;
@@ -29,7 +29,7 @@ namespace BookStore.PaymentService.API.Controllers
                 return Unauthorized();
             }
 
-            var payment = await _repository.GetByOrderIdAsync(orderId);
+            var payment = await _repository.GetByOrderIdAsync(orderId, cancellationToken);
             if (payment is null || !string.Equals(payment.CustomerId, customerId, StringComparison.Ordinal))
             {
                 return NotFound();

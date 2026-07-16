@@ -134,11 +134,11 @@ namespace BookStore.PaymentService.API.BackgroundServices
 
             if (payload is null)
             {
-                _logger.LogWarning(
-                    "Outbox record {EventId} has an unknown type '{EventType}' or unparseable payload; recording as a failed attempt",
-                    message.EventId, message.EventType);
-                await outboxStore.RecordFailureAsync(message, _maxRetries, stoppingToken);
-                return;
+                // Throw so the caller's catch handles it uniformly — records the failed attempt AND
+                // emits the terminal "moved to Failed" alert once the retry budget is exhausted (a
+                // record-and-return here would skip that alert).
+                throw new InvalidOperationException(
+                    $"Outbox record {message.EventId} has an unknown type '{message.EventType}' or unparseable payload.");
             }
 
             using (LogContext.PushProperty("CorrelationId", message.CorrelationId))

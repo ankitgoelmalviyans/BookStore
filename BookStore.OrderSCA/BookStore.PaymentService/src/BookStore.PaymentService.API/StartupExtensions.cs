@@ -39,6 +39,10 @@ namespace BookStore.PaymentService.Extensions
             }
             else
             {
+                // Not a silent fallback: make it loud that no real charges happen. Set Stripe:SecretKey
+                // (test-mode key) to switch to the real StripePaymentGateway.
+                Console.WriteLine(
+                    "WARNING: No Stripe:SecretKey configured — using FakePaymentGateway (simulated charges, no real payments).");
                 services.AddScoped<IPaymentGateway, FakePaymentGateway>();
             }
 

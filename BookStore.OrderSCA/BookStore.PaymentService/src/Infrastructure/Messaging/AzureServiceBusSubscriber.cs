@@ -19,7 +19,7 @@ namespace BookStore.PaymentService.Infrastructure.Messaging;
 /// as InventoryService: complete on success, abandon transient failures for redelivery, dead-letter a
 /// message that can never be parsed.
 /// </summary>
-public class AzureServiceBusSubscriber : IEventSubscriber
+public class AzureServiceBusSubscriber : IEventSubscriber, IAsyncDisposable
 {
     private readonly IConfiguration _config;
     private readonly IServiceScopeFactory _scopeFactory;
@@ -89,16 +89,24 @@ public class AzureServiceBusSubscriber : IEventSubscriber
                 return;
             }
 
+            // Parseable but invalid (missing order id, non-positive amount) — charging on it is
+            // meaningless and retrying won't fix bad data, so dead-letter rather than treat it as a
+            // declined payment.
+            if (reserved is null || reserved.OrderId == Guid.Empty || reserved.Amount <= 0)
+            {
+                _logger.LogError("InventoryReserved failed validation (OrderId/Amount), dead-lettering");
+                await args.DeadLetterMessageAsync(
+                    args.Message, "ValidationFailed", "Missing OrderId or non-positive Amount");
+                return;
+            }
+
             try
             {
-                if (reserved is not null)
-                {
-                    // Scoped handler + EF context per message (this subscriber is a singleton).
-                    using var scope = _scopeFactory.CreateScope();
-                    var handler = scope.ServiceProvider.GetRequiredService<IProcessReservationHandler>();
-                    await handler.HandleAsync(
-                        reserved, correlationId, activity?.Id ?? traceParent, args.CancellationToken);
-                }
+                // Scoped handler + EF context per message (this subscriber is a singleton).
+                using var scope = _scopeFactory.CreateScope();
+                var handler = scope.ServiceProvider.GetRequiredService<IProcessReservationHandler>();
+                await handler.HandleAsync(
+                    reserved, correlationId, activity?.Id ?? traceParent, args.CancellationToken);
 
                 await args.CompleteMessageAsync(args.Message);
             }
@@ -110,5 +118,34 @@ public class AzureServiceBusSubscriber : IEventSubscriber
                 await args.AbandonMessageAsync(args.Message);
             }
         }
+    }
+
+    /// <summary>
+    /// Stops the processor and disposes the client on host shutdown (this is a DI singleton, so the
+    /// container disposes it). Null-guarded so it's safe if <see cref="Subscribe"/> was never called
+    /// or only partially initialised.
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        if (_processor is not null)
+        {
+            try
+            {
+                await _processor.StopProcessingAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error stopping Service Bus processor during shutdown");
+            }
+
+            await _processor.DisposeAsync();
+        }
+
+        if (_client is not null)
+        {
+            await _client.DisposeAsync();
+        }
+
+        GC.SuppressFinalize(this);
     }
 }
