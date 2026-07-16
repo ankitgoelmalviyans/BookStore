@@ -1,0 +1,35 @@
+namespace: bookstore
+environment: Production
+replicaCount: 1
+
+service:
+  name: orderservice
+  port: 80
+
+image:
+  repository: bookstoreaurega.azurecr.io/orderservice
+  tag: latest
+  pullPolicy: Always
+
+ingress:
+  host: ""
+  path: /order
+
+istio:
+  # Not meshed for now — OrderService has no synchronous east-west caller yet (it talks to the rest
+  # of the saga over Service Bus), so there is no mesh traffic to secure/observe. Flip to true when a
+  # real in-cluster HTTP caller appears, per the Product/Inventory precedent.
+  inject: false
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 3
