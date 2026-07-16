@@ -166,7 +166,7 @@ These are **PLANNED**, not built. They are documented in `docs/ROADMAP.md`.
 | Not built (PLANNED) | Notes |
 |---------------------|-------|
 | **OrderService** | Phase 2 — CQRS write/read model, publishes `OrderCreated` |
-| **PaymentService** | Phase 2 — subscribes to `OrderCreated`, Saga orchestration |
+| **PaymentService** | Phase 2 — subscribes to `InventoryReserved` (not `OrderCreated` directly), Stripe test mode, choreography-based Saga (not orchestration — see `docs/TRD.md` ADR-17) |
 | **NotificationService** | Phase 2 — stateless, multi-event subscriber |
 | ~~Inbox pattern (idempotent consumers)~~ | ✅ **Implemented** — `IInboxStore` dedupes processed EventIds in InventoryService (no longer out of scope) |
 | ~~Outbox pattern (ProductService)~~ | ✅ **Implemented** — embedded transactional outbox + background publisher (no longer out of scope) |

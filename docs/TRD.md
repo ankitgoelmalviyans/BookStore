@@ -207,15 +207,19 @@ Each ADR follows: **Decision → Why → Alternatives considered → Trade-offs.
   schema, matching the existing one-container-per-service Cosmos convention). Products/Inventory
   **stay on Cosmos** — this is deliberately a **polyglot persistence** platform, not a migration off
   Cosmos.
-- **Why:** An order is `Order` + N `OrderItems` + a payment record that must be consistent as a
-  unit — multi-row, multi-table invariants (an order total must equal the sum of its line items; a
-  payment must reference exactly one order) that a document model keyed on `/id` doesn't express
-  well. SQL Server also gives OrderService/PaymentService a **true multi-table transactional
-  Outbox** — Order row + Outbox row committed in one `SaveChanges()` — which is a strictly better
-  fit than the embedded-outbox-on-document workaround ProductService needed because its Cosmos
-  container is partitioned on `/id` (see ADR-2, `docs/ROADMAP.md` Outbox section). Serverless
-  auto-pause keeps the always-on cost close to Cosmos-free-tier territory instead of paying for a
-  provisioned vCore 24/7.
+- **Why:** An order is `Order` + N `OrderItems` (plus, separately, a `PaymentOutbox`/`Payments` record
+  in **PaymentService's own database**) — the SQL transaction here only ever spans **one service's own
+  tables**: `Order` + `OrderItems` + `OrderOutbox` in OrderService's `SaveChangesAsync()`, and
+  independently `Payments` + `PaymentOutbox` in PaymentService's. There is **no cross-service SQL
+  transaction, ever** — OrderService and PaymentService each have their own database and their own
+  connection; consistency *between* them is the Saga's job (ADR-17), not SQL's. What SQL actually buys
+  is a real multi-table transactional Outbox **within** a single service — Order row + Outbox row
+  committed atomically in one `SaveChanges()` — which is a strictly better fit than the
+  embedded-outbox-on-document workaround ProductService needed because its Cosmos container is
+  partitioned on `/id` (see ADR-2, `docs/ROADMAP.md` Outbox section), and it correctly expresses the
+  multi-row invariant that *does* live in one database (an order total equalling the sum of its own
+  line items). Serverless auto-pause keeps the always-on cost close to Cosmos-free-tier territory
+  instead of paying for a provisioned vCore 24/7.
 - **Alternatives:** (a) Model Order+Payment in Cosmos using a single-partition transactional batch
   (keeps everything on one engine, but caps the batch at one logical partition and still has no real
   joins for reporting); (b) a SQL Server container inside the existing AKS node (zero Azure billing,
@@ -259,6 +263,17 @@ Each ADR follows: **Decision → Why → Alternatives considered → Trade-offs.
   with many conditional branches usually outgrows choreography and wants an orchestrator). Accepted
   for a 3-participant saga; flagged as the concrete trigger for revisiting orchestration if a Phase 3+
   saga grows past this size.
+- **Idempotency is mandatory at every step, not optional:** Service Bus is at-least-once end to end
+  (ADR — see the existing Inbox writeup), and choreography multiplies the number of at-least-once
+  consumers from one (InventoryService, Phase 1) to five (InventoryService on `OrderCreated` **and**
+  `OrderCancelled`, PaymentService on `InventoryReserved`, OrderService on
+  `InventoryReserved`/`InventoryReservationFailed`/`PaymentProcessed`/`PaymentFailed`). Every one of
+  them reuses the same `IInboxStore` dedup pattern already proven in Phase 1, plus a monotonic
+  state-transition guard in its own domain model (e.g. OrderService only moves `Pending → Confirmed`,
+  never re-applies onto an already-`Cancelled` order) so a duplicate or out-of-order delivery that
+  slips past the Inbox still can't regress state. This is a **separate mechanism** from Stripe's own
+  request-level idempotency key (ADR-19) — one dedupes Service Bus messages, the other dedupes the
+  outbound HTTP call to Stripe; both are needed, neither substitutes for the other.
 
 ### ADR-18 — Lazy-loaded Angular feature modules in `product-ui` (not micro-frontends, not per-SCS UIs) — PLANNED
 
@@ -308,6 +323,17 @@ Each ADR follows: **Decision → Why → Alternatives considered → Trade-offs.
   the only real implementation — kept swappable so a `FakePaymentGateway` test double can back unit
   tests without needing Stripe network access, even though there is no second *production* gateway
   implementation today.
+- **Two distinct Stripe secrets, two distinct jobs — never conflated:** `STRIPE_TEST_SECRET_KEY`
+  authenticates PaymentService's own **outbound** calls to the Stripe API (create/confirm a
+  PaymentIntent); `STRIPE_WEBHOOK_SECRET` is used only to verify the `Stripe-Signature` header on
+  **inbound** webhook deliveries from Stripe. A leaked API key lets someone make charges as you; a
+  leaked webhook secret lets someone forge fake "payment succeeded" callbacks — different blast radius,
+  hence two separate GitHub/Kubernetes secrets, never one shared value.
+- **Webhook delivery is itself at-least-once and needs its own dedup:** Stripe retries a webhook
+  delivery that doesn't get a `2xx` response, so PaymentService persists each processed Stripe
+  `event.id` (a small dedup table/column, same shape as the existing Inbox — see ADR-17) **before**
+  emitting `PaymentProcessed`/`PaymentFailed`, and skips any `event.id` already seen. Without this, a
+  retried webhook delivery could re-emit a saga event and double-apply the outcome downstream.
 
 ### ADR-20 — No personal Azure account credentials in CI/CD (scoped secrets only) — PLANNED
 
@@ -361,6 +387,7 @@ Each ADR follows: **Decision → Why → Alternatives considered → Trade-offs.
 | PaymentService → Stripe | HTTPS/REST | **PLANNED** — test-mode secret key; `Stripe-Signature` webhook verification; idempotency key = `InventoryReserved` event id (ADR-19) |
 | OrderService/PaymentService → Azure SQL | EF Core / `Microsoft.Data.SqlClient` | **PLANNED** — Serverless tier, one logical database per service (ADR-16) |
 | Angular → OrderService / PaymentService | HTTPS/REST | **PLANNED** — new lazy-loaded modules in `product-ui`; `ORDER_API_URL`/`PAYMENT_API_URL` tokens (ADR-18) |
+| NotificationService ← Service Bus | AMQP (SDK) | **PLANNED** — subscribes `order-events` (`OrderCreated`, `OrderCancelled`) and `inventory-events` (`PaymentProcessed`, `PaymentFailed`); stateless, logs a simulated email/SMS per event, no publishes |
 
 ---
 

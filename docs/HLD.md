@@ -268,9 +268,13 @@ InventoryService.ReserveStock (Cosmos: Available → Reserved per line item)
   │                                                                  ──▶ InventoryService.ReleaseInventory
   │                                                                       (Reserved → Available)  [COMPENSATION]
   │
-  └─ failure (insufficient stock) ─▶ publish InventoryReservationFailed
-                                        ──▶ OrderService: Order.status = Cancelled  (no compensation
-                                            needed — nothing was reserved to release)
+  └─ failure on any line item ─▶ InventoryService releases any lines it already reserved for THIS
+                                  order (partial-reservation rollback, handled locally — see
+                                  docs/ROADMAP.md) ─▶ publish InventoryReservationFailed
+                                    ──▶ OrderService: Order.status = Cancelled  (no SAGA-level
+                                        compensation needed here — by the time this event is
+                                        published, InventoryService has already released everything
+                                        it held for this order itself)
 ```
 
 **Why InventoryReserved gates PaymentService, not OrderCreated directly:** if PaymentService also
@@ -324,13 +328,18 @@ ordering instead of two independent consumers racing the same source event.
    (JWT + rate-limit policy)         │                │                ▲                                    │
                                      │ ProductCreated │ OrderCreated   │                                    │
                                      ▼                ▼                │                                    │
-                          ┌───────────── Azure Service Bus (topics) ───────────────┐                        │
-                          │  product-events    order-events    payment-events ...   │                        │
-                          └───┬─────────────┬───────────────┬───────────────────────┘                        │
-                              ▼             ▼               ▼                                                 │
-                       InventoryService  OrderService   PaymentService   NotificationService                 │
-                       (Inbox — DONE)    (CQRS r/w,      (Saga           (stateless, multi-event             │
-                                          Outbox)         orchestration)  subscriber)                        │
+                          ┌────────── Azure Service Bus (topics) ──────────┐                                 │
+                          │  product-events   order-events   inventory-events │                               │
+                          └───┬─────────────┬──────────────────┬────────────┘                                │
+                              ▼             ▼                  ▼                                              │
+                       InventoryService  OrderService      PaymentService     NotificationService             │
+                       (Inbox — DONE;    (CQRS r/w,        (subscribes       (stateless, subscribes           │
+                        reserve/release   Azure SQL         inventory-events  order-events +                  │
+                        on order-events)  Outbox)           only, not         inventory-events)               │
+                                                             order-events —                                    │
+                                                             see ADR-17)                                       │
+   Saga style: CHOREOGRAPHY (ADR-17) — each service reacts to events and emits its own next event;            │
+              there is no separate SagaOrchestrator service.                                                   │
                                                                                                              │
    AI layer:  Book Knowledge RAG (Cosmos vector search) · BookStore AI Agent (Semantic Kernel intent        │
               routing) · Natural-Language→Cosmos queries       LLM: GitHub Models (A) / Azure OpenAI (B)     │

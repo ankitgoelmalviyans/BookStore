@@ -355,7 +355,7 @@ Note: `values-costopt.yaml`/`values-demo.yaml` already stub out an `llm` block (
 | Decision | Choice | Reason |
 |---|---|---|
 | Region | Central India | Lowest-latency Azure region for the primary audience |
-| Database | Cosmos DB (free tier) | No Kafka/SQL — free-tier NoSQL keeps always-on cost near zero |
+| Database — Product/Inventory (Phase 1, current) | Cosmos DB (free tier) | No SQL Server needed here — free-tier NoSQL keeps always-on cost near zero for catalog/stock documents keyed by id |
 | Messaging | Azure Service Bus (topic + subscription) | Native Azure pub/sub, no extra cluster to run (Kafka was removed) |
 | DNS | `nip.io` wildcard | Avoids buying a domain for a portfolio project; trades away Let's Encrypt HTTP-01 (see ingress template TODOs) |
 | Frontend hosting | GitHub Pages | Free static hosting; keeps the Angular build off the AKS cost budget entirely |

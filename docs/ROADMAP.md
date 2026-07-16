@@ -71,13 +71,24 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
 ### InventoryService — gains the reservation step
 
 - **What:** subscribes to `order-events`/`inventory-order-subscription`. On `OrderCreated`, attempts
-  to move stock from `Available` to `Reserved` for each line item; publishes `InventoryReserved` on
-  success or `InventoryReservationFailed` (with a reason, e.g. insufficient stock) to topic
-  `inventory-events`. Also subscribes to `OrderCancelled` (the saga's compensating event, below) and
-  runs `ReleaseInventory` — moving the held stock back from `Reserved` to `Available`.
+  to move stock from `Available` to `Reserved` **line item by line item** (each product lives in its
+  own Cosmos partition keyed by `ProductId`, so a multi-item order can't be one atomic transactional
+  batch across products — see ADR-2). If every line reserves successfully, publishes
+  `InventoryReserved`. If a later line fails (e.g. line 3 of 3 is out of stock), InventoryService
+  **releases the lines it already reserved for that same order** (lines 1–2) before publishing
+  `InventoryReservationFailed` — so a partial failure never leaves stock silently held against an
+  order that will never be paid for. Also subscribes to `OrderCancelled` (the saga's compensating
+  event, below) and runs the same `ReleaseInventory` logic for a fully-reserved order whose payment
+  failed downstream.
 - **Why reservation happens before payment:** charging a card for stock that isn't actually available
   is the failure mode this ordering avoids — inventory is reserved (cheap, fully reversible) *before*
   PaymentService is even invoked.
+- **Partial-failure compensation is local, not a saga step:** because the rollback of lines 1–2 above
+  happens **inside InventoryService's own handler**, before any `InventoryReserved` event is ever
+  published, it's not a cross-service compensating transaction — no other service has acted on the
+  order yet at that point. The saga-level compensation (`OrderCancelled` → `ReleaseInventory`) only
+  applies to the case where reservation **fully succeeded** and a later, different service
+  (PaymentService) is the one that fails.
 
 ### PaymentService — Stripe test mode, Azure SQL
 
@@ -106,6 +117,23 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
   with explicit rollback semantics. **Why choreography, not orchestration:** ADR-17 — reuses the
   Outbox/Inbox/`IMessagePublisher` shape already built for ProductService→InventoryService rather
   than introducing a second, stateful integration style for a single 3-participant saga.
+- **Idempotency, at two distinct layers — don't conflate them:**
+  1. **Service Bus message dedup (Inbox):** every new consumer in this saga — InventoryService on
+     `OrderCreated`/`OrderCancelled`, PaymentService on `InventoryReserved`, OrderService on
+     `InventoryReserved(Failed)`/`PaymentProcessed`/`PaymentFailed` — is an at-least-once subscriber,
+     so each reuses the same `IInboxStore` pattern already proven for InventoryService/Phase 1: check
+     `HasBeenProcessedAsync(eventId)` before acting, `MarkProcessedAsync(eventId)` after. This is what
+     stops a redelivered `PaymentProcessed` from confirming an order twice.
+  2. **Stripe request idempotency:** a *separate* mechanism, scoped to the outbound HTTP call —
+     `InventoryReserved.EventId` is sent as Stripe's `Idempotency-Key` header so that if
+     PaymentService's own process crashes and retries the charge for the *same* reservation event,
+     Stripe returns the original PaymentIntent instead of creating a second charge. This protects the
+     Stripe call specifically; it does not by itself dedupe the Service Bus message (layer 1 still
+     applies on top of it).
+  3. **Monotonic state transitions:** each service also guards its own state machine — e.g.
+     OrderService only applies `Order.Status = Confirmed` from `Pending` (never re-applies onto
+     `Cancelled`), so an out-of-order or duplicate delivery that slips past the Inbox check still can't
+     regress a terminal state.
 
 ### NotificationService — stateless
 
