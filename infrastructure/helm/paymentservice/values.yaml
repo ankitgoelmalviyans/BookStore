@@ -1,0 +1,34 @@
+namespace: bookstore
+environment: Production
+replicaCount: 1
+
+service:
+  name: paymentservice
+  port: 80
+
+image:
+  repository: bookstoreaurega.azurecr.io/paymentservice
+  tag: latest
+  pullPolicy: Always
+
+ingress:
+  host: ""
+  path: /payment
+
+istio:
+  # Not meshed — PaymentService's traffic is Service Bus (consume inventory-events, publish
+  # payment-events) + an outbound HTTPS call to Stripe; no in-cluster synchronous caller to secure.
+  inject: false
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 3

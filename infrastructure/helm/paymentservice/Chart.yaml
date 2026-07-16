@@ -1,0 +1,10 @@
+apiVersion: v2
+name: paymentservice
+description: BookStore Payment Service
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+dependencies:
+  - name: bookstore-lib
+    version: "0.1.0"
+    repository: "file://../bookstore-lib"
