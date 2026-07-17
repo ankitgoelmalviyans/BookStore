@@ -303,7 +303,9 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
   new charts (new `orderservice`/`paymentservice`/`notificationservice` Helm charts, built off the
   existing `bookstore-lib` library chart pattern).
 - **`cd-ui.yml`:** unchanged structurally — same app, two more `#{...}#` tokens to replace.
-- **New Service Bus topology:** alongside the existing `product-events`/`inventory-subscription`:
+- **New Service Bus topology ✅ (in `main.bicep`):** alongside the existing
+  `product-events`/`inventory-subscription`, all three saga topics + their subscriptions are now
+  defined as Bicep (cheap, idempotent — the Standard namespace already exists):
   - `order-events` (`OrderCreated`, `OrderCancelled`) — subscriptions `inventory-order-subscription`
     (InventoryService) and `notification-order-subscription` (NotificationService)
   - `inventory-events` (`InventoryReserved`, `InventoryReservationFailed`) — subscriptions
@@ -311,6 +313,18 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
   - `payment-events` (`PaymentProcessed`, `PaymentFailed`) — subscriptions
     `order-payment-outcome-subscription` (OrderService) and `notification-payment-subscription`
     (NotificationService)
+- **Remaining deploy work (operator-gated, has real cost):**
+  1. **Azure SQL Serverless** server + `OrderDb`/`PaymentDb` in `main.bicep` (ADR-16) — held back
+     because merging a Bicep change auto-triggers `infra-bicep`, so adding SQL = provisioning it (and
+     it needs an admin-password secret wired into `infra-bicep.yml` first). This is the point where
+     always-on cost stops being ~free, so it's a deliberate operator decision.
+  2. **EF Core migrations** for OrderService/PaymentService (the `Orders`/`OrderItems`/`OrderOutbox`,
+     `Payments`/`PaymentOutbox`/`ProcessedInbox` schemas) — generated via `dotnet ef`, then applied by
+     CD. None exist yet.
+  3. **`cd-costopt.yml`** — build/push the order/payment/notification images, create the SQL
+     connection-string + Stripe secrets, run migrations, `helm upgrade` the three new charts, and flip
+     the `*:Enabled` flags — sequenced so the SQL-dependent services only deploy after the DB exists
+     (otherwise they crash-loop).
 - **New Cosmos container:** `OrderReservations` (partition `/id` = orderId) — InventoryService's per-order
   reservation-outcome tracking + embedded outbox, added to `main.bicep` alongside the existing
   `Products`/`Inventory`/`ProcessedMessages` containers (see the durability note in `docs/HLD.md`
