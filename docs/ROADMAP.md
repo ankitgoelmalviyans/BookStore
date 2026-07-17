@@ -138,6 +138,20 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
 
 ### PaymentService — Stripe test mode, Azure SQL
 
+> **Implementation status — increment ✅ (code built, not yet deployed).** The service exists under
+> `BookStore.OrderSCA/BookStore.PaymentService/` (Clean Architecture, Azure SQL/EF Core). It subscribes
+> to `inventory-events`/`payment-subscription`, dedupes each message via a SQL **Inbox**, charges
+> through an `IPaymentGateway` (real `StripePaymentGateway` when a Stripe secret key is configured,
+> otherwise a deterministic `FakePaymentGateway` — so it builds/demos with **no credentials**), and
+> writes the `Payment` + the `PaymentProcessed`/`PaymentFailed` outbox event + the inbox marker in one
+> transaction, drained to `payment-events`. The Stripe idempotency key is the inbound event id.
+> Includes unit tests, a Helm chart, and a `build-payment` CI job. **Still pending:** the Stripe
+> **webhook** endpoint (event-id-deduped, atomic — needed only for truly-async payment methods; the
+> synchronous confirm path covers test-card charges today); a real **card/payment-method reference**
+> carried from checkout (the default test method is used for now); the upstream **InventoryService
+> reservation step** that actually emits `InventoryReserved`; and the Azure SQL Bicep + `cd-costopt`
+> deploy wiring. The exact `Stripe.net` package version may need a CI-driven bump.
+
 - **What:** subscribes to `inventory-events`/`payment-subscription`, but **only acts on
   `InventoryReserved`** (not on `OrderCreated` directly — that's what makes "reserve, then charge"
   an enforced ordering rather than a race between two independent subscribers). Calls Stripe
