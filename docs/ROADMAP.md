@@ -254,6 +254,18 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
 
 ### NotificationService — stateless
 
+> **Implementation status — increment ✅ (code built, gated off).** The service exists under
+> `BookStore.OrderSCA/BookStore.NotificationService/`. It subscribes to `order-events` (OrderCreated,
+> OrderCancelled) and `payment-events` (PaymentProcessed, PaymentFailed) — dispatching by the explicit
+> `EventType` property — and turns each into a simulated notification via an `INotifier` whose only
+> implementation (`LogNotifier`) writes a structured, Splunk-visible log line (a real email/SMS
+> provider would slot in behind the same interface). It holds **no database, no inbox, no outbox** —
+> statelessness is the point, so it scales horizontally trivially; an at-least-once duplicate is a
+> benign repeat notification. Unit tested, Helm chart + `build-notification` CI job. Gated behind
+> **`Notifications:Enabled` (default off)** since it depends on the not-yet-provisioned topology. This
+> is the **last Phase 2 service** — the service set is complete; what remains is the deploy wiring
+> (Service Bus topology + Azure SQL Bicep + CD + flipping the `*:Enabled` flags).
+
 - **What:** subscribes to topic `order-events` (`OrderCreated`, `OrderCancelled`) via
   `notification-order-subscription` and topic `payment-events` (`PaymentProcessed`, `PaymentFailed`)
   via `notification-payment-subscription`; simulates email/SMS by logging a structured line

@@ -1,0 +1,33 @@
+namespace: bookstore
+environment: Production
+replicaCount: 1
+
+service:
+  name: notificationservice
+  port: 80
+
+image:
+  repository: bookstoreaurega.azurecr.io/notificationservice
+  tag: latest
+  pullPolicy: Always
+
+ingress:
+  host: ""
+  path: /notification
+
+istio:
+  # Not meshed — a pure Service Bus consumer with no synchronous in-cluster callers.
+  inject: false
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 96Mi
+  limits:
+    cpu: 250m
+    memory: 192Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3

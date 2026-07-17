@@ -35,6 +35,13 @@ paymentservice:
   ingress:
     host: ""               # set by pipeline: $INGRESS_IP.nip.io
 
+# Phase 2 (planned deploy) — chart + CI validation exist; CD deploy gated on Service Bus topology.
+notificationservice:
+  image:
+    tag: ""                # set by pipeline: ${{ github.sha }}
+  ingress:
+    host: ""               # set by pipeline: $INGRESS_IP.nip.io
+
 # Gateway — Profile B uses APIM in front of NGINX
 gateway:
   useApim: true
