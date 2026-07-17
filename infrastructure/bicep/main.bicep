@@ -161,6 +161,23 @@ resource processedMessagesContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDa
   }
 }
 
+// InventoryService's Phase 2 reservation aggregate: one document per order (partitioned on /id =
+// orderId), holding the reserved lines and an embedded outbox for the InventoryReserved/…Failed
+// event. See docs/HLD.md §6.
+resource orderReservationsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-02-15-preview' = {
+  parent: cosmosDb
+  name: 'OrderReservations'
+  properties: {
+    resource: {
+      id: 'OrderReservations'
+      partitionKey: {
+        paths: ['/id']
+        kind: 'Hash'
+      }
+    }
+  }
+}
+
 // ─── Key Vault ────────────────────────────────────────────────────────────────
 
 resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {

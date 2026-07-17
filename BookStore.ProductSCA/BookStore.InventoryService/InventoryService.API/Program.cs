@@ -1,6 +1,7 @@
 using BookStore.InventoryService.Application.Interfaces;
 using BookStore.InventoryService.Infrastructure;
 using BookStore.InventoryService.API.Middleware;
+using BookStore.InventoryService.API.BackgroundServices;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -160,6 +161,12 @@ builder.Services.AddAuthentication("Bearer")
     });
 
 builder.Services.AddInventoryDependencies(builder.Configuration);
+
+// Reservation background workers (Phase 2): drain the reservation outbox to inventory-events, and
+// perform the physical stock release for lines flagged PendingRelease.
+builder.Services.AddHostedService<ReservationOutboxPublisherService>();
+builder.Services.AddHostedService<ReservationReleaseWorker>();
+
 builder.Services.AddHealthChecks();
 var allowedOrigins = builder.Configuration
     .GetSection("AllowedOrigins")
@@ -203,8 +210,12 @@ app.MapHealthChecks("/health");
 
 app.Lifetime.ApplicationStarted.Register(() =>
 {
-    var subscriber = app.Services.GetRequiredService<IEventSubscriber>();
-    subscriber.Subscribe();
+    // Start every registered subscriber: the existing product-events one AND the new order-events
+    // one (reservation step).
+    foreach (var subscriber in app.Services.GetServices<IEventSubscriber>())
+    {
+        subscriber.Subscribe();
+    }
 });
 
 app.Run();

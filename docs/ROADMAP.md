@@ -89,6 +89,20 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
 
 ### InventoryService — gains the reservation step
 
+> **Implementation status — increment ✅ (code built, not yet deployed).** InventoryService now
+> reserves stock for orders: a **second subscriber** on `order-events`/`inventory-order-subscription`
+> (the existing `product-events` subscriber is untouched) delegates to a testable `ReservationService`
+> that reserves each line (`Available → Reserved`, ETag-concurrency, additive `Inventory.Reserved`
+> field), writes one `OrderReservation` Cosmos document (new container, partition `/id`) recording the
+> outcome + an **embedded outbox**, and emits `InventoryReserved` (all lines) or
+> `InventoryReservationFailed` (partial) to `inventory-events` via a new producer + outbox drain.
+> Partial failures and `OrderCancelled` flag lines `PendingRelease`; a `ReservationReleaseWorker`
+> performs the physical release with bounded-retry → terminal `ReleaseFailed`. Inbox-deduped, unit
+> tested, `OrderReservations` container added to `main.bicep`. **Still pending:** provisioning the
+> Service Bus **topology** (`order-events`/`inventory-events` topics + subscriptions) — the remaining
+> messaging infra, alongside the Azure SQL Bicep + CD deploy wiring; and OrderService emitting
+> `OrderCancelled` (its inbound-handler increment) so the compensation path has a real producer.
+
 - **What:** subscribes to `order-events`/`inventory-order-subscription`. On `OrderCreated`, upserts a
   **new Cosmos container `OrderReservations`** (partitioned `/orderId`, one document per order —
   distinct from the per-product `Inventory` container) and attempts to move stock from `Available` to
