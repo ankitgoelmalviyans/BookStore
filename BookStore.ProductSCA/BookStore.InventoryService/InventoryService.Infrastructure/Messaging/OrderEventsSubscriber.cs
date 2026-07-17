@@ -107,8 +107,18 @@ namespace BookStore.InventoryService.Infrastructure.Messaging
 
                         await _reservationService.ReleaseForCancelAsync(cancelled, args.CancellationToken);
                     }
+                    else if (eventType is not null && !string.Equals(eventType, "OrderCreatedEvent", StringComparison.Ordinal))
+                    {
+                        // An explicit but unrecognised type — don't fall through to OrderCreated
+                        // handling. Dead-letter it (a new event type this consumer doesn't know about).
+                        _logger.LogError("order-events message has unknown EventType '{EventType}', dead-lettering", eventType);
+                        await args.DeadLetterMessageAsync(args.Message, "UnknownEventType", $"Unhandled EventType '{eventType}'");
+                        return;
+                    }
                     else
                     {
+                        // Either an explicit "OrderCreatedEvent" type, or no type at all (today's
+                        // untyped OrderService messages) — handle as OrderCreated.
                         OrderCreatedIntegrationEvent? created;
                         try
                         {
