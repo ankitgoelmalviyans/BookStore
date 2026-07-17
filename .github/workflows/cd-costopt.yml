@@ -126,7 +126,127 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
 
   # ─────────────────────────────────────────
-  # JOB 4 — Deploy all services to AKS
+  # JOB 4 — Build and push OrderService
+  # ─────────────────────────────────────────
+  build-push-order:
+    name: Build and Push OrderService
+    runs-on: ubuntu-latest
+
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Source-only checkout — this job never pushes back to git, so don't leave the token in
+          # .git/config for the rest of the job (e.g. the Docker build step) to read.
+          persist-credentials: false
+
+      - name: Login to ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ACR_SERVER }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Set image tag
+        id: meta
+        run: |
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          echo "tags=${{ env.ACR_SERVER }}/orderservice:$SHORT_SHA" >> $GITHUB_OUTPUT
+          echo "short-sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+
+      - name: Build and push OrderService
+        uses: docker/build-push-action@v5
+        with:
+          context: BookStore.OrderSCA/BookStore.OrderService/src
+          file: BookStore.OrderSCA/BookStore.OrderService/src/BookStore.OrderService.API/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+
+  # ─────────────────────────────────────────
+  # JOB 5 — Build and push PaymentService
+  # ─────────────────────────────────────────
+  build-push-payment:
+    name: Build and Push PaymentService
+    runs-on: ubuntu-latest
+
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Source-only checkout — this job never pushes back to git, so don't leave the token in
+          # .git/config for the rest of the job (e.g. the Docker build step) to read.
+          persist-credentials: false
+
+      - name: Login to ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ACR_SERVER }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Set image tag
+        id: meta
+        run: |
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          echo "tags=${{ env.ACR_SERVER }}/paymentservice:$SHORT_SHA" >> $GITHUB_OUTPUT
+          echo "short-sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+
+      - name: Build and push PaymentService
+        uses: docker/build-push-action@v5
+        with:
+          context: BookStore.OrderSCA/BookStore.PaymentService/src
+          file: BookStore.OrderSCA/BookStore.PaymentService/src/BookStore.PaymentService.API/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+
+  # ─────────────────────────────────────────
+  # JOB 6 — Build and push NotificationService
+  # ─────────────────────────────────────────
+  build-push-notification:
+    name: Build and Push NotificationService
+    runs-on: ubuntu-latest
+
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Source-only checkout — this job never pushes back to git, so don't leave the token in
+          # .git/config for the rest of the job (e.g. the Docker build step) to read.
+          persist-credentials: false
+
+      - name: Login to ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ACR_SERVER }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Set image tag
+        id: meta
+        run: |
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          echo "tags=${{ env.ACR_SERVER }}/notificationservice:$SHORT_SHA" >> $GITHUB_OUTPUT
+          echo "short-sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+
+      - name: Build and push NotificationService
+        uses: docker/build-push-action@v5
+        with:
+          context: BookStore.OrderSCA/BookStore.NotificationService/src
+          file: BookStore.OrderSCA/BookStore.NotificationService/src/BookStore.NotificationService.API/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+
+  # ─────────────────────────────────────────
+  # JOB 7 — Deploy all services to AKS
   # ─────────────────────────────────────────
   deploy:
     name: Deploy to AKS
@@ -135,6 +255,14 @@ jobs:
       - build-push-auth
       - build-push-product
       - build-push-inventory
+      - build-push-order
+      - build-push-payment
+      - build-push-notification
+    env:
+      # Mirrored from secrets into env so step `if:` conditions can check "is this set" without
+      # referencing the secrets context directly in an expression.
+      ORDER_SQL_CONNECTION: ${{ secrets.ORDER_SQL_CONNECTION }}
+      PAYMENT_SQL_CONNECTION: ${{ secrets.PAYMENT_SQL_CONNECTION }}
 
     steps:
       - name: Checkout
@@ -199,6 +327,34 @@ jobs:
             --from-literal=AzureServiceBus__TopicName="product-events" \
             --from-literal=AzureServiceBus__SubscriptionName="inventory-subscription" \
             --from-literal=AllowedOrigins__0="${{ secrets.ALLOWED_ORIGINS }}" \
+            --from-literal=Reservations__Enabled="true" \
+            --namespace=${{ env.NAMESPACE }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          # Phase 2 — Order/Payment/Notification. OrderService/PaymentService secrets are created
+          # unconditionally (an empty ConnectionStrings value is harmless — it's the *deploy* step
+          # below, not this one, that's gated on the SQL server actually existing).
+          kubectl create secret generic orderservice-secrets \
+            --from-literal=Jwt__Key="${{ secrets.JWT_KEY }}" \
+            --from-literal=ConnectionStrings__OrderDb="${{ secrets.ORDER_SQL_CONNECTION }}" \
+            --from-literal=AzureServiceBus__ConnectionString="${{ secrets.SERVICE_BUS_CONNECTION }}" \
+            --from-literal=Orders__InboundEnabled="true" \
+            --from-literal=AllowedOrigins__0="${{ secrets.ALLOWED_ORIGINS }}" \
+            --namespace=${{ env.NAMESPACE }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl create secret generic paymentservice-secrets \
+            --from-literal=Jwt__Key="${{ secrets.JWT_KEY }}" \
+            --from-literal=ConnectionStrings__PaymentDb="${{ secrets.PAYMENT_SQL_CONNECTION }}" \
+            --from-literal=AzureServiceBus__ConnectionString="${{ secrets.SERVICE_BUS_CONNECTION }}" \
+            --from-literal=Stripe__SecretKey="${{ secrets.STRIPE_TEST_SECRET_KEY }}" \
+            --from-literal=AllowedOrigins__0="${{ secrets.ALLOWED_ORIGINS }}" \
+            --namespace=${{ env.NAMESPACE }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl create secret generic notificationservice-secrets \
+            --from-literal=AzureServiceBus__ConnectionString="${{ secrets.SERVICE_BUS_CONNECTION }}" \
+            --from-literal=Notifications__Enabled="true" \
             --namespace=${{ env.NAMESPACE }} \
             --dry-run=client -o yaml | kubectl apply -f -
 
@@ -207,11 +363,59 @@ jobs:
           helm dependency update infrastructure/helm/authservice
           helm dependency update infrastructure/helm/productservice
           helm dependency update infrastructure/helm/inventoryservice
+          helm dependency update infrastructure/helm/orderservice
+          helm dependency update infrastructure/helm/paymentservice
+          helm dependency update infrastructure/helm/notificationservice
 
       - name: Get short SHA
         id: sha
         run: |
           echo "short=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+
+      # ─────────────────────────────────────────────────────────────────────
+      # Phase 2 SQL migrations — gated on the SQL server actually existing.
+      # infra-bicep.yml provisions OrderDb/PaymentDb (free-tier Azure SQL
+      # Serverless, see infrastructure/bicep/sql-order-payment.bicep), but
+      # can't write GitHub secrets back into the repo — so ORDER_SQL_CONNECTION/
+      # PAYMENT_SQL_CONNECTION are set once by the operator from that
+      # workflow's printed SQL_SERVER_FQDN + the SQL_ADMIN_PASSWORD they
+      # chose, the same pattern already used for COSMOS_ENDPOINT/COSMOS_KEY.
+      # Until they're set, these steps (and the two Deploy steps below) are
+      # no-ops — everything else in this job runs unaffected.
+      # ─────────────────────────────────────────────────────────────────────
+      - name: Setup .NET (Order/Payment migrations + seed)
+        if: ${{ env.ORDER_SQL_CONNECTION != '' || env.PAYMENT_SQL_CONNECTION != '' }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Apply OrderDb migrations + seed demo data
+        if: ${{ env.ORDER_SQL_CONNECTION != '' }}
+        working-directory: BookStore.OrderSCA/BookStore.OrderService
+        env:
+          ORDER_DB_CONNECTION: ${{ secrets.ORDER_SQL_CONNECTION }}
+          ConnectionStrings__OrderDb: ${{ secrets.ORDER_SQL_CONNECTION }}
+        run: |
+          dotnet tool restore
+          dotnet ef database update \
+            --project src/Infrastructure/Infrastructure.csproj \
+            --startup-project src/BookStore.OrderService.API/BookStore.OrderService.API.csproj \
+            --context OrderDbContext
+          dotnet run --project src/BookStore.OrderService.API/BookStore.OrderService.API.csproj -- --seed
+
+      - name: Apply PaymentDb migrations + seed demo data
+        if: ${{ env.PAYMENT_SQL_CONNECTION != '' }}
+        working-directory: BookStore.OrderSCA/BookStore.PaymentService
+        env:
+          PAYMENT_DB_CONNECTION: ${{ secrets.PAYMENT_SQL_CONNECTION }}
+          ConnectionStrings__PaymentDb: ${{ secrets.PAYMENT_SQL_CONNECTION }}
+        run: |
+          dotnet tool restore
+          dotnet ef database update \
+            --project src/Infrastructure/Infrastructure.csproj \
+            --startup-project src/BookStore.PaymentService.API/BookStore.PaymentService.API.csproj \
+            --context PaymentDbContext
+          dotnet run --project src/BookStore.PaymentService.API/BookStore.PaymentService.API.csproj -- --seed
 
       - name: Deploy AuthService
         run: |
@@ -246,6 +450,42 @@ jobs:
             --wait \
             --timeout 5m
 
+      - name: Deploy OrderService
+        if: ${{ env.ORDER_SQL_CONNECTION != '' }}
+        run: |
+          helm upgrade --install orderservice \
+            infrastructure/helm/orderservice \
+            --values infrastructure/helm/values-costopt.yaml \
+            --set image.tag=${{ steps.sha.outputs.short }} \
+            --set ingress.host=${{ secrets.INGRESS_IP }}.nip.io \
+            --namespace ${{ env.NAMESPACE }} \
+            --wait \
+            --timeout 5m
+
+      - name: Deploy PaymentService
+        if: ${{ env.PAYMENT_SQL_CONNECTION != '' }}
+        run: |
+          helm upgrade --install paymentservice \
+            infrastructure/helm/paymentservice \
+            --values infrastructure/helm/values-costopt.yaml \
+            --set image.tag=${{ steps.sha.outputs.short }} \
+            --set ingress.host=${{ secrets.INGRESS_IP }}.nip.io \
+            --namespace ${{ env.NAMESPACE }} \
+            --wait \
+            --timeout 5m
+
+      # No SQL dependency — deploys unconditionally, same as auth/product/inventory.
+      - name: Deploy NotificationService
+        run: |
+          helm upgrade --install notificationservice \
+            infrastructure/helm/notificationservice \
+            --values infrastructure/helm/values-costopt.yaml \
+            --set image.tag=${{ steps.sha.outputs.short }} \
+            --set ingress.host=${{ secrets.INGRESS_IP }}.nip.io \
+            --namespace ${{ env.NAMESPACE }} \
+            --wait \
+            --timeout 5m
+
       - name: Create Splunk secret
         run: |
           kubectl create secret generic splunk-secrets \
@@ -273,6 +513,20 @@ jobs:
             -n ${{ env.NAMESPACE }} --timeout=3m
           kubectl rollout status deployment/inventoryservice \
             -n ${{ env.NAMESPACE }} --timeout=3m
+          kubectl rollout status deployment/notificationservice \
+            -n ${{ env.NAMESPACE }} --timeout=3m
+
+      - name: Health check OrderService
+        if: ${{ env.ORDER_SQL_CONNECTION != '' }}
+        run: |
+          kubectl rollout status deployment/orderservice \
+            -n ${{ env.NAMESPACE }} --timeout=3m
+
+      - name: Health check PaymentService
+        if: ${{ env.PAYMENT_SQL_CONNECTION != '' }}
+        run: |
+          kubectl rollout status deployment/paymentservice \
+            -n ${{ env.NAMESPACE }} --timeout=3m
 
       - name: Verify health endpoints
         run: |
@@ -288,6 +542,9 @@ jobs:
           helm rollback authservice -n ${{ env.NAMESPACE }} || true
           helm rollback productservice -n ${{ env.NAMESPACE }} || true
           helm rollback inventoryservice -n ${{ env.NAMESPACE }} || true
+          helm rollback orderservice -n ${{ env.NAMESPACE }} || true
+          helm rollback paymentservice -n ${{ env.NAMESPACE }} || true
+          helm rollback notificationservice -n ${{ env.NAMESPACE }} || true
           echo "Rollback complete"
 
       - name: Print deployment summary
@@ -301,4 +558,15 @@ jobs:
           echo "Auth:         http://${{ secrets.INGRESS_IP }}.nip.io/auth"
           echo "Product:      http://${{ secrets.INGRESS_IP }}.nip.io/product"
           echo "Inventory:    http://${{ secrets.INGRESS_IP }}.nip.io/inventory"
+          echo "Notification: http://${{ secrets.INGRESS_IP }}.nip.io/notification"
+          if [ -n "$ORDER_SQL_CONNECTION" ]; then
+            echo "Order:        http://${{ secrets.INGRESS_IP }}.nip.io/order"
+          else
+            echo "Order:        not deployed (ORDER_SQL_CONNECTION secret unset)"
+          fi
+          if [ -n "$PAYMENT_SQL_CONNECTION" ]; then
+            echo "Payment:      http://${{ secrets.INGRESS_IP }}.nip.io/payment"
+          else
+            echo "Payment:      not deployed (PAYMENT_SQL_CONNECTION secret unset)"
+          fi
           echo "=========================================="

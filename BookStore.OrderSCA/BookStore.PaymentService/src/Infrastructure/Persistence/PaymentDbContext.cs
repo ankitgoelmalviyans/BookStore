@@ -45,7 +45,10 @@ public class PaymentDbContext : DbContext
             entity.Property(m => m.CorrelationId).HasMaxLength(200);
             entity.Property(m => m.TraceParent).HasMaxLength(200);
             entity.Property(m => m.RetryCount);
-            entity.HasIndex(m => m.Status);
+            // Composite, not Status-only: EfOutboxStore.GetPendingAsync filters on Status == Pending
+            // and orders by CreatedAt, so the index needs both columns to serve that query without a
+            // separate sort.
+            entity.HasIndex(m => new { m.Status, m.CreatedAt });
         });
 
         modelBuilder.Entity<InboxMessage>(entity =>

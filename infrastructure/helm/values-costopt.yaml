@@ -21,22 +21,25 @@ inventoryservice:
   ingress:
     host: ""               # set by pipeline: $INGRESS_IP.nip.io
 
-# Phase 2 (planned deploy) — chart + CI validation exist; CD deploy is gated on the Azure SQL
-# database being provisioned first (see docs/ROADMAP.md pipeline notes).
+# Phase 2 — cd-costopt.yml deploys this whenever the ORDER_SQL_CONNECTION repo secret is set
+# (OrderDb is provisioned by infra-bicep.yml — free-tier Azure SQL Serverless, see
+# infrastructure/bicep/sql-order-payment.bicep; the secret holds that server's connection string,
+# set once by the operator since infra-bicep.yml can't write GitHub secrets itself). Unset secret
+# = step no-ops, nothing else in the pipeline is affected.
 orderservice:
   image:
     tag: ""                # set by pipeline: ${{ github.sha }}
   ingress:
     host: ""               # set by pipeline: $INGRESS_IP.nip.io
 
-# Phase 2 (planned deploy) — chart + CI validation exist; CD deploy gated on Azure SQL provisioning.
+# Phase 2 — same gating as orderservice, on the PAYMENT_SQL_CONNECTION repo secret (PaymentDb).
 paymentservice:
   image:
     tag: ""                # set by pipeline: ${{ github.sha }}
   ingress:
     host: ""               # set by pipeline: $INGRESS_IP.nip.io
 
-# Phase 2 (planned deploy) — chart + CI validation exist; CD deploy gated on Service Bus topology.
+# Phase 2 — no SQL dependency, deploys unconditionally (Service Bus topology already provisioned).
 notificationservice:
   image:
     tag: ""                # set by pipeline: ${{ github.sha }}

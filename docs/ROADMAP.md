@@ -296,12 +296,19 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
   databases (Order, Payment), firewall rule allowing AKS egress, and Key Vault secrets for both
   connection strings — all in the existing resource group (ADR-16/ADR-20, no second-account wiring
   needed).
-- **`cd-costopt.yml`:** build+push the three new images in parallel with the existing ones; a new
-  step running EF Core migrations against the Serverless databases (`dotnet ef database update` or a
-  migration bundle) before the `helm upgrade`; new Kubernetes secrets for the SQL connection strings
-  and `STRIPE_TEST_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET`; `helm upgrade --install` extended to the three
-  new charts (new `orderservice`/`paymentservice`/`notificationservice` Helm charts, built off the
-  existing `bookstore-lib` library chart pattern).
+- **`cd-costopt.yml` ✅ IMPLEMENTED:** build+push jobs for the three new images
+  (`build-push-order`/`-payment`/`-notification`, mirroring `build-push-inventory`); an EF Core
+  migration step (`dotnet ef database update`, via a `dotnet-tools.json`-pinned `dotnet-ef 8.0.11`)
+  plus a `dotnet run -- --seed` step per SQL-backed service, both before the `helm upgrade`;
+  Kubernetes secrets for the SQL connection strings, `Stripe__SecretKey`, and the `*:Enabled` flags;
+  `helm upgrade --install` extended to the three new charts. **The SQL-dependent steps (migrations,
+  seed, `Deploy OrderService`/`Deploy PaymentService`, their health checks) are gated on the
+  `ORDER_SQL_CONNECTION`/`PAYMENT_SQL_CONNECTION` repo secrets being non-empty** — until an operator
+  sets them, those steps no-op and the rest of the deploy (including NotificationService, which has
+  no SQL dependency) runs exactly as before. Once set, CD also flips `Orders:InboundEnabled`,
+  `Reservations:Enabled`, and `Notifications:Enabled` to `true` in the respective K8s secrets — so
+  setting the two connection-string secrets is what actually turns the live saga on, not a separate
+  step.
 - **`cd-ui.yml`:** unchanged structurally — same app, two more `#{...}#` tokens to replace.
 - **New Service Bus topology ✅ (in `main.bicep`):** alongside the existing
   `product-events`/`inventory-subscription`, all three saga topics + their subscriptions are now
@@ -313,18 +320,37 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
   - `payment-events` (`PaymentProcessed`, `PaymentFailed`) — subscriptions
     `order-payment-outcome-subscription` (OrderService) and `notification-payment-subscription`
     (NotificationService)
-- **Remaining deploy work (operator-gated, has real cost):**
-  1. **Azure SQL Serverless** server + `OrderDb`/`PaymentDb` in `main.bicep` (ADR-16) — held back
-     because merging a Bicep change auto-triggers `infra-bicep`, so adding SQL = provisioning it (and
-     it needs an admin-password secret wired into `infra-bicep.yml` first). This is the point where
-     always-on cost stops being ~free, so it's a deliberate operator decision.
-  2. **EF Core migrations** for OrderService/PaymentService (the `Orders`/`OrderItems`/`OrderOutbox`,
-     `Payments`/`PaymentOutbox`/`ProcessedInbox` schemas) — generated via `dotnet ef`, then applied by
-     CD. None exist yet.
-  3. **`cd-costopt.yml`** — build/push the order/payment/notification images, create the SQL
-     connection-string + Stripe secrets, run migrations, `helm upgrade` the three new charts, and flip
-     the `*:Enabled` flags — sequenced so the SQL-dependent services only deploy after the DB exists
-     (otherwise they crash-loop).
+- **Azure SQL Serverless ✅ IMPLEMENTED (free-tier).** `infrastructure/bicep/sql-order-payment.bicep`
+  declares the logical server + `OrderDb`/`PaymentDb` (Serverless, `GP_S_Gen5_1`, auto-pause) and is
+  wired into `main.bicep` as a real `module` — `infra-bicep.yml` provisions it in the **same
+  subscription/resource group** as everything else, with the existing service principal. No second
+  account, no manual Portal step. Cost is a non-issue: both databases set `useFreeLimit: true` +
+  `freeLimitExhaustionBehavior: 'AutoPause'` — Azure SQL's free offer gives up to 10 free databases
+  per subscription, each with its own 100,000 vCore-seconds + 32GB data + 32GB backup storage,
+  refreshed monthly, and `AutoPause` means exceeding that allowance pauses the database rather than
+  billing. Combined with Serverless auto-pause on idle, there is no manual on/off toggling to build —
+  Azure already does both. `main.bicep` takes a new `sqlAdminPassword` (`@secure()`) param, supplied
+  by `infra-bicep.yml` from the `SQL_ADMIN_PASSWORD` repo secret, and outputs `sqlServerFqdn`.
+- **EF Core migrations ✅ IMPLEMENTED.** `InitialCreate` exists for both `OrderDbContext`
+  (`Orders`/`OrderItems`/`OrderOutbox`/`ProcessedInbox`) and `PaymentDbContext`
+  (`Payments`/`PaymentOutbox`/`ProcessedInbox`), generated via `dotnet ef migrations add`. Each
+  service's design-time factory (`OrderDbContextFactory`/`PaymentDbContextFactory`) reads the
+  connection string from `ORDER_DB_CONNECTION`/`PAYMENT_DB_CONNECTION` — set by CD from the repo
+  secrets below — falling back to a LocalDB connection string with no literal credential (keeps CI's
+  secret-scan clean) when unset.
+- **Seed data ✅ IMPLEMENTED.** Each API project has a CD-only `--seed` CLI path
+  (`SeedRunner.RunAsync`, invoked as `dotnet run -- --seed`): applies pending migrations, then
+  inserts one demo row if the table is empty (idempotent — safe to run on every deploy). It never
+  runs as part of normal startup; `Program.cs` checks `args.Contains("--seed")` and returns before
+  building the web host.
+- **Remaining (operator action, not code):** GitHub Actions can't write its own secrets back from a
+  workflow run, so after the next `infra-bicep.yml` run, copy its printed `SQL_SERVER_FQDN` (plus
+  the `SQL_ADMIN_PASSWORD` you set and the default login `bookstoreadmin`) into two connection-string
+  secrets — `ORDER_SQL_CONNECTION`/`PAYMENT_SQL_CONNECTION` — the same one-time manual step already
+  done for `COSMOS_ENDPOINT`/`COSMOS_KEY`. Optionally also set `STRIPE_TEST_SECRET_KEY`
+  (PaymentService falls back to `FakePaymentGateway` if unset). Setting those two SQL secrets is what
+  activates migrations, seeding, the OrderService/PaymentService deploys, and the `*:Enabled` saga
+  flags in `cd-costopt.yml` — everything else is already wired.
 - **New Cosmos container:** `OrderReservations` (partition `/id` = orderId) — InventoryService's per-order
   reservation-outcome tracking + embedded outbox, added to `main.bicep` alongside the existing
   `Products`/`Inventory`/`ProcessedMessages` containers (see the durability note in `docs/HLD.md`
