@@ -80,6 +80,9 @@ public class OrderOutcomeHandlerTests
 
         Assert.Equal(OrderStatus.Confirmed, order.Status); // unchanged
         Assert.Null(repo.OutcomeOutbox);
+        // The inbox marker is still recorded (via SaveOutcomeAsync with no outbox), so a redelivery
+        // of this terminal-order outcome doesn't loop.
+        Assert.Equal(1, repo.SaveOutcomeCallCount);
     }
 
     [Fact]
