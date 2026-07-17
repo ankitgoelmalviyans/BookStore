@@ -28,21 +28,21 @@ public class NotificationHandler : INotificationHandler
 
     public Task OnOrderCancelledAsync(OrderCancelledNotification e, CancellationToken cancellationToken = default) =>
         _notifier.NotifyAsync(new Notification(
-            e.OrderId, "email", recipient: string.Empty,
+            e.OrderId, "email", string.Empty,
             "Order cancelled",
             $"Your order {e.OrderId} has been cancelled."),
             cancellationToken);
 
     public Task OnPaymentProcessedAsync(PaymentProcessedNotification e, CancellationToken cancellationToken = default) =>
         _notifier.NotifyAsync(new Notification(
-            e.OrderId, "email", recipient: string.Empty,
+            e.OrderId, "email", string.Empty,
             "Payment confirmed",
             $"Payment of {e.Amount:C} for order {e.OrderId} was successful."),
             cancellationToken);
 
     public Task OnPaymentFailedAsync(PaymentFailedNotification e, CancellationToken cancellationToken = default) =>
         _notifier.NotifyAsync(new Notification(
-            e.OrderId, "email", recipient: string.Empty,
+            e.OrderId, "email", string.Empty,
             "Payment failed",
             $"Payment for order {e.OrderId} could not be completed ({e.Reason})."),
             cancellationToken);
