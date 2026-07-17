@@ -225,6 +225,51 @@ jobs:
           tags: paymentservice:ci
 
   # ─────────────────────────────────────────
+  # JOB 3d — Build and test NotificationService
+  # ─────────────────────────────────────────
+  build-notification:
+    name: Build NotificationService
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Build/test only — never pushes — so don't leave the token in .git/config.
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore
+        run: |
+          dotnet restore \
+            BookStore.OrderSCA/BookStore.NotificationService/BookStore.NotificationService.sln
+
+      - name: Build
+        run: |
+          dotnet build \
+            BookStore.OrderSCA/BookStore.NotificationService/BookStore.NotificationService.sln \
+            --no-restore \
+            --configuration Release
+
+      - name: Test
+        run: |
+          dotnet test \
+            BookStore.OrderSCA/BookStore.NotificationService/tests/NotificationService.UnitTests/NotificationService.UnitTests.csproj \
+            --configuration Release
+
+      - name: Docker build check
+        uses: docker/build-push-action@v5
+        with:
+          context: BookStore.OrderSCA/BookStore.NotificationService/src
+          file: BookStore.OrderSCA/BookStore.NotificationService/src/BookStore.NotificationService.API/Dockerfile
+          push: false
+          tags: notificationservice:ci
+
+  # ─────────────────────────────────────────
   # JOB 4 — Build Angular UI
   # ─────────────────────────────────────────
   build-ui:
@@ -277,6 +322,7 @@ jobs:
           helm dependency update infrastructure/helm/inventoryservice
           helm dependency update infrastructure/helm/orderservice
           helm dependency update infrastructure/helm/paymentservice
+          helm dependency update infrastructure/helm/notificationservice
 
       - name: Helm lint
         run: |
@@ -285,6 +331,7 @@ jobs:
           helm lint infrastructure/helm/inventoryservice
           helm lint infrastructure/helm/orderservice
           helm lint infrastructure/helm/paymentservice
+          helm lint infrastructure/helm/notificationservice
 
       - name: Helm dry run — Profile A
         run: |
@@ -313,6 +360,12 @@ jobs:
             > /dev/null
 
           helm template paymentservice infrastructure/helm/paymentservice \
+            --values infrastructure/helm/values-costopt.yaml \
+            --set ingress.host=1.2.3.4.nip.io \
+            --set image.tag=ci-test \
+            > /dev/null
+
+          helm template notificationservice infrastructure/helm/notificationservice \
             --values infrastructure/helm/values-costopt.yaml \
             --set ingress.host=1.2.3.4.nip.io \
             --set image.tag=ci-test \
@@ -409,6 +462,7 @@ jobs:
       - build-inventory
       - build-order
       - build-payment
+      - build-notification
       - build-ui
       - validate-helm
       - validate-bicep
@@ -425,6 +479,7 @@ jobs:
           echo "✓ InventoryService builds"
           echo "✓ OrderService builds"
           echo "✓ PaymentService builds"
+          echo "✓ NotificationService builds"
           echo "✓ Angular UI builds"
           echo "✓ Helm charts valid"
           echo "✓ Bicep templates valid"
