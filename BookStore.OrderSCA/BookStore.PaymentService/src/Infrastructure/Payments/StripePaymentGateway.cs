@@ -63,6 +63,13 @@ public class StripePaymentGateway : IPaymentGateway
 
             return retryable ? ChargeResult.TransientError(reason) : ChargeResult.Failure(reason);
         }
+        catch (OperationCanceledException)
+        {
+            // Cancellation (e.g. host shutdown via the token) is not a payment fault — let it
+            // propagate unchanged rather than reporting a transient gateway error. TaskCanceledException
+            // derives from OperationCanceledException, so this covers both.
+            throw;
+        }
         catch (Exception ex)
         {
             // Non-Stripe exceptions here are transport/host failures (DNS, socket, TLS) — retryable.
