@@ -23,6 +23,13 @@ param aksNodeCount int = 1
 @description('VM size for AKS nodes')
 param aksNodeSize string = 'Standard_B2s'
 
+@description('Name of the Azure SQL logical server (Phase 2 — Order/Payment, see sql-order-payment.bicep)')
+param sqlServerName string = 'bookstore-sql-ga'
+
+@description('Azure SQL admin password (Phase 2) — passed by infra-bicep.yml from the SQL_ADMIN_PASSWORD secret, never committed')
+@secure()
+param sqlAdminPassword string
+
 // ─── Azure Container Registry ─────────────────────────────────────────────────
 
 resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
@@ -236,6 +243,19 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
   }
 }
 
+// ─── Phase 2 — Azure SQL (Order/Payment) ───────────────────────────────────────
+// Free-tier by default (useFreeLimit + AutoPause) — see sql-order-payment.bicep for the full
+// reasoning. sqlAdminLogin/sqlDatabaseSku/autoPauseDelayMinutes use that module's own defaults.
+
+module sqlOrderPayment 'sql-order-payment.bicep' = {
+  name: 'sql-order-payment'
+  params: {
+    location: location
+    sqlServerName: sqlServerName
+    sqlAdminPassword: sqlAdminPassword
+  }
+}
+
 // ─── Outputs ─────────────────────────────────────────────────────────────────
 
 output acrLoginServer string = acr.properties.loginServer
@@ -243,3 +263,4 @@ output aksClusterName string = aks.name
 output cosmosEndpoint string = cosmos.properties.documentEndpoint
 output serviceBusEndpoint string = serviceBus.properties.serviceBusEndpoint
 output keyVaultUri string = keyVault.properties.vaultUri
+output sqlServerFqdn string = sqlOrderPayment.outputs.sqlServerFqdn

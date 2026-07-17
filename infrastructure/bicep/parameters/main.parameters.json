@@ -8,6 +8,7 @@
     "cosmosAccountName":   { "value": "bscosmosankit2026ga" },
     "keyVaultName":        { "value": "bskvankit2026ga" },
     "aksNodeCount":        { "value": 1 },
-    "aksNodeSize":         { "value": "Standard_B2s" }
+    "aksNodeSize":         { "value": "Standard_B2s" },
+    "sqlServerName":       { "value": "bookstore-sql-ga" }
   }
 }

@@ -36,6 +36,14 @@ else
     Console.WriteLine($"Loaded {builder.Environment.EnvironmentName} configuration");
 }
 
+// CD-only path: `dotnet run -- --seed` applies migrations + inserts demo data, then exits — never
+// builds the web host, so it can't run as part of normal startup.
+if (args.Contains("--seed"))
+{
+    await BookStore.PaymentService.Infrastructure.Persistence.SeedRunner.RunAsync(builder.Configuration);
+    return;
+}
+
 // Add services
 builder.Services.AddApplicationServices(builder.Configuration);
 builder.Services.AddControllers();

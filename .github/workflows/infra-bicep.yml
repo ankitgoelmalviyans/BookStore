@@ -51,12 +51,14 @@ jobs:
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --template-file infrastructure/bicep/main.bicep \
             --parameters @infrastructure/bicep/parameters/main.parameters.json \
+            --parameters sqlAdminPassword='${{ secrets.SQL_ADMIN_PASSWORD }}' \
             --query properties.outputs \
             --output json)
 
           echo "COSMOS_ENDPOINT=$(echo $OUTPUT | jq -r .cosmosEndpoint.value)" >> $GITHUB_ENV
           echo "ACR_SERVER=$(echo $OUTPUT | jq -r .acrLoginServer.value)" >> $GITHUB_ENV
           echo "AKS_NAME=$(echo $OUTPUT | jq -r .aksClusterName.value)" >> $GITHUB_ENV
+          echo "SQL_SERVER_FQDN=$(echo $OUTPUT | jq -r .sqlServerFqdn.value)" >> $GITHUB_ENV
 
       - name: Get AKS Credentials
         run: |
@@ -262,6 +264,7 @@ jobs:
           echo "Base URL:       ${{ env.BASE_URL }}"
           echo "Cosmos:         ${{ env.COSMOS_ENDPOINT }}"
           echo "ACR:            ${{ env.ACR_SERVER }}"
+          echo "SQL Server:     ${{ env.SQL_SERVER_FQDN }}"
           echo "=========================================="
           echo ""
           echo "ACTION REQUIRED: Add these to GitHub Secrets:"
@@ -270,3 +273,11 @@ jobs:
           echo "  PRODUCT_API_URL   = http://${{ env.INGRESS_IP }}.nip.io/product/api"
           echo "  INVENTORY_API_URL = http://${{ env.INGRESS_IP }}.nip.io/inventory/api"
           echo "  ALLOWED_ORIGINS   = http://${{ env.INGRESS_IP }}.nip.io"
+          echo ""
+          echo "  Phase 2 SQL (OrderService/PaymentService) — build these from SQL_SERVER_FQDN"
+          echo "  above + the SQL_ADMIN_PASSWORD you set + sqlAdminLogin (default"
+          echo "  'bookstoreadmin', see infrastructure/bicep/sql-order-payment.bicep):"
+          echo "  ORDER_SQL_CONNECTION   = Server=tcp:${{ env.SQL_SERVER_FQDN }},1433;Initial Catalog=OrderDb;User ID=bookstoreadmin;Password=<SQL_ADMIN_PASSWORD>;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
+          echo "  PAYMENT_SQL_CONNECTION = Server=tcp:${{ env.SQL_SERVER_FQDN }},1433;Initial Catalog=PaymentDb;User ID=bookstoreadmin;Password=<SQL_ADMIN_PASSWORD>;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
+          echo "  (cd-costopt.yml's Order/Payment migration, seed, and deploy steps stay no-ops"
+          echo "  until both secrets are set — see docs/ROADMAP.md.)"
