@@ -1,0 +1,47 @@
+.page {
+  max-width: 720px;
+  margin: 24px auto;
+  padding: 0 16px;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 48px 0;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.empty-state mat-icon {
+  font-size: 48px;
+  width: 48px;
+  height: 48px;
+  opacity: 0.4;
+}
+
+table {
+  width: 100%;
+}
+
+.cart-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 16px;
+}
+
+.cart-total {
+  display: flex;
+  flex-direction: column;
+  font-size: 1.1rem;
+}
+
+.cart-total span {
+  font-size: 0.8rem;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.btn-spinner {
+  display: inline-block;
+}

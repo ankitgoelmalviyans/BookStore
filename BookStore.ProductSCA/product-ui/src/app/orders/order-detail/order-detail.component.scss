@@ -1,0 +1,87 @@
+.page {
+  max-width: 720px;
+  margin: 24px auto;
+  padding: 0 16px;
+}
+
+.back-link {
+  margin-bottom: 8px;
+}
+
+.back-link mat-icon {
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+.loading-row {
+  display: flex;
+  justify-content: center;
+  padding: 48px 0;
+}
+
+.header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+
+.header-row h2 {
+  margin: 0 0 4px;
+}
+
+.placed-at {
+  margin: 0;
+  color: rgba(0, 0, 0, 0.6);
+  font-size: 0.85rem;
+}
+
+.live-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #fff8e6;
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin: 12px 0;
+  font-size: 0.85rem;
+  color: #8a6100;
+}
+
+.items-table {
+  width: 100%;
+  margin-top: 16px;
+}
+
+.order-total {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 0 0;
+  font-size: 1.05rem;
+}
+
+.chip {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 16px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  height: fit-content;
+}
+
+.chip-success {
+  background: #e3f4e6;
+  color: #1e7d32;
+}
+
+.chip-danger {
+  background: #fde7e7;
+  color: #c62828;
+}
+
+.chip-pending {
+  background: #fff4d9;
+  color: #8a6100;
+}

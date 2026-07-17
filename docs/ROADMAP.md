@@ -274,13 +274,39 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
   Statelessness means it scales horizontally trivially (any replica can handle any message) and needs
   no schema, no migrations, no consistency story. Its only concern is idempotency (below).
 
-### UI — lazy-loaded modules in `product-ui`
+### UI — lazy-loaded modules in `product-ui` ✅ IMPLEMENTED
 
-- **What:** an `order` and a `payment` Angular feature module (routed, lazy-loaded), added to the
-  existing `product-ui` app — no new Angular workspace, no new `cd-ui.yml` pipeline. `environment.prod.ts`
-  gains `ORDER_API_URL`/`PAYMENT_API_URL` tokens, replaced by `cd-ui.yml` the same way the existing
-  three are today. `AuthInterceptor` (Bearer + CorrelationId) covers the new modules automatically —
-  it's already global.
+- **What shipped:** an `OrdersModule` — the app's **first real lazy-loaded feature module**
+  (`loadChildren`, confirmed as its own bundle chunk at build time) — added to the existing
+  `product-ui` app under `/orders` (`''` → My Orders/history, `cart` → the pre-checkout cart,
+  `:id` → order detail). No new Angular workspace, no new `cd-ui.yml` pipeline; `environment.prod.ts`
+  gained `ORDER_API_URL`/`PAYMENT_API_URL` tokens, replaced by `cd-ui.yml` via two more `sed` lines,
+  same as the existing three. `AuthInterceptor` (Bearer + CorrelationId) covers the new module
+  automatically since it's already global; routes are additionally gated by a new `AuthGuard`
+  (`canActivate`), applied to `/orders` and, while touching the route table, retrofitted onto
+  `/products`/`/inventory` too — previously any unauthenticated visitor could navigate straight to
+  those pages and the API calls would just 401 silently (no error handling existed anywhere).
+- **Payment doesn't get its own routed page.** PaymentService's entire HTTP surface is one endpoint
+  (`GET /api/Payment/{orderId}`, no list) — there's nothing for a standalone "Payment" section to
+  browse. Payment status is instead a `PaymentStatusComponent` embedded in Order Detail, polling
+  isn't needed there since Order Detail's own poll loop re-fetches it on every tick.
+- **Cart is client-side only** (`CartService`, `providedIn: 'root'`, localStorage-persisted) — the
+  backend has no cart concept. `PlaceOrderCommand.Items[].UnitPrice` is client-supplied (the
+  OrderService's own documented trust gap, unchanged by this work — see the "server-side price
+  resolution" note above), captured from the product list at "Add to cart" time.
+- **Order Detail polls while `Status === 'Pending'`** (4s interval, stops at the first terminal
+  state) so placing an order and watching inventory-reserve → charge resolve doesn't require a
+  manual refresh — the saga is asynchronous, and the UI now reflects that instead of showing a
+  frozen "Pending" forever.
+- **Also fixed while touching the route table/shell (agreed scope, not a separate change):** added
+  the app's only nav shell (`NavToolbarComponent` — brand, Products/My Orders links, cart badge,
+  login/logout; `AppComponent` was previously just a bare `<router-outlet>`), a global
+  `ErrorInterceptor` (401 → auto-logout instead of silently stuck pages; 5xx/network → a snackbar
+  instead of nothing — 404s deliberately excluded since `PaymentService.getByOrderId` treats "not
+  found yet" as a normal state), a custom Material theme (brown/teal, replacing the stock
+  indigo-pink prebuilt theme), and two pre-existing bugs: `ProductListComponent`'s selector was
+  `app-product-form` (copy-paste artifact) and `InventoryComponent` had a dead, unused
+  `inventory.component.html` sitting next to an inline template that actually rendered.
 - **Why not micro-frontends/separate apps:** ADR-18 — one login/shell for a single-operator project;
   the SCS boundary that actually matters here (independent data ownership, independent deploy of the
   *backend*) stays intact either way.
@@ -320,17 +346,28 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
   - `payment-events` (`PaymentProcessed`, `PaymentFailed`) — subscriptions
     `order-payment-outcome-subscription` (OrderService) and `notification-payment-subscription`
     (NotificationService)
-- **Azure SQL Serverless ✅ IMPLEMENTED (free-tier).** `infrastructure/bicep/sql-order-payment.bicep`
-  declares the logical server + `OrderDb`/`PaymentDb` (Serverless, `GP_S_Gen5_1`, auto-pause) and is
-  wired into `main.bicep` as a real `module` — `infra-bicep.yml` provisions it in the **same
-  subscription/resource group** as everything else, with the existing service principal. No second
-  account, no manual Portal step. Cost is a non-issue: both databases set `useFreeLimit: true` +
-  `freeLimitExhaustionBehavior: 'AutoPause'` — Azure SQL's free offer gives up to 10 free databases
-  per subscription, each with its own 100,000 vCore-seconds + 32GB data + 32GB backup storage,
-  refreshed monthly, and `AutoPause` means exceeding that allowance pauses the database rather than
-  billing. Combined with Serverless auto-pause on idle, there is no manual on/off toggling to build —
-  Azure already does both. `main.bicep` takes a new `sqlAdminPassword` (`@secure()`) param, supplied
-  by `infra-bicep.yml` from the `SQL_ADMIN_PASSWORD` repo secret, and outputs `sqlServerFqdn`.
+- **Azure SQL Serverless ✅ IMPLEMENTED (free-tier by default, not cost/availability-free).**
+  `infrastructure/bicep/sql-order-payment.bicep` declares the logical server + `OrderDb`/`PaymentDb`
+  (Serverless, `GP_S_Gen5_1`, auto-pause) and is wired into `main.bicep` as a real `module` —
+  `infra-bicep.yml` provisions it in the **same subscription/resource group** as everything else,
+  with the existing service principal. No second account, no manual Portal step. Both databases set
+  `useFreeLimit: true` + `freeLimitExhaustionBehavior: 'AutoPause'` — Azure SQL's free offer gives up
+  to 10 free databases per subscription, each with its own 100,000 vCore-seconds + 32GB data + 32GB
+  backup storage, refreshed monthly. **This is not a pure cost optimisation — read the caveats
+  below.** `main.bicep` takes a new `sqlAdminPassword` (`@secure()`) param, supplied by
+  `infra-bicep.yml` from the `SQL_ADMIN_PASSWORD` repo secret, and outputs `sqlServerFqdn`.
+  - **Free-tier exhaustion is an availability event, not just a billing one.** `AutoPause` on
+    exceeding the monthly vCore-second allowance means the database goes **unavailable for the rest
+    of the calendar month** (not "resumes on the next request" like idle auto-pause) — a real outage
+    if this project ever gets enough traffic to burn through 100,000 vCore-seconds before the
+    monthly reset. Worth monitoring if usage grows beyond demo/portfolio levels.
+  - **Storage is billed regardless of pause state.** Auto-pause (idle or free-tier-exhaustion) only
+    stops *compute* billing; the 32GB free storage allowance still applies, and data beyond that is
+    billed continuously whether the database is paused or not.
+  - **Every resume has cold-start latency** (idle auto-pause resumes on the next connection attempt,
+    typically a few seconds) — this is *why* `EnableRetryOnFailure()` is configured on both
+    DbContexts, not an incidental detail. "No manual on/off toggling to build" means Azure handles
+    pause/resume mechanically, not that there's zero operational consequence to think about.
 - **EF Core migrations ✅ IMPLEMENTED.** `InitialCreate` exists for both `OrderDbContext`
   (`Orders`/`OrderItems`/`OrderOutbox`/`ProcessedInbox`) and `PaymentDbContext`
   (`Payments`/`PaymentOutbox`/`ProcessedInbox`), generated via `dotnet ef migrations add`. Each
@@ -351,6 +388,18 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
   (PaymentService falls back to `FakePaymentGateway` if unset). Setting those two SQL secrets is what
   activates migrations, seeding, the OrderService/PaymentService deploys, and the `*:Enabled` saga
   flags in `cd-costopt.yml` — everything else is already wired.
+  - **Known gap, not yet closed: the running services use the server-admin login.** As described
+    above, `ORDER_SQL_CONNECTION`/`PAYMENT_SQL_CONNECTION` are built from `bookstoreadmin` +
+    `SQL_ADMIN_PASSWORD` — the same credential `infra-bicep.yml` uses for migrations. That means
+    OrderService/PaymentService's *running pods* hold full server-admin rights (create/drop
+    databases, alter server config), not least-privilege access scoped to their own database's
+    tables — a real blast-radius concern if either service is ever compromised. The correct fix is
+    a separate, least-privileged SQL login per service (or Azure AD/workload-identity auth from
+    AKS, no password at all), reserving the admin credential for migrations/seeding only. Not
+    implemented yet: creating SQL logins/users declaratively needs a Bicep deployment script (T-SQL
+    isn't expressible as a plain ARM/Bicep resource) or a manual one-time step, which is real
+    additional scope beyond what's built so far — tracked here rather than silently left
+    undocumented.
 - **New Cosmos container:** `OrderReservations` (partition `/id` = orderId) — InventoryService's per-order
   reservation-outcome tracking + embedded outbox, added to `main.bicep` alongside the existing
   `Products`/`Inventory`/`ProcessedMessages` containers (see the durability note in `docs/HLD.md`

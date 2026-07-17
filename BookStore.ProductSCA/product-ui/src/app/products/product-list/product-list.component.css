@@ -1,0 +1,27 @@
+.page {
+  max-width: 960px;
+  margin: 24px auto;
+  padding: 0 16px;
+}
+
+.header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.header-row button mat-icon {
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+.loading-row {
+  display: flex;
+  justify-content: center;
+  padding: 32px 0;
+}
+
+table {
+  width: 100%;
+}

@@ -1,50 +1,42 @@
 import { Component, OnInit } from '@angular/core';
 import { ProductService } from '../../core/product.service';
+import { CartService } from '../../core/cart.service';
+import { Product } from '../../core/models/product.model';
 import { Router } from '@angular/router';
+import { MatSnackBar } from '@angular/material/snack-bar';
 
 @Component({
-  selector: 'app-product-form',
-  templateUrl: './product-list.component.html'
+  selector: 'app-product-list',
+  templateUrl: './product-list.component.html',
+  styleUrls: ['./product-list.component.css']
 })
-// @Component({
-//   selector: 'app-product-list',
-//   template: `
-//   <mat-card>
-//     <h2>Product List</h2>
-//     <table mat-table [dataSource]="products" class="mat-elevation-z8">
-//       <ng-container matColumnDef="name">
-//         <th mat-header-cell *matHeaderCellDef> Name </th>
-//         <td mat-cell *matCellDef="let p"> {{p.name}} </td>
-//       </ng-container>
-//       <ng-container matColumnDef="price">
-//         <th mat-header-cell *matHeaderCellDef> Price </th>
-//         <td mat-cell *matCellDef="let p"> ₹{{p.price}} </td>
-//       </ng-container>
-//       <ng-container matColumnDef="action">
-//         <th mat-header-cell *matHeaderCellDef> Inventory </th>
-//         <td mat-cell *matCellDef="let p">
-//           <button mat-button (click)="viewInventory(p.id)">View</button>
-//         </td>
-//       </ng-container>
-
-//       <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
-//       <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
-//     </table>
-//   </mat-card>
-//   `
-// })
 export class ProductListComponent implements OnInit {
-  products: any[] = [];
-  displayedColumns = ['name', 'price', 'action'];
-  constructor(private productService: ProductService, private router: Router) {}
+  products: Product[] = [];
+  loading = true;
+  displayedColumns = ['name', 'price', 'category', 'actions'];
+
+  constructor(
+    private productService: ProductService,
+    private cartService: CartService,
+    private router: Router,
+    private snackBar: MatSnackBar
+  ) {}
 
   ngOnInit(): void {
     this.loadProducts();
   }
 
   loadProducts(): void {
-    this.productService.getAll().subscribe((data: any) => {
-      this.products = data;
+    this.loading = true;
+    this.productService.getAll().subscribe({
+      next: (data: Product[]) => {
+        this.products = data;
+        this.loading = false;
+      },
+      error: () => {
+        // ErrorInterceptor already surfaces a toast — just stop the spinner so it isn't stuck.
+        this.loading = false;
+      }
     });
   }
 
@@ -59,13 +51,17 @@ export class ProductListComponent implements OnInit {
       });
     }
   }
-  
+
   editProduct(id: string) {
     this.router.navigate(['/products/edit', id]);
   }
-  
+
   addProduct() {
     this.router.navigate(['/products/add']);
   }
 
+  addToCart(product: Product) {
+    this.cartService.addItem(product, 1);
+    this.snackBar.open(`Added "${product.name}" to cart`, 'Dismiss', { duration: 3000 });
+  }
 }

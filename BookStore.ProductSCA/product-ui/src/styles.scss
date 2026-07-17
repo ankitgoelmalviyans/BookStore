@@ -1,1 +1,38 @@
-@import '~@angular/material/prebuilt-themes/indigo-pink.css'; body { margin: 0; font-family: Roboto, sans-serif; }
+@use '@angular/material' as mat;
+@include mat.core();
+
+// A warm "bookstore" palette instead of stock Material indigo-pink — brown/amber for primary
+// (paper, wood, leather-bound shelves), teal for accent (a calm contrast for actions/links).
+$bookstore-primary: mat.define-palette(mat.$brown-palette, 600);
+$bookstore-accent: mat.define-palette(mat.$teal-palette, 600, 400, 800);
+$bookstore-warn: mat.define-palette(mat.$red-palette);
+$bookstore-theme: mat.define-light-theme((
+  color: (
+    primary: $bookstore-primary,
+    accent: $bookstore-accent,
+    warn: $bookstore-warn,
+  ),
+  typography: mat.define-typography-config(),
+  density: 0,
+));
+
+@include mat.all-component-themes($bookstore-theme);
+
+html, body {
+  height: 100%;
+  margin: 0;
+  font-family: Roboto, "Helvetica Neue", sans-serif;
+  background: #f5f3f0;
+}
+
+// mat-card is the workhorse container across every page today — a touch of consistent breathing
+// room/elevation so pages don't look like unstyled tables dropped on the page.
+.mat-mdc-card {
+  padding: 20px;
+  border-radius: 10px !important;
+}
+
+h2 {
+  font-weight: 600;
+  color: #4e342e;
+}
