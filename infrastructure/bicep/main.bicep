@@ -84,6 +84,49 @@ resource sbSubscription 'Microsoft.ServiceBus/namespaces/topics/subscriptions@20
   name: 'inventory-subscription'
 }
 
+// ─── Phase 2 saga topology ────────────────────────────────────────────────────
+// order-events (published by OrderService) → InventoryService reserves, NotificationService notifies.
+resource orderEventsTopic 'Microsoft.ServiceBus/namespaces/topics@2022-10-01-preview' = {
+  parent: serviceBus
+  name: 'order-events'
+}
+resource inventoryOrderSub 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
+  parent: orderEventsTopic
+  name: 'inventory-order-subscription'
+}
+resource notificationOrderSub 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
+  parent: orderEventsTopic
+  name: 'notification-order-subscription'
+}
+
+// inventory-events (published by InventoryService) → PaymentService charges, OrderService cancels on failure.
+resource inventoryEventsTopic 'Microsoft.ServiceBus/namespaces/topics@2022-10-01-preview' = {
+  parent: serviceBus
+  name: 'inventory-events'
+}
+resource paymentSub 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
+  parent: inventoryEventsTopic
+  name: 'payment-subscription'
+}
+resource orderInventoryOutcomeSub 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
+  parent: inventoryEventsTopic
+  name: 'order-inventory-outcome-subscription'
+}
+
+// payment-events (published by PaymentService) → OrderService confirms/cancels, NotificationService notifies.
+resource paymentEventsTopic 'Microsoft.ServiceBus/namespaces/topics@2022-10-01-preview' = {
+  parent: serviceBus
+  name: 'payment-events'
+}
+resource orderPaymentOutcomeSub 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
+  parent: paymentEventsTopic
+  name: 'order-payment-outcome-subscription'
+}
+resource notificationPaymentSub 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
+  parent: paymentEventsTopic
+  name: 'notification-payment-subscription'
+}
+
 // ─── Cosmos DB ────────────────────────────────────────────────────────────────
 
 resource cosmos 'Microsoft.DocumentDB/databaseAccounts@2024-02-15-preview' = {
