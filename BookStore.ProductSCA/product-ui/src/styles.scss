@@ -6,7 +6,6 @@
 $bookstore-primary: mat.define-palette(mat.$brown-palette, 600);
 $bookstore-accent: mat.define-palette(mat.$teal-palette, 600, 400, 800);
 $bookstore-warn: mat.define-palette(mat.$red-palette);
-
 $bookstore-theme: mat.define-light-theme((
   color: (
     primary: $bookstore-primary,

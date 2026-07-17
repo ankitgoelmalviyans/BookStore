@@ -28,9 +28,15 @@ export class ProductListComponent implements OnInit {
 
   loadProducts(): void {
     this.loading = true;
-    this.productService.getAll().subscribe((data: Product[]) => {
-      this.products = data;
-      this.loading = false;
+    this.productService.getAll().subscribe({
+      next: (data: Product[]) => {
+        this.products = data;
+        this.loading = false;
+      },
+      error: () => {
+        // ErrorInterceptor already surfaces a toast — just stop the spinner so it isn't stuck.
+        this.loading = false;
+      }
     });
   }
 

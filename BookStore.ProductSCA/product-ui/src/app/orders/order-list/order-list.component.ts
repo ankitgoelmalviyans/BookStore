@@ -11,14 +11,28 @@ import { OrderSummary } from '../../core/models/order.model';
 export class OrderListComponent implements OnInit {
   orders: OrderSummary[] = [];
   loading = true;
+  loadError = false;
   displayedColumns = ['id', 'status', 'itemCount', 'total', 'createdAt', 'actions'];
 
   constructor(private orderService: OrderService, private router: Router) {}
 
   ngOnInit(): void {
-    this.orderService.getAll().subscribe(orders => {
-      this.orders = orders;
-      this.loading = false;
+    this.load();
+  }
+
+  load(): void {
+    this.loading = true;
+    this.loadError = false;
+    this.orderService.getAll().subscribe({
+      next: orders => {
+        this.orders = orders;
+        this.loading = false;
+      },
+      error: () => {
+        // ErrorInterceptor already surfaced a toast — just stop the spinner and expose a retry.
+        this.loading = false;
+        this.loadError = true;
+      }
     });
   }
 

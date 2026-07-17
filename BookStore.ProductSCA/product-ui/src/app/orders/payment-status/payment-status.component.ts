@@ -9,6 +9,7 @@ import { Payment } from '../../core/models/payment.model';
 export class PaymentStatusComponent {
   @Input() payment: Payment | null = null;
   @Input() loading = false;
+  @Input() orderStatus: string | null = null;
 
   get chipClass(): string {
     switch (this.payment?.status) {

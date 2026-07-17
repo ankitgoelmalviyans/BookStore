@@ -25,7 +25,10 @@ inventoryservice:
 # (OrderDb is provisioned by infra-bicep.yml — free-tier Azure SQL Serverless, see
 # infrastructure/bicep/sql-order-payment.bicep; the secret holds that server's connection string,
 # set once by the operator since infra-bicep.yml can't write GitHub secrets itself). Unset secret
-# = step no-ops, nothing else in the pipeline is affected.
+# means the Kubernetes secret and the `helm upgrade` step are both skipped — but if orderservice
+# was already deployed in an earlier run, an unset secret now makes the workflow fail loudly
+# (see the "Guard" step in cd-costopt.yml) rather than silently leaving that release running
+# against a secret we chose not to touch.
 orderservice:
   image:
     tag: ""                # set by pipeline: ${{ github.sha }}

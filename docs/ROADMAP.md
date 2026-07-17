@@ -346,17 +346,28 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
   - `payment-events` (`PaymentProcessed`, `PaymentFailed`) — subscriptions
     `order-payment-outcome-subscription` (OrderService) and `notification-payment-subscription`
     (NotificationService)
-- **Azure SQL Serverless ✅ IMPLEMENTED (free-tier).** `infrastructure/bicep/sql-order-payment.bicep`
-  declares the logical server + `OrderDb`/`PaymentDb` (Serverless, `GP_S_Gen5_1`, auto-pause) and is
-  wired into `main.bicep` as a real `module` — `infra-bicep.yml` provisions it in the **same
-  subscription/resource group** as everything else, with the existing service principal. No second
-  account, no manual Portal step. Cost is a non-issue: both databases set `useFreeLimit: true` +
-  `freeLimitExhaustionBehavior: 'AutoPause'` — Azure SQL's free offer gives up to 10 free databases
-  per subscription, each with its own 100,000 vCore-seconds + 32GB data + 32GB backup storage,
-  refreshed monthly, and `AutoPause` means exceeding that allowance pauses the database rather than
-  billing. Combined with Serverless auto-pause on idle, there is no manual on/off toggling to build —
-  Azure already does both. `main.bicep` takes a new `sqlAdminPassword` (`@secure()`) param, supplied
-  by `infra-bicep.yml` from the `SQL_ADMIN_PASSWORD` repo secret, and outputs `sqlServerFqdn`.
+- **Azure SQL Serverless ✅ IMPLEMENTED (free-tier by default, not cost/availability-free).**
+  `infrastructure/bicep/sql-order-payment.bicep` declares the logical server + `OrderDb`/`PaymentDb`
+  (Serverless, `GP_S_Gen5_1`, auto-pause) and is wired into `main.bicep` as a real `module` —
+  `infra-bicep.yml` provisions it in the **same subscription/resource group** as everything else,
+  with the existing service principal. No second account, no manual Portal step. Both databases set
+  `useFreeLimit: true` + `freeLimitExhaustionBehavior: 'AutoPause'` — Azure SQL's free offer gives up
+  to 10 free databases per subscription, each with its own 100,000 vCore-seconds + 32GB data + 32GB
+  backup storage, refreshed monthly. **This is not a pure cost optimisation — read the caveats
+  below.** `main.bicep` takes a new `sqlAdminPassword` (`@secure()`) param, supplied by
+  `infra-bicep.yml` from the `SQL_ADMIN_PASSWORD` repo secret, and outputs `sqlServerFqdn`.
+  - **Free-tier exhaustion is an availability event, not just a billing one.** `AutoPause` on
+    exceeding the monthly vCore-second allowance means the database goes **unavailable for the rest
+    of the calendar month** (not "resumes on the next request" like idle auto-pause) — a real outage
+    if this project ever gets enough traffic to burn through 100,000 vCore-seconds before the
+    monthly reset. Worth monitoring if usage grows beyond demo/portfolio levels.
+  - **Storage is billed regardless of pause state.** Auto-pause (idle or free-tier-exhaustion) only
+    stops *compute* billing; the 32GB free storage allowance still applies, and data beyond that is
+    billed continuously whether the database is paused or not.
+  - **Every resume has cold-start latency** (idle auto-pause resumes on the next connection attempt,
+    typically a few seconds) — this is *why* `EnableRetryOnFailure()` is configured on both
+    DbContexts, not an incidental detail. "No manual on/off toggling to build" means Azure handles
+    pause/resume mechanically, not that there's zero operational consequence to think about.
 - **EF Core migrations ✅ IMPLEMENTED.** `InitialCreate` exists for both `OrderDbContext`
   (`Orders`/`OrderItems`/`OrderOutbox`/`ProcessedInbox`) and `PaymentDbContext`
   (`Payments`/`PaymentOutbox`/`ProcessedInbox`), generated via `dotnet ef migrations add`. Each
@@ -377,6 +388,18 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
   (PaymentService falls back to `FakePaymentGateway` if unset). Setting those two SQL secrets is what
   activates migrations, seeding, the OrderService/PaymentService deploys, and the `*:Enabled` saga
   flags in `cd-costopt.yml` — everything else is already wired.
+  - **Known gap, not yet closed: the running services use the server-admin login.** As described
+    above, `ORDER_SQL_CONNECTION`/`PAYMENT_SQL_CONNECTION` are built from `bookstoreadmin` +
+    `SQL_ADMIN_PASSWORD` — the same credential `infra-bicep.yml` uses for migrations. That means
+    OrderService/PaymentService's *running pods* hold full server-admin rights (create/drop
+    databases, alter server config), not least-privilege access scoped to their own database's
+    tables — a real blast-radius concern if either service is ever compromised. The correct fix is
+    a separate, least-privileged SQL login per service (or Azure AD/workload-identity auth from
+    AKS, no password at all), reserving the admin credential for migrations/seeding only. Not
+    implemented yet: creating SQL logins/users declaratively needs a Bicep deployment script (T-SQL
+    isn't expressible as a plain ARM/Bicep resource) or a manual one-time step, which is real
+    additional scope beyond what's built so far — tracked here rather than silently left
+    undocumented.
 - **New Cosmos container:** `OrderReservations` (partition `/id` = orderId) — InventoryService's per-order
   reservation-outcome tracking + embedded outbox, added to `main.bicep` alongside the existing
   `Products`/`Inventory`/`ProcessedMessages` containers (see the durability note in `docs/HLD.md`

@@ -46,12 +46,14 @@ jobs:
 
       - name: Deploy Bicep — Core Resources
         id: bicep
+        env:
+          SQL_ADMIN_PASSWORD: ${{ secrets.SQL_ADMIN_PASSWORD }}
         run: |
           OUTPUT=$(az deployment group create \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --template-file infrastructure/bicep/main.bicep \
             --parameters @infrastructure/bicep/parameters/main.parameters.json \
-            --parameters sqlAdminPassword='${{ secrets.SQL_ADMIN_PASSWORD }}' \
+            --parameters "sqlAdminPassword=$SQL_ADMIN_PASSWORD" \
             --query properties.outputs \
             --output json)
 

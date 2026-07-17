@@ -11,13 +11,19 @@
       <mat-spinner diameter="28"></mat-spinner>
     </div>
 
-    <div *ngIf="!loading && orders.length === 0" class="empty-state">
+    <div *ngIf="!loading && loadError" class="empty-state">
+      <mat-icon>error_outline</mat-icon>
+      <p>Couldn't load your orders.</p>
+      <button mat-raised-button color="primary" (click)="load()">Retry</button>
+    </div>
+
+    <div *ngIf="!loading && !loadError && orders.length === 0" class="empty-state">
       <mat-icon>inventory_2</mat-icon>
       <p>You haven't placed any orders yet.</p>
       <button mat-raised-button color="primary" routerLink="/products">Browse Products</button>
     </div>
 
-    <table mat-table [dataSource]="orders" *ngIf="!loading && orders.length > 0" class="mat-elevation-z2">
+    <table mat-table [dataSource]="orders" *ngIf="!loading && !loadError && orders.length > 0" class="mat-elevation-z2">
       <ng-container matColumnDef="id">
         <th mat-header-cell *matHeaderCellDef>Order #</th>
         <td mat-cell *matCellDef="let o">{{ shortId(o.id) }}</td>

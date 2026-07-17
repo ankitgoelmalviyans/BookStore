@@ -7,6 +7,10 @@
     <mat-spinner diameter="32"></mat-spinner>
   </div>
 
+  <mat-card *ngIf="!loadingOrder && loadError">
+    <p>Couldn't load this order. Please try again.</p>
+  </mat-card>
+
   <mat-card *ngIf="!loadingOrder && order">
     <div class="header-row">
       <div>
@@ -51,6 +55,6 @@
       <strong>₹{{ order.total }}</strong>
     </div>
 
-    <app-payment-status [payment]="payment" [loading]="loadingPayment"></app-payment-status>
+    <app-payment-status [payment]="payment" [loading]="loadingPayment" [orderStatus]="order.status"></app-payment-status>
   </mat-card>
 </div>

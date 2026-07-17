@@ -19,7 +19,11 @@
     <p class="updated">Last updated {{ inventory.lastUpdated | date:'medium' }}</p>
   </mat-card>
 
-  <mat-card *ngIf="!loading && !inventory">
+  <mat-card *ngIf="!loading && !inventory && !loadFailed">
     <p>No inventory record found for this product yet.</p>
+  </mat-card>
+
+  <mat-card *ngIf="!loading && loadFailed">
+    <p>Couldn't load inventory for this product. Please try again.</p>
   </mat-card>
 </div>

@@ -15,6 +15,13 @@ env:
   ACR_SERVER: bookstoreaurega.azurecr.io
   NAMESPACE: bookstore
 
+# None of these jobs push to git or otherwise need repo write access — they push images to ACR
+# (via ACR_USERNAME/ACR_PASSWORD) and deploy via AZURE_CREDENTIALS, not GITHUB_TOKEN. Pinning to
+# read-only here means a compromised step (e.g. a malicious Dockerfile build stage) can't abuse an
+# org/repo default that grants broader GITHUB_TOKEN permissions.
+permissions:
+  contents: read
+
 jobs:
 
   # ─────────────────────────────────────────
@@ -331,9 +338,21 @@ jobs:
             --namespace=${{ env.NAMESPACE }} \
             --dry-run=client -o yaml | kubectl apply -f -
 
-          # Phase 2 — Order/Payment/Notification. OrderService/PaymentService secrets are created
-          # unconditionally (an empty ConnectionStrings value is harmless — it's the *deploy* step
-          # below, not this one, that's gated on the SQL server actually existing).
+          kubectl create secret generic notificationservice-secrets \
+            --from-literal=AzureServiceBus__ConnectionString="${{ secrets.SERVICE_BUS_CONNECTION }}" \
+            --from-literal=Notifications__Enabled="true" \
+            --namespace=${{ env.NAMESPACE }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      # Phase 2 — OrderService/PaymentService secrets are gated the same way their Deploy steps
+      # are. Unlike the unconditional secrets above, applying these with an empty
+      # ConnectionStrings value when the SQL secret is unset would silently overwrite a *running*
+      # release's secret with a broken connection string the moment its pods next restart (node
+      # drain, OOM, HPA scale-event...) even though nothing here failed loudly. Skipping the step
+      # entirely leaves whatever secret (if any) already exists untouched.
+      - name: Create OrderService Kubernetes secret
+        if: ${{ env.ORDER_SQL_CONNECTION != '' }}
+        run: |
           kubectl create secret generic orderservice-secrets \
             --from-literal=Jwt__Key="${{ secrets.JWT_KEY }}" \
             --from-literal=ConnectionStrings__OrderDb="${{ secrets.ORDER_SQL_CONNECTION }}" \
@@ -343,6 +362,9 @@ jobs:
             --namespace=${{ env.NAMESPACE }} \
             --dry-run=client -o yaml | kubectl apply -f -
 
+      - name: Create PaymentService Kubernetes secret
+        if: ${{ env.PAYMENT_SQL_CONNECTION != '' }}
+        run: |
           kubectl create secret generic paymentservice-secrets \
             --from-literal=Jwt__Key="${{ secrets.JWT_KEY }}" \
             --from-literal=ConnectionStrings__PaymentDb="${{ secrets.PAYMENT_SQL_CONNECTION }}" \
@@ -352,11 +374,27 @@ jobs:
             --namespace=${{ env.NAMESPACE }} \
             --dry-run=client -o yaml | kubectl apply -f -
 
-          kubectl create secret generic notificationservice-secrets \
-            --from-literal=AzureServiceBus__ConnectionString="${{ secrets.SERVICE_BUS_CONNECTION }}" \
-            --from-literal=Notifications__Enabled="true" \
-            --namespace=${{ env.NAMESPACE }} \
-            --dry-run=client -o yaml | kubectl apply -f -
+      # If a SQL secret is ever unset *after* its service was already deployed (e.g. accidentally
+      # removed from repo secrets), don't leave a stale release running against a k8s secret we
+      # just chose not to update — fail loudly so the operator notices, rather than silently
+      # skipping the Deploy step below and reporting overall success.
+      - name: Guard — OrderService config removed after deploy
+        if: ${{ env.ORDER_SQL_CONNECTION == '' }}
+        run: |
+          if helm status orderservice -n ${{ env.NAMESPACE }} >/dev/null 2>&1; then
+            echo "::error::orderservice is already deployed but ORDER_SQL_CONNECTION is now unset. Restore the secret, or run 'helm uninstall orderservice -n ${{ env.NAMESPACE }}' to deliberately remove it, before re-running this workflow."
+            exit 1
+          fi
+          echo "orderservice not yet deployed and ORDER_SQL_CONNECTION unset — nothing to do."
+
+      - name: Guard — PaymentService config removed after deploy
+        if: ${{ env.PAYMENT_SQL_CONNECTION == '' }}
+        run: |
+          if helm status paymentservice -n ${{ env.NAMESPACE }} >/dev/null 2>&1; then
+            echo "::error::paymentservice is already deployed but PAYMENT_SQL_CONNECTION is now unset. Restore the secret, or run 'helm uninstall paymentservice -n ${{ env.NAMESPACE }}' to deliberately remove it, before re-running this workflow."
+            exit 1
+          fi
+          echo "paymentservice not yet deployed and PAYMENT_SQL_CONNECTION unset — nothing to do."
 
       - name: Helm dependency update
         run: |
@@ -559,12 +597,16 @@ jobs:
           echo "Product:      http://${{ secrets.INGRESS_IP }}.nip.io/product"
           echo "Inventory:    http://${{ secrets.INGRESS_IP }}.nip.io/inventory"
           echo "Notification: http://${{ secrets.INGRESS_IP }}.nip.io/notification"
-          if [ -n "$ORDER_SQL_CONNECTION" ]; then
+          # Derived from actual Helm release state, not just whether this run's secret was set —
+          # a release deployed in an earlier run stays reported as deployed even if the secret
+          # was removed since (the Guard step above would already have failed this run in that
+          # case, so reaching here means state and secret agree).
+          if helm status orderservice -n ${{ env.NAMESPACE }} >/dev/null 2>&1; then
             echo "Order:        http://${{ secrets.INGRESS_IP }}.nip.io/order"
           else
             echo "Order:        not deployed (ORDER_SQL_CONNECTION secret unset)"
           fi
-          if [ -n "$PAYMENT_SQL_CONNECTION" ]; then
+          if helm status paymentservice -n ${{ env.NAMESPACE }} >/dev/null 2>&1; then
             echo "Payment:      http://${{ secrets.INGRESS_IP }}.nip.io/payment"
           else
             echo "Payment:      not deployed (PAYMENT_SQL_CONNECTION secret unset)"

@@ -43,6 +43,20 @@ jobs:
             environment.prod.ts
           sed -i "s|#{INVENTORY_API_URL}#|${{ secrets.INVENTORY_API_URL }}|g" \
             environment.prod.ts
+
+          # Order/Payment aren't gated behind a feature flag in the app — an unset URL here would
+          # silently ship an empty base URL, so every request from the Orders/Cart module would
+          # go to the wrong host instead of failing loudly. Fail the build instead: it's a
+          # one-time gap (see docs/ROADMAP.md) until both secrets are set, not a permanent
+          # blocker on unrelated Product/Inventory-only UI changes.
+          if [ -z "${{ secrets.ORDER_API_URL }}" ] || [ -z "${{ secrets.PAYMENT_API_URL }}" ]; then
+            echo "::error::ORDER_API_URL and/or PAYMENT_API_URL secrets are unset — the Orders/Cart" \
+                 "module would build pointing at an empty base URL. Set both secrets before" \
+                 "deploying, or gate the Orders module out of this build if it's meant to stay" \
+                 "off for now."
+            exit 1
+          fi
+
           sed -i "s|#{ORDER_API_URL}#|${{ secrets.ORDER_API_URL }}|g" \
             environment.prod.ts
           sed -i "s|#{PAYMENT_API_URL}#|${{ secrets.PAYMENT_API_URL }}|g" \

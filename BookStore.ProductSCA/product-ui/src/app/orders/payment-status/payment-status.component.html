@@ -7,7 +7,12 @@
   </div>
 
   <ng-container *ngIf="!loading">
-    <div *ngIf="!payment" class="pending-note">
+    <div *ngIf="!payment && orderStatus === 'Cancelled'" class="pending-note">
+      <mat-icon>block</mat-icon>
+      <span>This order was cancelled — no charge was made.</span>
+    </div>
+
+    <div *ngIf="!payment && orderStatus !== 'Cancelled'" class="pending-note">
       <mat-icon>hourglass_empty</mat-icon>
       <span>Payment is still processing — inventory is reserved first, then the charge runs. This
         usually takes only a few seconds; refresh shortly.</span>
@@ -15,7 +20,7 @@
 
     <div *ngIf="payment" class="payment-details">
       <span class="chip" [ngClass]="chipClass">{{ payment.status }}</span>
-      <span class="amount">₹{{ payment.amount }}</span>
+      <span class="amount">{{ payment.currency | uppercase }} {{ payment.amount }}</span>
 
       <p *ngIf="payment.providerPaymentId" class="detail-line">
         <strong>Reference:</strong> {{ payment.providerPaymentId }}

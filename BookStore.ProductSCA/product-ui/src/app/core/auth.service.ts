@@ -41,7 +41,8 @@ export class AuthService {
           .join('')
       );
       const claims = JSON.parse(json);
-      return claims.sub ?? claims.unique_name ?? claims.name ?? null;
+      const value = claims.sub ?? claims.unique_name ?? claims.name;
+      return typeof value === 'string' ? value : null;
     } catch {
       return null;
     }
