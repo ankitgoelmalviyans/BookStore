@@ -8,6 +8,6 @@ namespace BookStore.InventoryService.Application.Interfaces
     /// </summary>
     public interface IMessagePublisher
     {
-        Task PublishAsync<T>(T message, string topic, string? correlationId = null, string? traceParent = null) where T : class;
+        Task PublishAsync<T>(T message, string topic, string? correlationId = null, string? traceParent = null, string? eventType = null) where T : class;
     }
 }

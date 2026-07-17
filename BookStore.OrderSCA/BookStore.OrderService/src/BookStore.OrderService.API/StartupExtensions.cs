@@ -4,6 +4,7 @@ using BookStore.OrderService.API.Middleware;
 using BookStore.OrderService.Application.Abstractions;
 using BookStore.OrderService.Application.Handlers;
 using BookStore.OrderService.Application.Queries;
+using BookStore.OrderService.Core.Abstractions;
 using BookStore.OrderService.Core.Messaging;
 using BookStore.OrderService.Core.Repositories;
 using BookStore.OrderService.Infrastructure.Messaging;
@@ -40,6 +41,17 @@ namespace BookStore.OrderService.Extensions
 
             // Transactional outbox drain.
             services.AddHostedService<OutboxPublisherService>();
+
+            // Inbound saga handling (Phase 2 — the outcome side). Gated behind Orders:InboundEnabled
+            // (default off): it depends on the payment-events/inventory-events topology, which isn't
+            // provisioned yet, so deploying this code changes nothing until an operator enables it. The
+            // outbound OrderCreated publish + the API are unaffected either way.
+            if (config.GetValue<bool>("Orders:InboundEnabled"))
+            {
+                services.AddScoped<IInboxStore, EfInboxStore>();
+                services.AddScoped<IOrderOutcomeHandler, OrderOutcomeHandler>();
+                services.AddSingleton<IEventSubscriber, OrderOutcomeSubscriber>();
+            }
 
             services.AddSingleton<ServiceBusClient>(sp =>
             {

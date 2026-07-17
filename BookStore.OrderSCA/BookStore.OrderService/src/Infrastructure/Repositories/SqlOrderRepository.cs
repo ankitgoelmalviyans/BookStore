@@ -52,4 +52,29 @@ public class SqlOrderRepository : IOrderRepository
             .Take(MaxHistoryResults)
             .ToListAsync(cancellationToken);
     }
+
+    public async Task<Order?> GetTrackedByIdAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        // Tracked (no AsNoTracking) so a Status change on the returned entity is picked up by
+        // SaveChanges. Items aren't needed for an outcome transition, so they're not included.
+        return await _db.Orders.FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
+    }
+
+    public async Task SaveOutcomeAsync(Order order, OutboxMessage? outbox, Guid inboxEventId, CancellationToken cancellationToken = default)
+    {
+        // The order was loaded tracked, so its Status change is already pending. Add the optional
+        // outbox event (OrderCancelled) and the inbox marker, then flush all three in ONE transaction.
+        if (outbox is not null)
+        {
+            _db.OutboxMessages.Add(outbox);
+        }
+        _db.InboxMessages.Add(new InboxMessage { EventId = inboxEventId, ProcessedAt = DateTime.UtcNow });
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task MarkInboxProcessedAsync(Guid inboxEventId, CancellationToken cancellationToken = default)
+    {
+        _db.InboxMessages.Add(new InboxMessage { EventId = inboxEventId, ProcessedAt = DateTime.UtcNow });
+        await _db.SaveChangesAsync(cancellationToken);
+    }
 }

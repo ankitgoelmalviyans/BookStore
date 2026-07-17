@@ -12,5 +12,10 @@ public interface IMessagePublisher
     /// and stored on the outbox record). When supplied, the publish span joins that trace so the whole
     /// place → outbox → publish → consume chain shares one TraceId. When null, a new root trace starts.
     /// </param>
-    Task PublishAsync<T>(T message, string topic, string? correlationId = null, string? traceParent = null) where T : class;
+    /// <param name="eventType">
+    /// Optional logical event-type name stamped onto the message's <c>EventType</c> application
+    /// property, so a consumer can dispatch by an explicit type rather than sniffing the payload shape.
+    /// The outbox drain supplies the stored <c>OutboxMessage.EventType</c>.
+    /// </param>
+    Task PublishAsync<T>(T message, string topic, string? correlationId = null, string? traceParent = null, string? eventType = null) where T : class;
 }

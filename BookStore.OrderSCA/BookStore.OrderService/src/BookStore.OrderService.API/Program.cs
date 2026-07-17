@@ -195,4 +195,18 @@ app.UseMiddleware<SerilogEnrichingMiddleware>();
 app.MapControllers();
 app.MapHealthChecks("/health");
 
+// Start the inbound saga subscriber(s) once the app is up — but only when the inbound feature is
+// enabled (gated with the registration in StartupExtensions). When off, no IEventSubscriber is
+// registered and this loop is a no-op.
+if (builder.Configuration.GetValue<bool>("Orders:InboundEnabled"))
+{
+    app.Lifetime.ApplicationStarted.Register(() =>
+    {
+        foreach (var subscriber in app.Services.GetServices<BookStore.OrderService.Core.Messaging.IEventSubscriber>())
+        {
+            subscriber.Subscribe();
+        }
+    });
+}
+
 app.Run();

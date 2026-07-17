@@ -144,7 +144,7 @@ namespace BookStore.PaymentService.API.BackgroundServices
             using (LogContext.PushProperty("CorrelationId", message.CorrelationId))
             {
                 await publisher.PublishAsync(
-                    payload, message.Topic, message.CorrelationId, message.TraceParent);
+                    payload, message.Topic, message.CorrelationId, message.TraceParent, message.EventType);
                 await outboxStore.MarkPublishedAsync(message, stoppingToken);
 
                 _logger.LogInformation(
