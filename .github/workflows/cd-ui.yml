@@ -43,6 +43,10 @@ jobs:
             environment.prod.ts
           sed -i "s|#{INVENTORY_API_URL}#|${{ secrets.INVENTORY_API_URL }}|g" \
             environment.prod.ts
+          sed -i "s|#{ORDER_API_URL}#|${{ secrets.ORDER_API_URL }}|g" \
+            environment.prod.ts
+          sed -i "s|#{PAYMENT_API_URL}#|${{ secrets.PAYMENT_API_URL }}|g" \
+            environment.prod.ts
 
       - name: Build Angular production
         run: |

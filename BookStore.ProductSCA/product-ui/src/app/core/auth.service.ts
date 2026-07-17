@@ -23,6 +23,30 @@ export class AuthService {
     return !!localStorage.getItem('auth_token');
   }
 
+  // Decodes the JWT payload client-side (base64url — no signature check, this is display-only,
+  // never used for an authorization decision) to show a username in the nav bar without a
+  // separate "who am I" API call. Falls back to null on any malformed/missing token.
+  getUsername(): string | null {
+    const token = this.getToken();
+    if (!token) {
+      return null;
+    }
+    try {
+      const payload = token.split('.')[1];
+      const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+      const json = decodeURIComponent(
+        atob(base64)
+          .split('')
+          .map(c => '%' + c.charCodeAt(0).toString(16).padStart(2, '0'))
+          .join('')
+      );
+      const claims = JSON.parse(json);
+      return claims.sub ?? claims.unique_name ?? claims.name ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   logout() {
     localStorage.removeItem('auth_token');
     this.router.navigate(['/login']);

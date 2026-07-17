@@ -1,0 +1,28 @@
+<div class="payment-status">
+  <h3>Payment</h3>
+
+  <div *ngIf="loading" class="loading-row">
+    <mat-spinner diameter="20"></mat-spinner>
+    <span>Checking payment status…</span>
+  </div>
+
+  <ng-container *ngIf="!loading">
+    <div *ngIf="!payment" class="pending-note">
+      <mat-icon>hourglass_empty</mat-icon>
+      <span>Payment is still processing — inventory is reserved first, then the charge runs. This
+        usually takes only a few seconds; refresh shortly.</span>
+    </div>
+
+    <div *ngIf="payment" class="payment-details">
+      <span class="chip" [ngClass]="chipClass">{{ payment.status }}</span>
+      <span class="amount">₹{{ payment.amount }}</span>
+
+      <p *ngIf="payment.providerPaymentId" class="detail-line">
+        <strong>Reference:</strong> {{ payment.providerPaymentId }}
+      </p>
+      <p *ngIf="payment.status === 'Failed' && payment.failureReason" class="detail-line failure">
+        <strong>Reason:</strong> {{ payment.failureReason }}
+      </p>
+    </div>
+  </ng-container>
+</div>

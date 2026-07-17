@@ -1,0 +1,56 @@
+<div class="page">
+  <a mat-button routerLink="/orders" class="back-link">
+    <mat-icon>arrow_back</mat-icon> Back to Orders
+  </a>
+
+  <div *ngIf="loadingOrder" class="loading-row">
+    <mat-spinner diameter="32"></mat-spinner>
+  </div>
+
+  <mat-card *ngIf="!loadingOrder && order">
+    <div class="header-row">
+      <div>
+        <h2>Order {{ order.id.slice(0, 8) }}</h2>
+        <p class="placed-at">Placed {{ order.createdAt | date:'medium' }}</p>
+      </div>
+      <span class="chip" [ngClass]="statusClass(order.status)">{{ order.status }}</span>
+    </div>
+
+    <div *ngIf="order.status === 'Pending'" class="live-note">
+      <mat-spinner diameter="16"></mat-spinner>
+      <span>Processing — this page updates automatically as inventory is reserved and payment is charged.</span>
+    </div>
+
+    <table mat-table [dataSource]="order.items" class="mat-elevation-z1 items-table">
+      <ng-container matColumnDef="productId">
+        <th mat-header-cell *matHeaderCellDef>Product</th>
+        <td mat-cell *matCellDef="let i">{{ i.productId.slice(0, 8) }}</td>
+      </ng-container>
+
+      <ng-container matColumnDef="quantity">
+        <th mat-header-cell *matHeaderCellDef>Qty</th>
+        <td mat-cell *matCellDef="let i">{{ i.quantity }}</td>
+      </ng-container>
+
+      <ng-container matColumnDef="unitPrice">
+        <th mat-header-cell *matHeaderCellDef>Unit Price</th>
+        <td mat-cell *matCellDef="let i">₹{{ i.unitPrice }}</td>
+      </ng-container>
+
+      <ng-container matColumnDef="lineTotal">
+        <th mat-header-cell *matHeaderCellDef>Line Total</th>
+        <td mat-cell *matCellDef="let i">₹{{ lineTotal(i.quantity, i.unitPrice) }}</td>
+      </ng-container>
+
+      <tr mat-header-row *matHeaderRowDef="['productId', 'quantity', 'unitPrice', 'lineTotal']"></tr>
+      <tr mat-row *matRowDef="let row; columns: ['productId', 'quantity', 'unitPrice', 'lineTotal'];"></tr>
+    </table>
+
+    <div class="order-total">
+      <span>Total</span>
+      <strong>₹{{ order.total }}</strong>
+    </div>
+
+    <app-payment-status [payment]="payment" [loading]="loadingPayment"></app-payment-status>
+  </mat-card>
+</div>

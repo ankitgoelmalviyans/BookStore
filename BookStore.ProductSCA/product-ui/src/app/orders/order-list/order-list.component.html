@@ -1,0 +1,57 @@
+<div class="page">
+  <mat-card>
+    <div class="header-row">
+      <h2>My Orders</h2>
+      <button mat-raised-button color="primary" routerLink="/orders/cart">
+        <mat-icon>shopping_cart</mat-icon> Cart
+      </button>
+    </div>
+
+    <div *ngIf="loading" class="loading-row">
+      <mat-spinner diameter="28"></mat-spinner>
+    </div>
+
+    <div *ngIf="!loading && orders.length === 0" class="empty-state">
+      <mat-icon>inventory_2</mat-icon>
+      <p>You haven't placed any orders yet.</p>
+      <button mat-raised-button color="primary" routerLink="/products">Browse Products</button>
+    </div>
+
+    <table mat-table [dataSource]="orders" *ngIf="!loading && orders.length > 0" class="mat-elevation-z2">
+      <ng-container matColumnDef="id">
+        <th mat-header-cell *matHeaderCellDef>Order #</th>
+        <td mat-cell *matCellDef="let o">{{ shortId(o.id) }}</td>
+      </ng-container>
+
+      <ng-container matColumnDef="status">
+        <th mat-header-cell *matHeaderCellDef>Status</th>
+        <td mat-cell *matCellDef="let o"><span class="chip" [ngClass]="statusClass(o.status)">{{ o.status }}</span></td>
+      </ng-container>
+
+      <ng-container matColumnDef="itemCount">
+        <th mat-header-cell *matHeaderCellDef>Items</th>
+        <td mat-cell *matCellDef="let o">{{ o.itemCount }}</td>
+      </ng-container>
+
+      <ng-container matColumnDef="total">
+        <th mat-header-cell *matHeaderCellDef>Total</th>
+        <td mat-cell *matCellDef="let o">₹{{ o.total }}</td>
+      </ng-container>
+
+      <ng-container matColumnDef="createdAt">
+        <th mat-header-cell *matHeaderCellDef>Placed</th>
+        <td mat-cell *matCellDef="let o">{{ o.createdAt | date:'medium' }}</td>
+      </ng-container>
+
+      <ng-container matColumnDef="actions">
+        <th mat-header-cell *matHeaderCellDef></th>
+        <td mat-cell *matCellDef="let o">
+          <button mat-button color="primary" (click)="view(o.id)">View</button>
+        </td>
+      </ng-container>
+
+      <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+      <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+    </table>
+  </mat-card>
+</div>

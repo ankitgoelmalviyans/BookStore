@@ -1,1 +1,25 @@
-<p>inventory works!</p>
+<div class="page">
+  <div *ngIf="loading" class="loading-row">
+    <mat-spinner diameter="28"></mat-spinner>
+  </div>
+
+  <mat-card *ngIf="!loading && inventory">
+    <h2>Inventory</h2>
+    <p><strong>Product:</strong> {{ inventory.productId }}</p>
+    <div class="stock-row">
+      <div class="stock-figure">
+        <span class="value">{{ inventory.quantity }}</span>
+        <span class="label">Available</span>
+      </div>
+      <div class="stock-figure">
+        <span class="value">{{ inventory.reserved }}</span>
+        <span class="label">Reserved</span>
+      </div>
+    </div>
+    <p class="updated">Last updated {{ inventory.lastUpdated | date:'medium' }}</p>
+  </mat-card>
+
+  <mat-card *ngIf="!loading && !inventory">
+    <p>No inventory record found for this product yet.</p>
+  </mat-card>
+</div>

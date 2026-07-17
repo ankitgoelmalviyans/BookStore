@@ -274,13 +274,39 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
   Statelessness means it scales horizontally trivially (any replica can handle any message) and needs
   no schema, no migrations, no consistency story. Its only concern is idempotency (below).
 
-### UI — lazy-loaded modules in `product-ui`
+### UI — lazy-loaded modules in `product-ui` ✅ IMPLEMENTED
 
-- **What:** an `order` and a `payment` Angular feature module (routed, lazy-loaded), added to the
-  existing `product-ui` app — no new Angular workspace, no new `cd-ui.yml` pipeline. `environment.prod.ts`
-  gains `ORDER_API_URL`/`PAYMENT_API_URL` tokens, replaced by `cd-ui.yml` the same way the existing
-  three are today. `AuthInterceptor` (Bearer + CorrelationId) covers the new modules automatically —
-  it's already global.
+- **What shipped:** an `OrdersModule` — the app's **first real lazy-loaded feature module**
+  (`loadChildren`, confirmed as its own bundle chunk at build time) — added to the existing
+  `product-ui` app under `/orders` (`''` → My Orders/history, `cart` → the pre-checkout cart,
+  `:id` → order detail). No new Angular workspace, no new `cd-ui.yml` pipeline; `environment.prod.ts`
+  gained `ORDER_API_URL`/`PAYMENT_API_URL` tokens, replaced by `cd-ui.yml` via two more `sed` lines,
+  same as the existing three. `AuthInterceptor` (Bearer + CorrelationId) covers the new module
+  automatically since it's already global; routes are additionally gated by a new `AuthGuard`
+  (`canActivate`), applied to `/orders` and, while touching the route table, retrofitted onto
+  `/products`/`/inventory` too — previously any unauthenticated visitor could navigate straight to
+  those pages and the API calls would just 401 silently (no error handling existed anywhere).
+- **Payment doesn't get its own routed page.** PaymentService's entire HTTP surface is one endpoint
+  (`GET /api/Payment/{orderId}`, no list) — there's nothing for a standalone "Payment" section to
+  browse. Payment status is instead a `PaymentStatusComponent` embedded in Order Detail, polling
+  isn't needed there since Order Detail's own poll loop re-fetches it on every tick.
+- **Cart is client-side only** (`CartService`, `providedIn: 'root'`, localStorage-persisted) — the
+  backend has no cart concept. `PlaceOrderCommand.Items[].UnitPrice` is client-supplied (the
+  OrderService's own documented trust gap, unchanged by this work — see the "server-side price
+  resolution" note above), captured from the product list at "Add to cart" time.
+- **Order Detail polls while `Status === 'Pending'`** (4s interval, stops at the first terminal
+  state) so placing an order and watching inventory-reserve → charge resolve doesn't require a
+  manual refresh — the saga is asynchronous, and the UI now reflects that instead of showing a
+  frozen "Pending" forever.
+- **Also fixed while touching the route table/shell (agreed scope, not a separate change):** added
+  the app's only nav shell (`NavToolbarComponent` — brand, Products/My Orders links, cart badge,
+  login/logout; `AppComponent` was previously just a bare `<router-outlet>`), a global
+  `ErrorInterceptor` (401 → auto-logout instead of silently stuck pages; 5xx/network → a snackbar
+  instead of nothing — 404s deliberately excluded since `PaymentService.getByOrderId` treats "not
+  found yet" as a normal state), a custom Material theme (brown/teal, replacing the stock
+  indigo-pink prebuilt theme), and two pre-existing bugs: `ProductListComponent`'s selector was
+  `app-product-form` (copy-paste artifact) and `InventoryComponent` had a dead, unused
+  `inventory.component.html` sitting next to an inline template that actually rendered.
 - **Why not micro-frontends/separate apps:** ADR-18 — one login/shell for a single-operator project;
   the SCS boundary that actually matters here (independent data ownership, independent deploy of the
   *backend*) stays intact either way.
