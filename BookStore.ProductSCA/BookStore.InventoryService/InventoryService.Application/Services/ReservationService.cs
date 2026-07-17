@@ -56,9 +56,15 @@ namespace BookStore.InventoryService.Application.Services
                 _logger.LogInformation("Duplicate OrderCreated {EventId} — already processed, skipping", order.EventId);
                 return;
             }
-            if (await _reservations.GetByOrderIdAsync(order.OrderId, cancellationToken) is not null)
+            // Existence check doubles as the guard for both a redelivered OrderCreated AND an
+            // out-of-order OrderCancelled that already wrote a Cancelled tombstone (below) — either way,
+            // don't reserve.
+            var existing = await _reservations.GetByOrderIdAsync(order.OrderId, cancellationToken);
+            if (existing is not null)
             {
-                _logger.LogInformation("Reservation for order {OrderId} already exists — skipping", order.OrderId);
+                _logger.LogInformation(
+                    "Order {OrderId} already has a reservation record (status {Status}) — not reserving",
+                    order.OrderId, existing.Status);
                 await MarkProcessedAsync(order.EventId, cancellationToken);
                 return;
             }
@@ -167,8 +173,22 @@ namespace BookStore.InventoryService.Application.Services
             var reservation = await _reservations.GetByOrderIdAsync(cancelled.OrderId, cancellationToken);
             if (reservation is null)
             {
-                // Nothing was reserved for this order (or it already failed) — nothing to compensate.
-                _logger.LogInformation("OrderCancelled {OrderId}: no reservation found, nothing to release", cancelled.OrderId);
+                // Out-of-order delivery: the cancel arrived before OrderCreated. Don't silently drop it
+                // — persist a Cancelled tombstone so that when OrderCreated does arrive, ReserveAsync's
+                // existence check sees it and declines to reserve stock for an order already cancelled.
+                var now = DateTime.UtcNow;
+                await _reservations.UpsertAsync(new OrderReservation
+                {
+                    Id = cancelled.OrderId,
+                    OrderId = cancelled.OrderId,
+                    Status = ReservationStatus.Cancelled,
+                    Lines = new List<ReservationLine>(),
+                    HasPendingReleases = false,
+                    CreatedAt = now,
+                    LastUpdated = now
+                }, cancellationToken);
+
+                _logger.LogInformation("OrderCancelled {OrderId}: no reservation yet — recorded cancellation tombstone", cancelled.OrderId);
                 await MarkProcessedAsync(cancelled.EventId, cancellationToken);
                 return;
             }

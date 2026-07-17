@@ -163,9 +163,13 @@ builder.Services.AddAuthentication("Bearer")
 builder.Services.AddInventoryDependencies(builder.Configuration);
 
 // Reservation background workers (Phase 2): drain the reservation outbox to inventory-events, and
-// perform the physical stock release for lines flagged PendingRelease.
-builder.Services.AddHostedService<ReservationOutboxPublisherService>();
-builder.Services.AddHostedService<ReservationReleaseWorker>();
+// perform the physical stock release for lines flagged PendingRelease. Gated behind the same flag as
+// the reservation subscriber — off until the Service Bus topology is provisioned.
+if (builder.Configuration.GetValue<bool>("Reservations:Enabled"))
+{
+    builder.Services.AddHostedService<ReservationOutboxPublisherService>();
+    builder.Services.AddHostedService<ReservationReleaseWorker>();
+}
 
 builder.Services.AddHealthChecks();
 var allowedOrigins = builder.Configuration

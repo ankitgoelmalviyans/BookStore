@@ -128,6 +128,31 @@ public class ReservationServiceTests
     }
 
     [Fact]
+    public async Task Cancel_before_reservation_records_tombstone_and_blocks_later_reservation()
+    {
+        var (svc, inv, res, _) = Build();
+        var (p1, p2) = (Guid.NewGuid(), Guid.NewGuid());
+        inv.UpdateInventory(p1, 10);
+        inv.UpdateInventory(p2, 5);
+        var order = Order(p1, 2, p2, 1);
+
+        // Cancel arrives first (out of order).
+        await svc.ReleaseForCancelAsync(new OrderCancelledIntegrationEvent
+        {
+            EventId = Guid.NewGuid(),
+            OrderId = order.OrderId
+        });
+
+        var tombstone = await res.GetByOrderIdAsync(order.OrderId);
+        Assert.Equal(ReservationStatus.Cancelled, tombstone!.Status);
+
+        // The later OrderCreated must NOT reserve stock for the already-cancelled order.
+        await svc.ReserveAsync(order, null, null);
+        Assert.Equal(10, inv.GetByProductId(p1)!.Quantity);
+        Assert.Equal(0, inv.GetByProductId(p1)!.Reserved);
+    }
+
+    [Fact]
     public async Task Cancel_flags_reserved_lines_for_release()
     {
         var (svc, inv, res, _) = Build();

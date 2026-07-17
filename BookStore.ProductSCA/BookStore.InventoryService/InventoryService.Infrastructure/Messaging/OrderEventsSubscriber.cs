@@ -71,42 +71,67 @@ namespace BookStore.InventoryService.Infrastructure.Messaging
 
             using (LogContext.PushProperty("CorrelationId", correlationId))
             {
-                OrderCreatedIntegrationEvent? created;
-                try
-                {
-                    // order-events carries both OrderCreated and (future) OrderCancelled with no type
-                    // property stamped by OrderService's producer, so discriminate by shape: only
-                    // OrderCreated carries line Items. A dedicated message-type property is the clean
-                    // future convention once OrderService also emits OrderCancelled.
-                    created = JsonSerializer.Deserialize<OrderCreatedIntegrationEvent>(args.Message.Body.ToString());
-                }
-                catch (JsonException ex)
-                {
-                    _logger.LogError(ex, "order-events deserialization failed, dead-lettering");
-                    await args.DeadLetterMessageAsync(args.Message, "DeserializationFailed", ex.Message);
-                    return;
-                }
+                // Route by an EXPLICIT event-type property, never by payload shape — a contract-skewed
+                // OrderCreated (e.g. missing Items) must be dead-lettered, not silently misrouted to the
+                // cancel path. Today OrderService only emits OrderCreated (and doesn't stamp the type),
+                // so an absent property is treated as OrderCreated; when OrderService starts emitting
+                // OrderCancelled it stamps "OrderCancelledEvent", which selects the cancel branch.
+                var eventType = args.Message.ApplicationProperties.TryGetValue("EventType", out var et)
+                    ? et?.ToString()
+                    : null;
+
+                var body = args.Message.Body.ToString();
 
                 try
                 {
-                    if (created is not null && created.Items is { Count: > 0 })
+                    if (string.Equals(eventType, "OrderCancelledEvent", StringComparison.Ordinal))
                     {
-                        await _reservationService.ReserveAsync(
-                            created, correlationId, activity?.Id ?? traceParent, args.CancellationToken);
+                        OrderCancelledIntegrationEvent? cancelled;
+                        try
+                        {
+                            cancelled = JsonSerializer.Deserialize<OrderCancelledIntegrationEvent>(body);
+                        }
+                        catch (JsonException ex)
+                        {
+                            _logger.LogError(ex, "OrderCancelled deserialization failed, dead-lettering");
+                            await args.DeadLetterMessageAsync(args.Message, "DeserializationFailed", ex.Message);
+                            return;
+                        }
+
+                        if (cancelled is null || cancelled.OrderId == Guid.Empty)
+                        {
+                            _logger.LogError("OrderCancelled failed validation (OrderId), dead-lettering");
+                            await args.DeadLetterMessageAsync(args.Message, "ValidationFailed", "Missing OrderId");
+                            return;
+                        }
+
+                        await _reservationService.ReleaseForCancelAsync(cancelled, args.CancellationToken);
                     }
                     else
                     {
-                        var cancelled = JsonSerializer.Deserialize<OrderCancelledIntegrationEvent>(args.Message.Body.ToString());
-                        if (cancelled is not null && cancelled.OrderId != Guid.Empty)
+                        OrderCreatedIntegrationEvent? created;
+                        try
                         {
-                            await _reservationService.ReleaseForCancelAsync(cancelled, args.CancellationToken);
+                            created = JsonSerializer.Deserialize<OrderCreatedIntegrationEvent>(body);
                         }
-                        else
+                        catch (JsonException ex)
                         {
-                            _logger.LogError("order-events message matched no known event shape, dead-lettering");
-                            await args.DeadLetterMessageAsync(args.Message, "UnknownEventShape", "No Items and no OrderId");
+                            _logger.LogError(ex, "OrderCreated deserialization failed, dead-lettering");
+                            await args.DeadLetterMessageAsync(args.Message, "DeserializationFailed", ex.Message);
                             return;
                         }
+
+                        // A valid OrderCreated must carry an OrderId and at least one line — otherwise
+                        // it's contract-skewed and can't be reserved, so dead-letter it.
+                        if (created is null || created.OrderId == Guid.Empty || created.Items is not { Count: > 0 })
+                        {
+                            _logger.LogError("OrderCreated failed validation (OrderId/Items), dead-lettering");
+                            await args.DeadLetterMessageAsync(args.Message, "ValidationFailed", "Missing OrderId or Items");
+                            return;
+                        }
+
+                        await _reservationService.ReserveAsync(
+                            created, correlationId, activity?.Id ?? traceParent, args.CancellationToken);
                     }
 
                     await args.CompleteMessageAsync(args.Message);

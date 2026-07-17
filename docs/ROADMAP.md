@@ -101,10 +101,26 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
 > tested, `OrderReservations` container added to `main.bicep`. **Still pending:** provisioning the
 > Service Bus **topology** (`order-events`/`inventory-events` topics + subscriptions) — the remaining
 > messaging infra, alongside the Azure SQL Bicep + CD deploy wiring; and OrderService emitting
-> `OrderCancelled` (its inbound-handler increment) so the compensation path has a real producer.
+> `OrderCancelled` (its inbound-handler increment) so the compensation path has a real producer. The
+> whole reservation feature is **gated behind `Reservations:Enabled` (default off)**, so deploying the
+> code changes nothing until the topology exists and an operator flips the flag.
+>
+> **Known concurrency limitations (deliberately deferred hardening, same class the Inbox/Outbox notes
+> already flag):** the reserve/release primitives and the `OrderReservation` writes are idempotent at
+> the *aggregate/line-state* level (existence check, inbox dedup, per-line status gating) and correct
+> under InventoryService's single sequential processor, but they are **not yet hardened for multiple
+> replicas / crash-mid-operation**: (1) two concurrent `OrderCreated` deliveries could double-reserve
+> before either writes the aggregate — a durable *claim-before-reserve* (atomic create-if-absent) would
+> close this; (2) the two background workers both `Upsert` the same `OrderReservation` document, so a
+> concurrent update can be lost — **ETag-conditional writes / Cosmos patch** is the fix (a 412 simply
+> retries next cycle); (3) physical release is bounded against *pooled* `Reserved`, so a crash between
+> release and marking the line `Released` can over-credit — durable per-line *operation-id dedup* would
+> make release a true no-op on retry. These are the documented next hardening step (a single-owner /
+> lease processor + operation-id dedup), consistent with the existing multi-replica caveat on the Inbox
+> and Outbox.
 
 - **What:** subscribes to `order-events`/`inventory-order-subscription`. On `OrderCreated`, upserts a
-  **new Cosmos container `OrderReservations`** (partitioned `/orderId`, one document per order —
+  **new Cosmos container `OrderReservations`** (partitioned `/id` = orderId, one document per order —
   distinct from the per-product `Inventory` container) and attempts to move stock from `Available` to
   `Reserved` **line item by line item** (each product lives in its own `Inventory` partition, so a
   multi-item order can't be one atomic transactional batch across products — see ADR-2). What *is*
@@ -273,7 +289,7 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
   - `payment-events` (`PaymentProcessed`, `PaymentFailed`) — subscriptions
     `order-payment-outcome-subscription` (OrderService) and `notification-payment-subscription`
     (NotificationService)
-- **New Cosmos container:** `OrderReservations` (partition `/orderId`) — InventoryService's per-order
+- **New Cosmos container:** `OrderReservations` (partition `/id` = orderId) — InventoryService's per-order
   reservation-outcome tracking + embedded outbox, added to `main.bicep` alongside the existing
   `Products`/`Inventory`/`ProcessedMessages` containers (see the durability note in `docs/HLD.md`
   §6).

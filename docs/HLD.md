@@ -245,7 +245,7 @@ OrderService.PlaceOrder
 
 OrderService OutboxPublisherService ──▶ Service Bus topic order-events
   ▼ subscription: inventory-order-subscription
-InventoryService.ReserveStock — writes ONE OrderReservations doc (Cosmos, partition /orderId):
+InventoryService.ReserveStock — writes ONE OrderReservations doc (Cosmos, partition /id = orderId):
   attempts each line's Available→Reserved move against the (per-product) Inventory container
   │
   ├─ all lines succeed ─▶ OrderReservations.Outbox = InventoryReserved  [one atomic doc write]
@@ -309,7 +309,7 @@ ordering instead of two independent consumers racing the same source event.
 **Why a per-order `OrderReservations` document, not a direct write to the per-product `Inventory`
 container:** `Inventory` is partitioned on `/id`/`ProductId` (ADR-2), so a multi-line order's
 reservations span multiple partitions — no single atomic write covers all of them. `OrderReservations`
-is a *new* Cosmos container partitioned on `/orderId`, one document per order, so the "which lines
+is a *new* Cosmos container partitioned on `/id` (= orderId), one document per order, so the "which lines
 reserved, which need releasing, what event is pending" state **and** its embedded Outbox field commit
 atomically in one document write — the same embedded-outbox trick ProductService already uses (ADR-16),
 applied here to make the reservation outcome (not just the eventual publish) crash-safe. The
