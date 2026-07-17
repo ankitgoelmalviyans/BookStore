@@ -49,9 +49,13 @@ resource sqlServer 'Microsoft.Sql/servers@2023-08-01-preview' = {
 
 // AKS reaches the database over the public endpoint (no VNet/private-endpoint integration
 // configured today, even though everything's in one subscription now), so the firewall has to
-// allow Azure-originating traffic broadly rather than one pinned IP — AKS's outbound IP isn't
-// static without a dedicated egress setup. Tighten this to the AKS cluster's actual outbound IP,
-// or move to a private endpoint, if/when that's set up.
+// allow Azure-originating traffic broadly rather than one pinned IP. This is deliberately not
+// tightened to a specific IP yet: main.bicep's AKS cluster uses a managed/dynamic outbound IP
+// (`outboundType: 'loadBalancer'` with no explicit `outboundIPs`), so there's no static egress IP
+// to reference — pinning this would require adding an explicit `Microsoft.Network/publicIPAddresses`
+// resource wired into AKS's load balancer profile (a real, separate infra change), or a private
+// endpoint (not built). Removing this rule without either in place would cut off AKS's only path to
+// the database, which is worse than the broad-but-Azure-scoped rule it replaces.
 resource allowAzureServices 'Microsoft.Sql/servers/firewallRules@2023-08-01-preview' = {
   parent: sqlServer
   name: 'AllowAllWindowsAzureIps'
@@ -103,5 +107,3 @@ resource paymentDb 'Microsoft.Sql/servers/databases@2023-08-01-preview' = {
 // ─── Outputs ────────────────────────────────────────────────────────────────
 
 output sqlServerFqdn string = sqlServer.properties.fullyQualifiedDomainName
-output orderDbName string = orderDb.name
-output paymentDbName string = paymentDb.name

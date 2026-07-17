@@ -63,9 +63,9 @@ namespace BookStore.PaymentService.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_PaymentOutbox_Status",
+                name: "IX_PaymentOutbox_Status_CreatedAt",
                 table: "PaymentOutbox",
-                column: "Status");
+                columns: new[] { "Status", "CreatedAt" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_Payments_OrderId",

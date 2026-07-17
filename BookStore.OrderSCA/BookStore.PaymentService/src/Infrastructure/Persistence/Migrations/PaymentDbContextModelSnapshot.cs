@@ -80,7 +80,7 @@ namespace BookStore.PaymentService.Infrastructure.Persistence.Migrations
 
                     b.HasKey("EventId");
 
-                    b.HasIndex("Status");
+                    b.HasIndex("Status", "CreatedAt");
 
                     b.ToTable("PaymentOutbox", (string)null);
                 });

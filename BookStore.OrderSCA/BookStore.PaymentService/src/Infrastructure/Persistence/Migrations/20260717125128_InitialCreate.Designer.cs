@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace BookStore.PaymentService.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(PaymentDbContext))]
-    [Migration("20260717114322_InitialCreate")]
+    [Migration("20260717125128_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -83,7 +83,7 @@ namespace BookStore.PaymentService.Infrastructure.Persistence.Migrations
 
                     b.HasKey("EventId");
 
-                    b.HasIndex("Status");
+                    b.HasIndex("Status", "CreatedAt");
 
                     b.ToTable("PaymentOutbox", (string)null);
                 });

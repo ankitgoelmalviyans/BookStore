@@ -14,7 +14,13 @@ public static class SeedRunner
 {
     public static async Task RunAsync(IConfiguration config)
     {
-        var connectionString = config.GetConnectionString("PaymentDb") ?? config["ConnectionStrings:PaymentDb"];
+        var connectionString = config.GetConnectionString("PaymentDb");
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new InvalidOperationException(
+                "Seed: ConnectionStrings:PaymentDb is not configured — set ConnectionStrings__PaymentDb before running --seed.");
+        }
+
         var options = new DbContextOptionsBuilder<PaymentDbContext>()
             .UseSqlServer(connectionString, sql => sql.EnableRetryOnFailure())
             .Options;

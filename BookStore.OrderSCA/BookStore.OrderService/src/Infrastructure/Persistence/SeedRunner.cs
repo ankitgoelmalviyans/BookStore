@@ -1,3 +1,4 @@
+using System.Data;
 using BookStore.OrderService.Core.Entities;
 using BookStore.OrderService.Core.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -21,6 +22,11 @@ public static class SeedRunner
 
         await using var db = new OrderDbContext(options);
         await db.Database.MigrateAsync();
+
+        // Serializable so the "is it empty" check and the insert are atomic — without this, two
+        // overlapping CD runs could both pass the AnyAsync check before either commits and both
+        // insert a demo row.
+        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
 
         if (await db.Orders.AnyAsync())
         {
@@ -50,6 +56,7 @@ public static class SeedRunner
         });
 
         await db.SaveChangesAsync();
+        await transaction.CommitAsync();
         Console.WriteLine($"Seed: inserted demo order {orderId}.");
     }
 }

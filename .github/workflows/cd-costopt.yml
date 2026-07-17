@@ -138,6 +138,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Source-only checkout — this job never pushes back to git, so don't leave the token in
+          # .git/config for the rest of the job (e.g. the Docker build step) to read.
+          persist-credentials: false
 
       - name: Login to ACR
         uses: docker/login-action@v3
@@ -174,6 +178,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Source-only checkout — this job never pushes back to git, so don't leave the token in
+          # .git/config for the rest of the job (e.g. the Docker build step) to read.
+          persist-credentials: false
 
       - name: Login to ACR
         uses: docker/login-action@v3
@@ -210,6 +218,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Source-only checkout — this job never pushes back to git, so don't leave the token in
+          # .git/config for the rest of the job (e.g. the Docker build step) to read.
+          persist-credentials: false
 
       - name: Login to ACR
         uses: docker/login-action@v3
@@ -547,12 +559,12 @@ jobs:
           echo "Product:      http://${{ secrets.INGRESS_IP }}.nip.io/product"
           echo "Inventory:    http://${{ secrets.INGRESS_IP }}.nip.io/inventory"
           echo "Notification: http://${{ secrets.INGRESS_IP }}.nip.io/notification"
-          if [ -n "${{ env.ORDER_SQL_CONNECTION }}" ]; then
+          if [ -n "$ORDER_SQL_CONNECTION" ]; then
             echo "Order:        http://${{ secrets.INGRESS_IP }}.nip.io/order"
           else
             echo "Order:        not deployed (ORDER_SQL_CONNECTION secret unset)"
           fi
-          if [ -n "${{ env.PAYMENT_SQL_CONNECTION }}" ]; then
+          if [ -n "$PAYMENT_SQL_CONNECTION" ]; then
             echo "Payment:      http://${{ secrets.INGRESS_IP }}.nip.io/payment"
           else
             echo "Payment:      not deployed (PAYMENT_SQL_CONNECTION secret unset)"
