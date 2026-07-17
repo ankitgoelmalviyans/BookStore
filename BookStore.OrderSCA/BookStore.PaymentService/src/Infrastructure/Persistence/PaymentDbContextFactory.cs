@@ -17,7 +17,7 @@ public class PaymentDbContextFactory : IDesignTimeDbContextFactory<PaymentDbCont
             ?? "Server=(localdb)\\mssqllocaldb;Database=BookStorePayments;Trusted_Connection=True;TrustServerCertificate=True";
 
         var options = new DbContextOptionsBuilder<PaymentDbContext>()
-            .UseSqlServer(connectionString)
+            .UseSqlServer(connectionString, sql => sql.EnableRetryOnFailure())
             .Options;
 
         return new PaymentDbContext(options);

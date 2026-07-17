@@ -19,7 +19,7 @@ public class OrderDbContextFactory : IDesignTimeDbContextFactory<OrderDbContext>
             ?? "Server=(localdb)\\mssqllocaldb;Database=BookStoreOrders;Trusted_Connection=True;TrustServerCertificate=True";
 
         var options = new DbContextOptionsBuilder<OrderDbContext>()
-            .UseSqlServer(connectionString)
+            .UseSqlServer(connectionString, sql => sql.EnableRetryOnFailure())
             .Options;
 
         return new OrderDbContext(options);
