@@ -25,7 +25,7 @@ namespace BookStore.InventoryService.Infrastructure.Messaging
             _client = new ServiceBusClient(configuration["AzureServiceBus:ConnectionString"]);
         }
 
-        public async Task PublishAsync<T>(T eventMessage, string topic, string? correlationId = null, string? traceParent = null) where T : class
+        public async Task PublishAsync<T>(T eventMessage, string topic, string? correlationId = null, string? traceParent = null, string? eventType = null) where T : class
         {
             using var activity = BookStoreActivitySource.Instance.StartActivity(
                 $"ServiceBus.Publish {topic}", ActivityKind.Producer, traceParent);
@@ -40,6 +40,12 @@ namespace BookStore.InventoryService.Infrastructure.Messaging
             var effectiveCorrelationId = correlationId ?? Guid.NewGuid().ToString();
             message.CorrelationId = effectiveCorrelationId;
             message.ApplicationProperties["CorrelationId"] = effectiveCorrelationId;
+
+            // Explicit event-type property so consumers dispatch by type, not by sniffing payload shape.
+            if (!string.IsNullOrWhiteSpace(eventType))
+            {
+                message.ApplicationProperties["EventType"] = eventType;
+            }
 
             var traceparentToInject = activity?.Id ?? traceParent;
             if (traceparentToInject is not null)

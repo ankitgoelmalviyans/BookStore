@@ -129,7 +129,7 @@ namespace BookStore.InventoryService.API.BackgroundServices
 
             using (LogContext.PushProperty("CorrelationId", outbox.CorrelationId))
             {
-                await _publisher.PublishAsync(payload, outbox.Topic, outbox.CorrelationId, outbox.TraceParent);
+                await _publisher.PublishAsync(payload, outbox.Topic, outbox.CorrelationId, outbox.TraceParent, outbox.EventType);
                 outbox.Status = OutboxStatus.Published;
                 outbox.PublishedAt = DateTime.UtcNow;
                 reservation.LastUpdated = DateTime.UtcNow;

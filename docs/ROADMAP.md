@@ -57,9 +57,19 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
 > `build-order` CI job. Orders are placed for the **authenticated** caller (CustomerId from the JWT
 > `sub`, never the request body), reads are scoped to the caller, the history query is bounded, and the
 > outbox drain isolates per-record failures with a bounded-retry → `Failed` dead-letter (ADR-17
-> posture). **Still pending:** the saga *inbound* handlers (subscribing to
-> `InventoryReservationFailed`/`PaymentProcessed`/`PaymentFailed` to move the order to
-> `Confirmed`/`Cancelled` and emit `OrderCancelled`) — they depend on the other services existing;
+> posture).
+>
+> **Inbound handlers ✅ (increment 2, code built, gated off).** OrderService now closes the saga loop:
+> an `OrderOutcomeSubscriber` on `payment-events` (`PaymentProcessed`/`PaymentFailed`) and
+> `inventory-events` (`InventoryReservationFailed`) delegates to a testable `OrderOutcomeHandler` that
+> moves the order `Pending → Confirmed` (payment captured) or `Pending → Cancelled` (payment or
+> reservation failure), emitting `OrderCancelled` on payment failure so InventoryService releases the
+> reserved stock. Every transition is **monotonic** (only from `Pending`, so a duplicate/out-of-order
+> delivery can't regress a terminal state), the inbound event is **SQL-Inbox-deduped**, and the state
+> change + optional `OrderCancelled` outbox + inbox marker commit in **one transaction**. Dispatch is by
+> an explicit **`EventType` message property** — added to all three saga producers' publish path
+> (Order/Payment/Inventory), so no consumer sniffs payload shape. Gated behind **`Orders:InboundEnabled`
+> (default off)** since it depends on the `payment-events`/`inventory-events` topology. **Still pending:**
 > **server-side price resolution** — today the line `UnitPrice` is taken from the request, which is a
 > known trust gap: OrderService must resolve authoritative prices from a product-catalog source it
 > doesn't own yet (either a sync read from ProductService or, choreography-consistently, a local

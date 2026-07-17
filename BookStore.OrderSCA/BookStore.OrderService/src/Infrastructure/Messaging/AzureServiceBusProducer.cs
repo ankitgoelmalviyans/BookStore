@@ -29,7 +29,7 @@ public class AzureServiceBusProducer : IMessagePublisher, IAsyncDisposable
         _httpContextAccessor = httpContextAccessor;
     }
 
-    public async Task PublishAsync<T>(T eventMessage, string topic, string? correlationId = null, string? traceParent = null) where T : class
+    public async Task PublishAsync<T>(T eventMessage, string topic, string? correlationId = null, string? traceParent = null, string? eventType = null) where T : class
     {
         // Producer span. When traceParent is supplied (the trace context captured at the original
         // HTTP place-order and stored on the outbox record), this span joins THAT trace so the whole
@@ -41,8 +41,16 @@ public class AzureServiceBusProducer : IMessagePublisher, IAsyncDisposable
 
         var sender = _senders.GetOrAdd(topic, t => _client.CreateSender(t));
 
-        var jsonBody = JsonSerializer.Serialize(eventMessage);
+        // Serialize by runtime type — the outbox drain publishes events typed as `object`, and
+        // Serialize<object> would emit an empty document.
+        var jsonBody = JsonSerializer.Serialize(eventMessage, eventMessage.GetType());
         var message = new ServiceBusMessage(jsonBody);
+
+        // Explicit event-type property so consumers dispatch by type, not by sniffing the payload shape.
+        if (!string.IsNullOrWhiteSpace(eventType))
+        {
+            message.ApplicationProperties["EventType"] = eventType;
+        }
 
         var effectiveCorrelationId = correlationId
             ?? _httpContextAccessor.HttpContext?.Items[CorrelationConstants.HttpContextItemKey]?.ToString()

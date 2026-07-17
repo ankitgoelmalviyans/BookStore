@@ -24,7 +24,7 @@ public class AzureServiceBusProducer : IMessagePublisher, IAsyncDisposable
         _httpContextAccessor = httpContextAccessor;
     }
 
-    public async Task PublishAsync<T>(T eventMessage, string topic, string? correlationId = null, string? traceParent = null) where T : class
+    public async Task PublishAsync<T>(T eventMessage, string topic, string? correlationId = null, string? traceParent = null, string? eventType = null) where T : class
     {
         using var activity = PaymentServiceActivitySource.Instance.StartActivity(
             $"ServiceBus.Publish {topic}", ActivityKind.Producer, traceParent);
@@ -43,6 +43,12 @@ public class AzureServiceBusProducer : IMessagePublisher, IAsyncDisposable
 
         message.CorrelationId = effectiveCorrelationId;
         message.ApplicationProperties["CorrelationId"] = effectiveCorrelationId;
+
+        // Explicit event-type property so consumers dispatch by type, not by sniffing the payload shape.
+        if (!string.IsNullOrWhiteSpace(eventType))
+        {
+            message.ApplicationProperties["EventType"] = eventType;
+        }
 
         var traceparentToInject = activity?.Id ?? traceParent;
         if (traceparentToInject is not null)

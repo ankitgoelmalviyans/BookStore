@@ -24,6 +24,9 @@
     <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
     <PackageReference Include="Azure.Messaging.ServiceBus" Version="7.15.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.4" />
+    <!-- For Serilog.Context.LogContext in the outcome subscriber, so CorrelationId flows onto handler
+         logs across the async hop. DI + logging come from the AspNetCore framework reference above. -->
+    <PackageReference Include="Serilog" Version="3.1.1" />
   </ItemGroup>
 
   <ItemGroup>

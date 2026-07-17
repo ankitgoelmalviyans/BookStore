@@ -136,23 +136,31 @@ namespace BookStore.OrderService.API.BackgroundServices
             IMessagePublisher publisher,
             CancellationToken stoppingToken)
         {
-            // Only OrderCreated is emitted in this increment; deserialize to the typed event so the
-            // producer serializes it consistently (and so a future EventType switch has an obvious
-            // seam). A null/unparseable payload is treated as a failure so it counts toward the retry
-            // budget and eventually dead-letters, rather than silently staying Pending forever.
-            var payload = JsonSerializer.Deserialize<OrderCreatedEvent>(message.Payload);
+            // Deserialize to the concrete outbound event type so the producer serializes it
+            // consistently. A null/unparseable/unknown payload is treated as a failure so it counts
+            // toward the retry budget and eventually dead-letters, rather than staying Pending forever.
+            object? payload = message.EventType switch
+            {
+                nameof(OrderCreatedEvent) => JsonSerializer.Deserialize<OrderCreatedEvent>(message.Payload),
+                nameof(OrderCancelledEvent) => JsonSerializer.Deserialize<OrderCancelledEvent>(message.Payload),
+                _ => null
+            };
+
             if (payload is null)
             {
                 _logger.LogWarning(
-                    "Outbox record {EventId} has an unparseable payload; recording as a failed attempt", message.EventId);
+                    "Outbox record {EventId} has an unknown type '{EventType}' or unparseable payload; recording as a failed attempt",
+                    message.EventId, message.EventType);
                 await outboxStore.RecordFailureAsync(message, _maxRetries, stoppingToken);
                 return;
             }
 
             using (LogContext.PushProperty("CorrelationId", message.CorrelationId))
             {
+                // Pass the stored EventType so the producer stamps it as the message's EventType
+                // property — consumers dispatch by that, not by sniffing the payload shape.
                 await publisher.PublishAsync(
-                    payload, message.Topic, message.CorrelationId, message.TraceParent);
+                    payload, message.Topic, message.CorrelationId, message.TraceParent, message.EventType);
                 await outboxStore.MarkPublishedAsync(message, stoppingToken);
 
                 _logger.LogInformation(

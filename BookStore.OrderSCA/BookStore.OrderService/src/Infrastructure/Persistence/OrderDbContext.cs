@@ -17,6 +17,7 @@ public class OrderDbContext : DbContext
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
+    public DbSet<InboxMessage> InboxMessages => Set<InboxMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -55,6 +56,14 @@ public class OrderDbContext : DbContext
             entity.Property(m => m.RetryCount);
             // Drain query filters on Status — index it so polling stays cheap as the table grows.
             entity.HasIndex(m => m.Status);
+        });
+
+        modelBuilder.Entity<InboxMessage>(entity =>
+        {
+            entity.ToTable("ProcessedInbox");
+            // EventId is the primary key, so a second insert of the same inbound event id fails the
+            // transaction — DB-enforced dedup, not just an application check.
+            entity.HasKey(m => m.EventId);
         });
     }
 }
