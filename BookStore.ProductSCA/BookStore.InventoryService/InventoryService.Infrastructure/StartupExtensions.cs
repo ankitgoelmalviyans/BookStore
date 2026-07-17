@@ -1,4 +1,5 @@
 using BookStore.InventoryService.Application.Interfaces;
+using BookStore.InventoryService.Application.Services;
 using BookStore.InventoryService.Infrastructure.Messaging;
 using BookStore.InventoryService.Infrastructure.Repositories;
 using Microsoft.Azure.Cosmos;
@@ -12,6 +13,12 @@ namespace BookStore.InventoryService.Infrastructure
         public static IServiceCollection AddInventoryDependencies(this IServiceCollection services, IConfiguration configuration)
         {
             var useCosmos = configuration.GetValue<bool>("UseCosmosDb");
+
+            // Reservation step is OFF by default: it depends on the order-events / inventory-events
+            // Service Bus topology, which isn't provisioned yet. Deploying this code therefore changes
+            // nothing at runtime until an operator sets Reservations:Enabled=true (once the topology and
+            // OrderReservations container exist). The existing product-events flow is unaffected either way.
+            var reservationsEnabled = configuration.GetValue<bool>("Reservations:Enabled");
 
             if (useCosmos)
             {
@@ -29,7 +36,27 @@ namespace BookStore.InventoryService.Infrastructure
                 services.AddSingleton<IInboxStore, InMemoryInboxStore>();
             }
 
+            // The existing product-events subscriber is always registered — unchanged.
             services.AddSingleton<IEventSubscriber, AzureServiceBusSubscriber>();
+
+            // Reservation step (Phase 2): a producer (new — InventoryService now publishes), the core
+            // reservation logic, the reservation repository, and a second subscriber on order-events —
+            // all gated so nothing touches the unprovisioned topology unless explicitly enabled.
+            if (reservationsEnabled)
+            {
+                if (useCosmos)
+                {
+                    services.AddSingleton<IReservationRepository, CosmosReservationRepository>();
+                }
+                else
+                {
+                    services.AddSingleton<IReservationRepository, InMemoryReservationRepository>();
+                }
+
+                services.AddSingleton<IMessagePublisher, AzureServiceBusProducer>();
+                services.AddSingleton<IReservationService, ReservationService>();
+                services.AddSingleton<IEventSubscriber, OrderEventsSubscriber>();
+            }
 
             return services;
         }

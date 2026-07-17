@@ -123,5 +123,104 @@ namespace BookStore.InventoryService.Infrastructure.Repositories
             // risk an unguarded write; the caller sees this identically to insufficient stock.
             return false;
         }
+
+        public bool TryReserve(Guid productId, int quantity)
+        {
+            if (quantity <= 0)
+            {
+                return false;
+            }
+
+            // Same ETag optimistic-concurrency pattern as TryDecrementStock: move units from available
+            // Quantity to Reserved atomically, retrying on a 412 rather than clobbering a concurrent write.
+            const int maxAttempts = 5;
+            for (var attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                Inventory item;
+                string etag;
+                try
+                {
+                    var response = _container.ReadItemAsync<Inventory>(
+                        productId.ToString(), new PartitionKey(productId.ToString())).GetAwaiter().GetResult();
+                    item = response.Resource;
+                    etag = response.ETag;
+                }
+                catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+                {
+                    return false;
+                }
+
+                if (item.Quantity < quantity)
+                {
+                    return false;
+                }
+
+                item.Quantity -= quantity;
+                item.Reserved += quantity;
+                item.LastUpdated = DateTime.UtcNow;
+
+                try
+                {
+                    _container.UpsertItemAsync(
+                        item,
+                        new PartitionKey(item.ProductId.ToString()),
+                        new ItemRequestOptions { IfMatchEtag = etag }).GetAwaiter().GetResult();
+                    return true;
+                }
+                catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.PreconditionFailed)
+                {
+                    // Lost the race — retry against a fresh read.
+                }
+            }
+
+            return false;
+        }
+
+        public bool TryRelease(Guid productId, int quantity)
+        {
+            if (quantity <= 0)
+            {
+                return false;
+            }
+
+            const int maxAttempts = 5;
+            for (var attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                Inventory item;
+                string etag;
+                try
+                {
+                    var response = _container.ReadItemAsync<Inventory>(
+                        productId.ToString(), new PartitionKey(productId.ToString())).GetAwaiter().GetResult();
+                    item = response.Resource;
+                    etag = response.ETag;
+                }
+                catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+                {
+                    return false;
+                }
+
+                // Bound by current Reserved so a duplicate release can't over-credit available stock.
+                var toRelease = Math.Min(quantity, item.Reserved);
+                item.Reserved -= toRelease;
+                item.Quantity += toRelease;
+                item.LastUpdated = DateTime.UtcNow;
+
+                try
+                {
+                    _container.UpsertItemAsync(
+                        item,
+                        new PartitionKey(item.ProductId.ToString()),
+                        new ItemRequestOptions { IfMatchEtag = etag }).GetAwaiter().GetResult();
+                    return true;
+                }
+                catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.PreconditionFailed)
+                {
+                    // Lost the race — retry against a fresh read.
+                }
+            }
+
+            return false;
+        }
     }
 }

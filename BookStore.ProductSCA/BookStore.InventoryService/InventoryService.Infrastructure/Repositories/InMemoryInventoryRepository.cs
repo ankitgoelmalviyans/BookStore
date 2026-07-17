@@ -66,5 +66,51 @@ namespace BookStore.InventoryService.Infrastructure.Repositories
                 return true;
             }
         }
+
+        public bool TryReserve(Guid productId, int quantity)
+        {
+            if (quantity <= 0)
+            {
+                return false;
+            }
+
+            lock (_lock)
+            {
+                var item = GetByProductId(productId);
+                if (item == null || item.Quantity < quantity)
+                {
+                    return false;
+                }
+
+                item.Quantity -= quantity;
+                item.Reserved += quantity;
+                item.LastUpdated = DateTime.UtcNow;
+                return true;
+            }
+        }
+
+        public bool TryRelease(Guid productId, int quantity)
+        {
+            if (quantity <= 0)
+            {
+                return false;
+            }
+
+            lock (_lock)
+            {
+                var item = GetByProductId(productId);
+                if (item == null)
+                {
+                    return false;
+                }
+
+                // Bound by current Reserved so a duplicate release can't over-credit.
+                var toRelease = Math.Min(quantity, item.Reserved);
+                item.Reserved -= toRelease;
+                item.Quantity += toRelease;
+                item.LastUpdated = DateTime.UtcNow;
+                return true;
+            }
+        }
     }
 }

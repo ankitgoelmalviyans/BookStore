@@ -14,7 +14,16 @@ namespace BookStore.InventoryService.Domain
         [Newtonsoft.Json.JsonProperty("id")]
         public Guid Id { get; set; }
         public Guid ProductId { get; set; }
+
+        /// <summary>Available (unreserved) stock. This is the quantity the existing restock/decrement
+        /// paths operate on; it is unchanged in meaning.</summary>
         public int Quantity { get; set; }
+
+        /// <summary>Stock held for orders that have reserved but not yet paid. Reserving moves units
+        /// Quantity → Reserved; releasing moves them back. Additive field — existing documents read
+        /// back as 0. See docs/HLD.md §6.</summary>
+        public int Reserved { get; set; }
+
         public DateTime LastUpdated { get; set; }
     }
 }
