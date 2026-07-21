@@ -1,24 +1,25 @@
 <mat-toolbar color="primary" class="nav-toolbar">
   <a class="brand" routerLink="/products">📚 BookStore</a>
 
-  <ng-container *ngIf="loggedIn">
+  @if (loggedIn) {
     <nav class="nav-links">
       <a mat-button routerLink="/products" routerLinkActive="active">Products</a>
       <a mat-button routerLink="/orders" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">My Orders</a>
     </nav>
-  </ng-container>
+  }
 
   <span class="spacer"></span>
 
-  <ng-container *ngIf="loggedIn; else loginLink">
+  @if (loggedIn) {
     <button mat-icon-button routerLink="/orders/cart" aria-label="Cart" matBadgeColor="accent"
             [matBadge]="(itemCount$ | async) || null" [matBadgeHidden]="!(itemCount$ | async)">
       <mat-icon>shopping_cart</mat-icon>
     </button>
-    <span class="username" *ngIf="username">{{ username }}</span>
+    @if (username) {
+      <span class="username">{{ username }}</span>
+    }
     <button mat-button (click)="logout()">Logout</button>
-  </ng-container>
-  <ng-template #loginLink>
+  } @else {
     <a mat-button routerLink="/login">Login</a>
-  </ng-template>
+  }
 </mat-toolbar>

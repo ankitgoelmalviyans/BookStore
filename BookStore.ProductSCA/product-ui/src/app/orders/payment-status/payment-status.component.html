@@ -1,33 +1,45 @@
 <div class="payment-status">
   <h3>Payment</h3>
 
-  <div *ngIf="loading" class="loading-row">
-    <mat-spinner diameter="20"></mat-spinner>
-    <span>Checking payment status…</span>
-  </div>
-
-  <ng-container *ngIf="!loading">
-    <div *ngIf="!payment && orderStatus === 'Cancelled'" class="pending-note">
-      <mat-icon>block</mat-icon>
-      <span>This order was cancelled — no charge was made.</span>
+  @if (loading) {
+    <div class="loading-row">
+      <mat-spinner diameter="20"></mat-spinner>
+      <span>Checking payment status…</span>
     </div>
+  }
 
-    <div *ngIf="!payment && orderStatus !== 'Cancelled'" class="pending-note">
-      <mat-icon>hourglass_empty</mat-icon>
-      <span>Payment is still processing — inventory is reserved first, then the charge runs. This
-        usually takes only a few seconds; refresh shortly.</span>
-    </div>
+  @if (!loading) {
+    @if (!payment && orderStatus === 'Cancelled') {
+      <div class="pending-note">
+        <mat-icon>block</mat-icon>
+        <span>This order was cancelled — no charge was made.</span>
+      </div>
+    }
 
-    <div *ngIf="payment" class="payment-details">
-      <span class="chip" [ngClass]="chipClass">{{ payment.status }}</span>
-      <span class="amount">{{ payment.currency | uppercase }} {{ payment.amount }}</span>
+    @if (!payment && orderStatus !== 'Cancelled') {
+      <div class="pending-note">
+        <mat-icon>hourglass_empty</mat-icon>
+        <span>Payment is still processing — inventory is reserved first, then the charge runs. This
+          usually takes only a few seconds; refresh shortly.</span>
+      </div>
+    }
 
-      <p *ngIf="payment.providerPaymentId" class="detail-line">
-        <strong>Reference:</strong> {{ payment.providerPaymentId }}
-      </p>
-      <p *ngIf="payment.status === 'Failed' && payment.failureReason" class="detail-line failure">
-        <strong>Reason:</strong> {{ payment.failureReason }}
-      </p>
-    </div>
-  </ng-container>
+    @if (payment) {
+      <div class="payment-details">
+        <span class="chip" [ngClass]="chipClass">{{ payment.status }}</span>
+        <span class="amount">{{ payment.currency | uppercase }} {{ payment.amount }}</span>
+
+        @if (payment.providerPaymentId) {
+          <p class="detail-line">
+            <strong>Reference:</strong> {{ payment.providerPaymentId }}
+          </p>
+        }
+        @if (payment.status === 'Failed' && payment.failureReason) {
+          <p class="detail-line failure">
+            <strong>Reason:</strong> {{ payment.failureReason }}
+          </p>
+        }
+      </div>
+    }
+  }
 </div>

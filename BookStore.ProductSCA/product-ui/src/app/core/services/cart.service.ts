@@ -2,8 +2,8 @@ import { Injectable } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
 import { filter, map } from 'rxjs/operators';
 import { NavigationEnd, Router } from '@angular/router';
-import { CartItem } from './models/cart-item.model';
-import { Product } from './models/product.model';
+import { CartItem } from '../models/cart-item.model';
+import { Product } from '../models/product.model';
 import { AuthService } from './auth.service';
 
 const STORAGE_PREFIX = 'cart_items_';
