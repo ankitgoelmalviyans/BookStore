@@ -270,6 +270,47 @@ jobs:
           tags: notificationservice:ci
 
   # ─────────────────────────────────────────
+  # JOB 3e — Validate EF Core migrations (OrderService/PaymentService)
+  # ─────────────────────────────────────────
+  validate-ef-migrations:
+    name: Validate EF Migrations
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      # `dotnet ef migrations script` only reads migration metadata to generate SQL — it never
+      # opens a real connection — so this catches drift (a model change with no matching migration,
+      # a broken design-time factory) without needing ORDER_SQL_CONNECTION/PAYMENT_SQL_CONNECTION.
+      - name: Validate OrderService migrations
+        working-directory: BookStore.OrderSCA/BookStore.OrderService
+        run: |
+          dotnet tool restore
+          dotnet ef migrations script \
+            --project src/Infrastructure/Infrastructure.csproj \
+            --startup-project src/BookStore.OrderService.API/BookStore.OrderService.API.csproj \
+            --context OrderDbContext \
+            --idempotent \
+            --output /dev/null
+
+      - name: Validate PaymentService migrations
+        working-directory: BookStore.OrderSCA/BookStore.PaymentService
+        run: |
+          dotnet tool restore
+          dotnet ef migrations script \
+            --project src/Infrastructure/Infrastructure.csproj \
+            --startup-project src/BookStore.PaymentService.API/BookStore.PaymentService.API.csproj \
+            --context PaymentDbContext \
+            --idempotent \
+            --output /dev/null
+
+  # ─────────────────────────────────────────
   # JOB 4 — Build Angular UI
   # ─────────────────────────────────────────
   build-ui:
@@ -463,6 +504,7 @@ jobs:
       - build-order
       - build-payment
       - build-notification
+      - validate-ef-migrations
       - build-ui
       - validate-helm
       - validate-bicep
@@ -480,6 +522,7 @@ jobs:
           echo "✓ OrderService builds"
           echo "✓ PaymentService builds"
           echo "✓ NotificationService builds"
+          echo "✓ EF Core migrations valid (Order/Payment)"
           echo "✓ Angular UI builds"
           echo "✓ Helm charts valid"
           echo "✓ Bicep templates valid"
