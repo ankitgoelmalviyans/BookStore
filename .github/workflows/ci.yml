@@ -279,15 +279,29 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # This job only builds/validates — it never pushes — so don't leave the token in .git/config.
+          persist-credentials: false
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      # `dotnet ef migrations script` only reads migration metadata to generate SQL — it never
-      # opens a real connection — so this catches drift (a model change with no matching migration,
-      # a broken design-time factory) without needing ORDER_SQL_CONNECTION/PAYMENT_SQL_CONNECTION.
+      # `has-pending-model-changes` compares the current model against the last migration's
+      # snapshot — this is what actually catches "entity changed, no migration scaffolded for it".
+      # `migrations script` doesn't check that; it only replays already-scaffolded migrations into
+      # SQL, which catches a different failure mode (a broken migration/design-time factory that
+      # can't generate SQL at all). Neither needs a real connection, so no SQL secrets required here.
+      - name: Check for pending OrderService model changes
+        working-directory: BookStore.OrderSCA/BookStore.OrderService
+        run: |
+          dotnet tool restore
+          dotnet ef migrations has-pending-model-changes \
+            --project src/Infrastructure/Infrastructure.csproj \
+            --startup-project src/BookStore.OrderService.API/BookStore.OrderService.API.csproj \
+            --context OrderDbContext
+
       - name: Validate OrderService migrations
         working-directory: BookStore.OrderSCA/BookStore.OrderService
         run: |
@@ -298,6 +312,15 @@ jobs:
             --context OrderDbContext \
             --idempotent \
             --output /dev/null
+
+      - name: Check for pending PaymentService model changes
+        working-directory: BookStore.OrderSCA/BookStore.PaymentService
+        run: |
+          dotnet tool restore
+          dotnet ef migrations has-pending-model-changes \
+            --project src/Infrastructure/Infrastructure.csproj \
+            --startup-project src/BookStore.PaymentService.API/BookStore.PaymentService.API.csproj \
+            --context PaymentDbContext
 
       - name: Validate PaymentService migrations
         working-directory: BookStore.OrderSCA/BookStore.PaymentService
