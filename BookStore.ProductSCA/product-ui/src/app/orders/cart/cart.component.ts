@@ -1,13 +1,21 @@
 import { Component } from '@angular/core';
-import { Router } from '@angular/router';
-import { MatSnackBar } from '@angular/material/snack-bar';
+import { CommonModule } from '@angular/common';
+import { Router, RouterLink } from '@angular/router';
+import { MatCardModule } from '@angular/material/card';
+import { MatIconModule } from '@angular/material/icon';
+import { MatTableModule } from '@angular/material/table';
+import { MatButtonModule } from '@angular/material/button';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { Observable } from 'rxjs';
-import { CartService } from '../../core/cart.service';
-import { OrderService } from '../../core/order.service';
+import { CartService } from '../../core/services/cart.service';
+import { OrderService } from '../../core/services/order.service';
 import { CartItem } from '../../core/models/cart-item.model';
 
 @Component({
   selector: 'app-cart',
+  standalone: true,
+  imports: [CommonModule, RouterLink, MatCardModule, MatIconModule, MatTableModule, MatButtonModule, MatProgressSpinnerModule, MatSnackBarModule],
   templateUrl: './cart.component.html',
   styleUrls: ['./cart.component.scss']
 })

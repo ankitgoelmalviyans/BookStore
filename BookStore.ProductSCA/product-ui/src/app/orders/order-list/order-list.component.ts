@@ -1,10 +1,18 @@
 import { Component, OnInit } from '@angular/core';
-import { Router } from '@angular/router';
-import { OrderService } from '../../core/order.service';
+import { CommonModule } from '@angular/common';
+import { Router, RouterLink } from '@angular/router';
+import { MatCardModule } from '@angular/material/card';
+import { MatIconModule } from '@angular/material/icon';
+import { MatButtonModule } from '@angular/material/button';
+import { MatTableModule } from '@angular/material/table';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { OrderService } from '../../core/services/order.service';
 import { OrderSummary } from '../../core/models/order.model';
 
 @Component({
   selector: 'app-order-list',
+  standalone: true,
+  imports: [CommonModule, RouterLink, MatCardModule, MatIconModule, MatButtonModule, MatTableModule, MatProgressSpinnerModule],
   templateUrl: './order-list.component.html',
   styleUrls: ['./order-list.component.scss']
 })

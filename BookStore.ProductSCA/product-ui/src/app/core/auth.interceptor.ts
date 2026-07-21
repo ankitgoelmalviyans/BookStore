@@ -1,35 +1,30 @@
-import { Injectable } from '@angular/core';
-import { HttpInterceptor, HttpRequest, HttpHandler } from '@angular/common/http';
+import { HttpInterceptorFn } from '@angular/common/http';
 
-@Injectable()
-export class AuthInterceptor implements HttpInterceptor {
+// Module-level, not a class field — functional interceptors are plain functions, but this still
+// only runs once per app since ES modules are singletons, so one CorrelationId per session.
+let correlationId = '';
 
-  private correlationId: string = '';
+export const authInterceptor: HttpInterceptorFn = (req, next) => {
+  const token = localStorage.getItem('auth_token');
 
-  intercept(req: HttpRequest<any>, next: HttpHandler) {
-    const token = localStorage.getItem('auth_token');
-
-    // Persist across page reloads so one browser session shares a single CorrelationId.
-    // Without localStorage the id resets on every F5, collapsing to per-request granularity.
-    if (!this.correlationId) {
-      this.correlationId = localStorage.getItem('correlation_id') ?? crypto.randomUUID();
-      try {
-        localStorage.setItem('correlation_id', this.correlationId);
-      } catch {
-        // Keep the in-memory correlation id if persistence is unavailable.
-      }
+  // Persist across page reloads so one browser session shares a single CorrelationId.
+  // Without localStorage the id resets on every F5, collapsing to per-request granularity.
+  if (!correlationId) {
+    correlationId = localStorage.getItem('correlation_id') ?? crypto.randomUUID();
+    try {
+      localStorage.setItem('correlation_id', correlationId);
+    } catch {
+      // Keep the in-memory correlation id if persistence is unavailable.
     }
-
-    const headers: { [key: string]: string } = {
-      'X-Correlation-Id': this.correlationId
-    };
-
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    req = req.clone({ setHeaders: headers });
-
-    return next.handle(req);
   }
-}
+
+  const headers: { [key: string]: string } = {
+    'X-Correlation-Id': correlationId
+  };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  return next(req.clone({ setHeaders: headers }));
+};

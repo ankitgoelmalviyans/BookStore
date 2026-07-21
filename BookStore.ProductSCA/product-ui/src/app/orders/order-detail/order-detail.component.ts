@@ -1,15 +1,23 @@
 import { Component, OnDestroy, OnInit } from '@angular/core';
-import { ActivatedRoute } from '@angular/router';
+import { CommonModule } from '@angular/common';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { EMPTY, Subscription, catchError, interval, startWith, switchMap, takeWhile } from 'rxjs';
-import { OrderService } from '../../core/order.service';
-import { PaymentService } from '../../core/payment.service';
+import { MatIconModule } from '@angular/material/icon';
+import { MatButtonModule } from '@angular/material/button';
+import { MatTableModule } from '@angular/material/table';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { OrderService } from '../../core/services/order.service';
+import { PaymentService } from '../../core/services/payment.service';
 import { OrderDetail } from '../../core/models/order.model';
 import { Payment } from '../../core/models/payment.model';
+import { PaymentStatusComponent } from '../payment-status/payment-status.component';
 
 const POLL_INTERVAL_MS = 4000;
 
 @Component({
   selector: 'app-order-detail',
+  standalone: true,
+  imports: [CommonModule, RouterLink, MatIconModule, MatButtonModule, MatTableModule, MatProgressSpinnerModule, PaymentStatusComponent],
   templateUrl: './order-detail.component.html',
   styleUrls: ['./order-detail.component.scss']
 })

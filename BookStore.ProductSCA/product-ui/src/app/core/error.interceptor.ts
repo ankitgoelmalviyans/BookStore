@@ -1,9 +1,8 @@
-import { Injectable } from '@angular/core';
-import { HttpErrorResponse, HttpEvent, HttpHandler, HttpInterceptor, HttpRequest } from '@angular/common/http';
-import { Observable, throwError } from 'rxjs';
-import { catchError } from 'rxjs/operators';
+import { inject } from '@angular/core';
+import { HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
+import { catchError, throwError } from 'rxjs';
 import { MatSnackBar } from '@angular/material/snack-bar';
-import { AuthService } from './auth.service';
+import { AuthService } from './services/auth.service';
 import { SUPPRESS_404_TOAST } from './http-context-tokens';
 
 // Centralises the two things every request would otherwise fail silently on: an expired/invalid
@@ -13,24 +12,22 @@ import { SUPPRESS_404_TOAST } from './http-context-tokens';
 // caller explicitly opts in via the SUPPRESS_404_TOAST context token (e.g.
 // PaymentService.getByOrderId, where "not found yet" is a normal state) — every other 404 still
 // gets the generic toast, since elsewhere a 404 usually does mean something's wrong.
-@Injectable()
-export class ErrorInterceptor implements HttpInterceptor {
-  constructor(private auth: AuthService, private snackBar: MatSnackBar) {}
+export const errorInterceptor: HttpInterceptorFn = (req, next) => {
+  const auth = inject(AuthService);
+  const snackBar = inject(MatSnackBar);
 
-  intercept(req: HttpRequest<any>, next: HttpHandler): Observable<HttpEvent<any>> {
-    return next.handle(req).pipe(
-      catchError((err: HttpErrorResponse) => {
-        const suppressThis404 = err.status === 404 && req.context.get(SUPPRESS_404_TOAST);
-        if (err.status === 401) {
-          this.auth.logout();
-        } else if (!suppressThis404) {
-          const message = err.status === 0
-            ? 'Network error — check your connection and try again.'
-            : `Something went wrong (${err.status}). Please try again.`;
-          this.snackBar.open(message, 'Dismiss', { duration: 5000 });
-        }
-        return throwError(() => err);
-      })
-    );
-  }
-}
+  return next(req).pipe(
+    catchError((err: HttpErrorResponse) => {
+      const suppressThis404 = err.status === 404 && req.context.get(SUPPRESS_404_TOAST);
+      if (err.status === 401) {
+        auth.logout();
+      } else if (!suppressThis404) {
+        const message = err.status === 0
+          ? 'Network error — check your connection and try again.'
+          : `Something went wrong (${err.status}). Please try again.`;
+        snackBar.open(message, 'Dismiss', { duration: 5000 });
+      }
+      return throwError(() => err);
+    })
+  );
+};

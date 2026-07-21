@@ -1,11 +1,18 @@
 import { Component, OnDestroy, OnInit } from '@angular/core';
-import { NavigationEnd, Router } from '@angular/router';
+import { CommonModule } from '@angular/common';
+import { NavigationEnd, Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { Subscription, filter } from 'rxjs';
-import { AuthService } from '../../core/auth.service';
-import { CartService } from '../../core/cart.service';
+import { MatToolbarModule } from '@angular/material/toolbar';
+import { MatIconModule } from '@angular/material/icon';
+import { MatButtonModule } from '@angular/material/button';
+import { MatBadgeModule } from '@angular/material/badge';
+import { AuthService } from '../../core/services/auth.service';
+import { CartService } from '../../core/services/cart.service';
 
 @Component({
   selector: 'app-nav-toolbar',
+  standalone: true,
+  imports: [CommonModule, RouterLink, RouterLinkActive, MatToolbarModule, MatIconModule, MatButtonModule, MatBadgeModule],
   templateUrl: './nav-toolbar.component.html',
   styleUrls: ['./nav-toolbar.component.scss']
 })

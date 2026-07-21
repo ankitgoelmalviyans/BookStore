@@ -1,11 +1,16 @@
 import { Component, OnInit } from '@angular/core';
+import { CommonModule } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
-import { InventoryService } from '../../core/inventory.service';
+import { MatCardModule } from '@angular/material/card';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { InventoryService } from '../../core/services/inventory.service';
 import { Inventory } from '../../core/models/inventory.model';
 
 @Component({
   selector: 'app-inventory',
+  standalone: true,
+  imports: [CommonModule, MatCardModule, MatProgressSpinnerModule],
   templateUrl: './inventory.component.html',
   styleUrls: ['./inventory.component.css']
 })
