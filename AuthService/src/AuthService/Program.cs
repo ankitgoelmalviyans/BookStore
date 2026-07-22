@@ -111,7 +111,7 @@ builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddSingleton<PasswordHasher<User>>();
 builder.Services.AddDbContext<AuthDbContext>(options =>
     options.UseSqlServer(
-        builder.Configuration.GetConnectionString("AuthDb") ?? builder.Configuration["ConnectionStrings:AuthDb"],
+        builder.Configuration.GetConnectionString("AuthDb"),
         sql => sql.EnableRetryOnFailure()));
 
 builder.Services.AddAuthentication("Bearer")

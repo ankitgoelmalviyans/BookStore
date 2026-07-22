@@ -65,6 +65,17 @@ resource allowAzureServices 'Microsoft.Sql/servers/firewallRules@2023-08-01-prev
   }
 }
 
+// Server-level threat-detection alerts, sent to the subscription's admins (no specific mailbox
+// hardcoded here) — otherwise Azure SQL's threat detection has no configured recipient at all.
+resource securityAlertPolicy 'Microsoft.Sql/servers/securityAlertPolicies@2023-08-01-preview' = {
+  parent: sqlServer
+  name: 'Default'
+  properties: {
+    state: 'Enabled'
+    emailAccountAdmins: true
+  }
+}
+
 // ─── AuthDb ─────────────────────────────────────────────────────────────────
 
 resource authDb 'Microsoft.Sql/servers/databases@2023-08-01-preview' = {

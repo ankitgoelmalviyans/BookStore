@@ -27,7 +27,7 @@ import { AuthService } from '../../core/services/auth.service';
       <p *ngIf="errorMessage">{{ errorMessage }}</p>
       <button mat-raised-button color="primary">Login</button>
     </form>
-    <a routerLink="/register">Register</a> · <a routerLink="/reset-password">Forgot password?</a>
+    <a routerLink="/register">Register</a>
   </mat-card>
   `
 })

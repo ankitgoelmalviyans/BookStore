@@ -15,10 +15,6 @@ export class AuthService {
     return this.http.post(`${environment.authApiUrl}/auth/register`, credentials);
   }
 
-  resetPassword(request: any) {
-    return this.http.post(`${environment.authApiUrl}/auth/reset-password`, request);
-  }
-
   saveToken(token: string) {
     localStorage.setItem('auth_token', token);
   }

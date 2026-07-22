@@ -34,6 +34,12 @@ public class AuthController : ControllerBase
             return Unauthorized();
         }
 
+        if (result == PasswordVerificationResult.SuccessRehashNeeded)
+        {
+            user.PasswordHash = _passwordHasher.HashPassword(user, request.Password);
+            await _db.SaveChangesAsync();
+        }
+
         if (!user.IsActive)
         {
             return Forbid();
@@ -49,6 +55,11 @@ public class AuthController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))
         {
             return BadRequest(new { message = "Username and password are required." });
+        }
+
+        if (request.Password.Length < 8)
+        {
+            return BadRequest(new { message = "Password must be at least 8 characters." });
         }
 
         if (await _db.Users.AnyAsync(u => u.Username == request.Username))
@@ -74,29 +85,10 @@ public class AuthController : ControllerBase
         });
     }
 
-    [HttpPost("reset-password")]
-    public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request)
-    {
-        if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.NewPassword))
-        {
-            return BadRequest(new { message = "Username and new password are required." });
-        }
-
-        var user = await _db.Users.SingleOrDefaultAsync(u => u.Username == request.Username);
-        if (user is not null)
-        {
-            user.PasswordHash = _passwordHasher.HashPassword(user, request.NewPassword);
-            // No email-verification loop to confirm the requester owns the account, so a reset
-            // deactivates it — same manual re-activation gate as a fresh registration.
-            user.IsActive = false;
-            await _db.SaveChangesAsync();
-        }
-
-        // Same response whether or not the username existed — don't let this endpoint be used to
-        // enumerate valid usernames.
-        return Ok(new
-        {
-            message = "If that account exists, its password has been reset and it now requires administrator reactivation."
-        });
-    }
+    // A self-service /reset-password endpoint was removed here: taking just a Username with no
+    // current password, email token, or other proof of ownership let anyone force any account's
+    // IsActive to false on demand (repeatable lockout), and worse, let an attacker pre-set the
+    // NewPassword an admin would later unknowingly reactivate. Closing this properly needs a real
+    // token/email-verification flow (deferred — no email infra exists yet). Until then, password
+    // resets are a manual database operation, the same as account activation.
 }

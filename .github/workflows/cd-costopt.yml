@@ -314,7 +314,6 @@ jobs:
             --from-literal=Jwt__Key="${{ secrets.JWT_KEY }}" \
             --from-literal=Auth__Username="${{ secrets.AUTH_USERNAME }}" \
             --from-literal=Auth__Password="${{ secrets.AUTH_PASSWORD }}" \
-            --from-literal=ConnectionStrings__AuthDb="${{ secrets.AUTH_SQL_CONNECTION }}" \
             --from-literal=AllowedOrigins__0="${{ secrets.ALLOWED_ORIGINS }}" \
             --namespace=${{ env.NAMESPACE }} \
             --dry-run=client -o yaml | kubectl apply -f -
@@ -343,6 +342,24 @@ jobs:
           kubectl create secret generic notificationservice-secrets \
             --from-literal=AzureServiceBus__ConnectionString="${{ secrets.SERVICE_BUS_CONNECTION }}" \
             --from-literal=Notifications__Enabled="true" \
+            --namespace=${{ env.NAMESPACE }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      # Gated the same way as Order/Payment below, for the same reason: applying this with an
+      # empty ConnectionStrings__AuthDb when AUTH_SQL_CONNECTION is unset would silently overwrite
+      # a *running* authservice release's secret with a broken connection string the moment its
+      # pods next restart for any unrelated reason (node drain, OOM, HPA scale-event...). Must
+      # re-specify every key `kubectl create secret` would otherwise set, since `apply` replaces
+      # the whole secret object, not just the one new field.
+      - name: Set AuthDb connection string on authservice secret
+        if: ${{ env.AUTH_SQL_CONNECTION != '' }}
+        run: |
+          kubectl create secret generic authservice-secrets \
+            --from-literal=Jwt__Key="${{ secrets.JWT_KEY }}" \
+            --from-literal=Auth__Username="${{ secrets.AUTH_USERNAME }}" \
+            --from-literal=Auth__Password="${{ secrets.AUTH_PASSWORD }}" \
+            --from-literal=ConnectionStrings__AuthDb="${{ secrets.AUTH_SQL_CONNECTION }}" \
+            --from-literal=AllowedOrigins__0="${{ secrets.ALLOWED_ORIGINS }}" \
             --namespace=${{ env.NAMESPACE }} \
             --dry-run=client -o yaml | kubectl apply -f -
 
@@ -629,7 +646,7 @@ jobs:
           echo "=========================================="
           echo "Image tag:    $SHORT_SHA"
           echo "Auth:         https://${{ env.INGRESS_HOST }}/auth"
-          if [ -z "${{ env.AUTH_SQL_CONNECTION }}" ]; then
+          if [ -z "$AUTH_SQL_CONNECTION" ]; then
             echo "              (AUTH_SQL_CONNECTION unset — still running the previously deployed"
             echo "              version, not the DB-backed login; set the secret and re-run to switch.)"
           fi

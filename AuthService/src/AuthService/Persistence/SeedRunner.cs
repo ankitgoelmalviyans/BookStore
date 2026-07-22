@@ -17,7 +17,7 @@ public static class SeedRunner
 {
     public static async Task RunAsync(IConfiguration config)
     {
-        var connectionString = config.GetConnectionString("AuthDb") ?? config["ConnectionStrings:AuthDb"];
+        var connectionString = config.GetConnectionString("AuthDb");
         var options = new DbContextOptionsBuilder<AuthDbContext>()
             .UseSqlServer(connectionString, sql => sql.EnableRetryOnFailure())
             .Options;
