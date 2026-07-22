@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using BookStore.OrderService.Application.Abstractions;
 using BookStore.OrderService.Application.Commands;
+using BookStore.OrderService.Core.Abstractions;
 using BookStore.OrderService.Core.Messaging;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -14,11 +15,13 @@ namespace BookStore.OrderService.API.Controllers
     {
         private readonly IPlaceOrderHandler _placeOrder;
         private readonly IOrderQueries _queries;
+        private readonly IOrderOutcomeHandler _outcomeHandler;
 
-        public OrderController(IPlaceOrderHandler placeOrder, IOrderQueries queries)
+        public OrderController(IPlaceOrderHandler placeOrder, IOrderQueries queries, IOrderOutcomeHandler outcomeHandler)
         {
             _placeOrder = placeOrder;
             _queries = queries;
+            _outcomeHandler = outcomeHandler;
         }
 
         /// <summary>Place an order (command / write side). Returns 201 with the new order id while it
@@ -87,6 +90,30 @@ namespace BookStore.OrderService.API.Controllers
 
             var history = await _queries.GetHistoryAsync(customerId);
             return Ok(history);
+        }
+
+        /// <summary>Customer-initiated cancel — only valid while the order is Pending or
+        /// AwaitingPayment. Publishes OrderCancelled so InventoryService releases the reservation.</summary>
+        [HttpPost("{id}/cancel")]
+        public async Task<IActionResult> Cancel(Guid id)
+        {
+            var customerId = GetCustomerId();
+            if (customerId is null)
+            {
+                return Unauthorized();
+            }
+
+            var correlationId = HttpContext.Items[CorrelationConstants.HttpContextItemKey]?.ToString();
+            var traceParent = System.Diagnostics.Activity.Current?.Id;
+
+            var result = await _outcomeHandler.CancelByCustomerAsync(id, customerId, correlationId, traceParent);
+            return result switch
+            {
+                OrderCancelResult.Cancelled => Ok(),
+                OrderCancelResult.NotFound => NotFound(),
+                OrderCancelResult.AlreadyTerminal => Conflict(new { error = "Order is already Confirmed or Cancelled and can no longer be cancelled." }),
+                _ => StatusCode(500)
+            };
         }
 
         /// <summary>The authenticated subject. AuthService issues the identity as the JWT <c>sub</c>

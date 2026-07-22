@@ -14,10 +14,9 @@ namespace BookStore.OrderService.Infrastructure.Messaging;
 
 /// <summary>
 /// Inbound subscriber that closes the saga loop: it listens on <c>payment-events</c> (PaymentProcessed
-/// / PaymentFailed) and <c>inventory-events</c> (InventoryReservationFailed — InventoryReserved is
-/// ignored, that's PaymentService's concern) and delegates to <see cref="IOrderOutcomeHandler"/> in a
-/// per-message DI scope. Dispatch is by the explicit <c>EventType</c> message property. Manual
-/// settlement, same posture as the other consumers.
+/// / PaymentFailed) and <c>inventory-events</c> (InventoryReserved, InventoryReservationFailed) and
+/// delegates to <see cref="IOrderOutcomeHandler"/> in a per-message DI scope. Dispatch is by the
+/// explicit <c>EventType</c> message property. Manual settlement, same posture as the other consumers.
 /// </summary>
 public class OrderOutcomeSubscriber : IEventSubscriber, IAsyncDisposable
 {
@@ -108,9 +107,9 @@ public class OrderOutcomeSubscriber : IEventSubscriber, IAsyncDisposable
                             Deserialize<InventoryReservationFailedEvent>(body), correlationId, activity?.Id ?? traceParent, args.CancellationToken);
                         break;
 
-                    case "InventoryReservedEvent":
-                        // Success on the reservation — PaymentService acts on this, not OrderService.
-                        _logger.LogDebug("Ignoring InventoryReserved on order-inventory-outcome-subscription");
+                    case nameof(InventoryReservedEvent):
+                        await handler.HandleInventoryReservedAsync(
+                            Deserialize<InventoryReservedEvent>(body), correlationId, activity?.Id ?? traceParent, args.CancellationToken);
                         break;
 
                     default:

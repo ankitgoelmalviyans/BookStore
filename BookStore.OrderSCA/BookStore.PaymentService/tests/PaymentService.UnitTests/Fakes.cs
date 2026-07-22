@@ -5,25 +5,36 @@ using BookStore.PaymentService.Core.Repositories;
 
 namespace BookStore.PaymentService.UnitTests;
 
-/// <summary>Records the charge the repository was asked to persist (payment + outbox + inbox key).</summary>
+/// <summary>Records what the repository was asked to persist across the pending/confirm phases.</summary>
 internal sealed class FakePaymentRepository : IPaymentRepository
 {
     public Payment? SavedPayment { get; private set; }
     public OutboxMessage? SavedOutbox { get; private set; }
     public Guid SavedInboxEventId { get; private set; }
-    public int SaveCallCount { get; private set; }
+    public int PendingSaveCallCount { get; private set; }
+    public int ConfirmationSaveCallCount { get; private set; }
 
-    public Task SaveChargeAsync(Payment payment, OutboxMessage outbox, Guid inboxEventId, CancellationToken cancellationToken = default)
+    public Task<Payment?> GetByOrderIdAsync(Guid orderId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(SavedPayment?.OrderId == orderId ? SavedPayment : null);
+
+    public Task SavePendingAsync(Payment payment, Guid inboxEventId, CancellationToken cancellationToken = default)
     {
-        SaveCallCount++;
+        PendingSaveCallCount++;
         SavedPayment = payment;
-        SavedOutbox = outbox;
         SavedInboxEventId = inboxEventId;
         return Task.CompletedTask;
     }
 
-    public Task<Payment?> GetByOrderIdAsync(Guid orderId, CancellationToken cancellationToken = default) =>
+    public Task<Payment?> GetTrackedByOrderIdAsync(Guid orderId, CancellationToken cancellationToken = default) =>
         Task.FromResult(SavedPayment?.OrderId == orderId ? SavedPayment : null);
+
+    public Task SaveConfirmationAsync(Payment payment, OutboxMessage outbox, CancellationToken cancellationToken = default)
+    {
+        ConfirmationSaveCallCount++;
+        SavedPayment = payment;
+        SavedOutbox = outbox;
+        return Task.CompletedTask;
+    }
 }
 
 /// <summary>Inbox stub whose "already processed" answer is set per test.</summary>

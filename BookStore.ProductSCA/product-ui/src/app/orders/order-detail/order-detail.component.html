@@ -28,7 +28,7 @@
       @if (order.status === 'Pending') {
         <div class="live-note">
           <mat-spinner diameter="16"></mat-spinner>
-          <span>Processing — this page updates automatically as inventory is reserved and payment is charged.</span>
+          <span>Processing — this page updates automatically as inventory is reserved.</span>
         </div>
       }
 
@@ -61,6 +61,14 @@
         <span>Total</span>
         <strong>₹{{ order.total }}</strong>
       </div>
+
+      @if (order.status === 'AwaitingPayment') {
+        <app-payment-form
+          [orderId]="order.id"
+          (paid)="onPaymentActionCompleted()"
+          (cancelled)="onPaymentActionCompleted()">
+        </app-payment-form>
+      }
 
       <app-payment-status [payment]="payment" [loading]="loadingPayment" [orderStatus]="order.status"></app-payment-status>
     </mat-card>

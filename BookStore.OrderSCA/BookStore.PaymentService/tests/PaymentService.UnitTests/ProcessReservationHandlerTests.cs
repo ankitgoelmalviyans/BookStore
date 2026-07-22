@@ -1,7 +1,6 @@
 using System.Text.Json;
 using BookStore.PaymentService.Application.Handlers;
 using BookStore.PaymentService.Core.Abstractions;
-using BookStore.PaymentService.Core.Entities;
 using BookStore.PaymentService.Core.Enums;
 using BookStore.PaymentService.Core.Events;
 using BookStore.PaymentService.Core.Payments;
@@ -13,12 +12,13 @@ namespace BookStore.PaymentService.UnitTests;
 
 public class ProcessReservationHandlerTests
 {
+    private const string PaymentMethodId = "pm_card_visa";
+
     private static IConfiguration Config() =>
         new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["AzureServiceBus:OutboundTopic"] = "payment-events",
-                ["Payments:DefaultPaymentMethod"] = "pm_card_visa"
+                ["AzureServiceBus:OutboundTopic"] = "payment-events"
             })
             .Build();
 
@@ -36,19 +36,64 @@ public class ProcessReservationHandlerTests
         new(inbox, gateway, repo, Config(), NullLogger<ProcessReservationHandler>.Instance);
 
     [Fact]
-    public async Task Approved_charge_persists_payment_and_PaymentProcessed_event()
+    public async Task RecordPendingAsync_persists_a_pending_payment_without_charging()
+    {
+        var repo = new FakePaymentRepository();
+        var gateway = new StubPaymentGateway(ChargeResult.Success("pi_should_not_be_used"));
+        var handler = CreateHandler(new FakeInboxStore(false), gateway, repo);
+        var reserved = Reserved();
+
+        var outcome = await handler.RecordPendingAsync(reserved);
+
+        Assert.Equal(ReservationHandlingOutcome.Recorded, outcome);
+        Assert.Equal(1, repo.PendingSaveCallCount);
+        Assert.Equal(PaymentStatus.Pending, repo.SavedPayment!.Status);
+        Assert.Equal(reserved.OrderId, repo.SavedPayment!.OrderId);
+        Assert.Null(gateway.LastRequest); // no charge attempted yet
+    }
+
+    [Fact]
+    public async Task RecordPendingAsync_duplicate_event_is_skipped()
+    {
+        var repo = new FakePaymentRepository();
+        var gateway = new StubPaymentGateway(ChargeResult.Success("pi_123"));
+        var handler = CreateHandler(new FakeInboxStore(alreadyProcessed: true), gateway, repo);
+
+        var outcome = await handler.RecordPendingAsync(Reserved());
+
+        Assert.Equal(ReservationHandlingOutcome.Duplicate, outcome);
+        Assert.Equal(0, repo.PendingSaveCallCount);
+    }
+
+    [Fact]
+    public async Task ConfirmAsync_with_no_pending_payment_returns_NotFound()
+    {
+        var repo = new FakePaymentRepository();
+        var gateway = new StubPaymentGateway(ChargeResult.Success("pi_123"));
+        var handler = CreateHandler(new FakeInboxStore(false), gateway, repo);
+
+        var outcome = await handler.ConfirmAsync(Guid.NewGuid(), PaymentMethodId);
+
+        Assert.Equal(ConfirmationOutcome.NotFound, outcome);
+        Assert.Null(gateway.LastRequest);
+    }
+
+    [Fact]
+    public async Task ConfirmAsync_approved_charge_captures_and_queues_PaymentProcessed()
     {
         var repo = new FakePaymentRepository();
         var gateway = new StubPaymentGateway(ChargeResult.Success("pi_123"));
         var handler = CreateHandler(new FakeInboxStore(false), gateway, repo);
         var reserved = Reserved();
+        await handler.RecordPendingAsync(reserved);
 
-        var outcome = await handler.HandleAsync(reserved);
+        var outcome = await handler.ConfirmAsync(reserved.OrderId, PaymentMethodId);
 
-        Assert.Equal(ReservationHandlingOutcome.Charged, outcome);
-        Assert.Equal(1, repo.SaveCallCount);
+        Assert.Equal(ConfirmationOutcome.Charged, outcome);
+        Assert.Equal(1, repo.ConfirmationSaveCallCount);
         Assert.Equal(PaymentStatus.Captured, repo.SavedPayment!.Status);
         Assert.Equal("pi_123", repo.SavedPayment!.ProviderPaymentId);
+        Assert.Equal(PaymentMethodId, gateway.LastRequest!.PaymentMethodToken);
         Assert.Equal(nameof(PaymentProcessedEvent), repo.SavedOutbox!.EventType);
         Assert.Equal("payment-events", repo.SavedOutbox!.Topic);
 
@@ -58,16 +103,17 @@ public class ProcessReservationHandlerTests
     }
 
     [Fact]
-    public async Task Declined_charge_persists_failed_payment_and_PaymentFailed_event()
+    public async Task ConfirmAsync_declined_charge_fails_and_queues_PaymentFailed()
     {
         var repo = new FakePaymentRepository();
         var gateway = new StubPaymentGateway(ChargeResult.Failure("card_declined"));
         var handler = CreateHandler(new FakeInboxStore(false), gateway, repo);
         var reserved = Reserved();
+        await handler.RecordPendingAsync(reserved);
 
-        var outcome = await handler.HandleAsync(reserved);
+        var outcome = await handler.ConfirmAsync(reserved.OrderId, PaymentMethodId);
 
-        Assert.Equal(ReservationHandlingOutcome.Declined, outcome);
+        Assert.Equal(ConfirmationOutcome.Declined, outcome);
         Assert.Equal(PaymentStatus.Failed, repo.SavedPayment!.Status);
         Assert.Equal("card_declined", repo.SavedPayment!.FailureReason);
         Assert.Equal(nameof(PaymentFailedEvent), repo.SavedOutbox!.EventType);
@@ -78,58 +124,35 @@ public class ProcessReservationHandlerTests
     }
 
     [Fact]
-    public async Task Transient_gateway_fault_throws_and_persists_nothing()
+    public async Task ConfirmAsync_transient_gateway_fault_leaves_payment_pending_for_retry()
     {
         var repo = new FakePaymentRepository();
         var gateway = new StubPaymentGateway(ChargeResult.TransientError("gateway_unavailable"));
         var handler = CreateHandler(new FakeInboxStore(false), gateway, repo);
+        var reserved = Reserved();
+        await handler.RecordPendingAsync(reserved);
 
-        // A transient fault must NOT record PaymentFailed or mark the message processed — it throws so
-        // the subscriber abandons the message for redelivery.
-        await Assert.ThrowsAsync<TransientPaymentException>(() => handler.HandleAsync(Reserved()));
-        Assert.Equal(0, repo.SaveCallCount);
+        var outcome = await handler.ConfirmAsync(reserved.OrderId, PaymentMethodId);
+
+        // Must NOT record PaymentFailed and must NOT consume the Pending row — the customer can
+        // retry the Pay action.
+        Assert.Equal(ConfirmationOutcome.TransientError, outcome);
+        Assert.Equal(0, repo.ConfirmationSaveCallCount);
+        Assert.Equal(PaymentStatus.Pending, repo.SavedPayment!.Status);
     }
 
     [Fact]
-    public async Task Duplicate_event_is_skipped_without_charging()
-    {
-        var repo = new FakePaymentRepository();
-        var gateway = new StubPaymentGateway(ChargeResult.Success("pi_should_not_be_used"));
-        var handler = CreateHandler(new FakeInboxStore(alreadyProcessed: true), gateway, repo);
-
-        var outcome = await handler.HandleAsync(Reserved());
-
-        Assert.Equal(ReservationHandlingOutcome.Duplicate, outcome);
-        Assert.Equal(0, repo.SaveCallCount);
-        Assert.Null(gateway.LastRequest);
-    }
-
-    [Fact]
-    public async Task Idempotency_key_and_inbox_key_are_the_inbound_event_id()
+    public async Task ConfirmAsync_idempotency_key_is_the_payment_id()
     {
         var repo = new FakePaymentRepository();
         var gateway = new StubPaymentGateway(ChargeResult.Success("pi_123"));
         var handler = CreateHandler(new FakeInboxStore(false), gateway, repo);
         var reserved = Reserved();
+        await handler.RecordPendingAsync(reserved);
+        var paymentId = repo.SavedPayment!.Id;
 
-        await handler.HandleAsync(reserved);
+        await handler.ConfirmAsync(reserved.OrderId, PaymentMethodId);
 
-        Assert.Equal(reserved.EventId.ToString(), gateway.LastRequest!.IdempotencyKey);
-        Assert.Equal(reserved.EventId, repo.SavedInboxEventId);
-    }
-
-    [Fact]
-    public async Task Missing_event_id_falls_back_to_order_id_for_dedup_and_idempotency()
-    {
-        var repo = new FakePaymentRepository();
-        var gateway = new StubPaymentGateway(ChargeResult.Success("pi_123"));
-        var handler = CreateHandler(new FakeInboxStore(false), gateway, repo);
-        var reserved = Reserved();
-        reserved.EventId = Guid.Empty;
-
-        await handler.HandleAsync(reserved);
-
-        Assert.Equal(reserved.OrderId.ToString(), gateway.LastRequest!.IdempotencyKey);
-        Assert.Equal(reserved.OrderId, repo.SavedInboxEventId);
+        Assert.Equal(paymentId.ToString(), gateway.LastRequest!.IdempotencyKey);
     }
 }

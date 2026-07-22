@@ -24,4 +24,10 @@ export class PaymentService {
       })
       .pipe(catchError((err: HttpErrorResponse) => (err.status === 404 ? of(null) : throwError(() => err))));
   }
+
+  // paymentMethodId comes from Stripe Elements (created client-side) — no raw card data ever
+  // reaches this API.
+  confirm(orderId: string, paymentMethodId: string): Observable<any> {
+    return this.http.post<any>(`${this.baseUrl}/${orderId}/confirm`, { paymentMethodId });
+  }
 }

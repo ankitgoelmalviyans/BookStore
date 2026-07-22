@@ -28,3 +28,9 @@ public class InventoryReservationFailedEvent
     public Guid OrderId { get; set; }
     public string Reason { get; set; } = string.Empty;
 }
+
+public class InventoryReservedEvent
+{
+    public Guid EventId { get; set; }
+    public Guid OrderId { get; set; }
+}

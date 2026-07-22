@@ -15,9 +15,10 @@ namespace BookStore.PaymentService.Infrastructure.Messaging;
 /// <summary>
 /// Long-running subscriber on <c>inventory-events</c> / <c>payment-subscription</c>. On each
 /// <see cref="InventoryReservedEvent"/> it opens a DI scope (the handler and its EF context are
-/// scoped) and delegates to <see cref="IProcessReservationHandler"/>. Manual settlement, same posture
-/// as InventoryService: complete on success, abandon transient failures for redelivery, dead-letter a
-/// message that can never be parsed.
+/// scoped) and records a Pending payment via <see cref="IProcessReservationHandler"/> — it does NOT
+/// charge; charging only happens on the customer's explicit Pay action (see PaymentController).
+/// Manual settlement, same posture as InventoryService: complete on success, abandon transient
+/// failures for redelivery, dead-letter a message that can never be parsed.
 /// </summary>
 public class AzureServiceBusSubscriber : IEventSubscriber, IAsyncDisposable
 {
@@ -105,7 +106,7 @@ public class AzureServiceBusSubscriber : IEventSubscriber, IAsyncDisposable
                 // Scoped handler + EF context per message (this subscriber is a singleton).
                 using var scope = _scopeFactory.CreateScope();
                 var handler = scope.ServiceProvider.GetRequiredService<IProcessReservationHandler>();
-                await handler.HandleAsync(
+                await handler.RecordPendingAsync(
                     reserved, correlationId, activity?.Id ?? traceParent, args.CancellationToken);
 
                 await args.CompleteMessageAsync(args.Message);

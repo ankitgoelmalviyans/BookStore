@@ -1,0 +1,24 @@
+<mat-card class="payment-form">
+  <h3>Pay for this order</h3>
+  <p class="hint">Test mode — use <strong>4242 4242 4242 4242</strong>, any future expiry, any CVC.
+    Use <strong>4000 0000 0000 0002</strong> to simulate a decline.</p>
+
+  <div #cardElement class="card-element"></div>
+
+  @if (errorMessage) {
+    <p class="error">{{ errorMessage }}</p>
+  }
+
+  <div class="actions">
+    <button mat-button color="warn" (click)="cancel()" [disabled]="processing">
+      Cancel Order
+    </button>
+    <button mat-raised-button color="primary" (click)="pay()" [disabled]="!cardReady || processing">
+      @if (processing) {
+        <mat-spinner diameter="18"></mat-spinner>
+      } @else {
+        Pay Now
+      }
+    </button>
+  </div>
+</mat-card>

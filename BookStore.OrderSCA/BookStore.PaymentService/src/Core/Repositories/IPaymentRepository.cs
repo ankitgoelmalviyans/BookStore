@@ -4,15 +4,24 @@ namespace BookStore.PaymentService.Core.Repositories;
 
 public interface IPaymentRepository
 {
-    /// <summary>
-    /// Persists a charge outcome atomically: the <see cref="Payment"/> row, its <see cref="OutboxMessage"/>
-    /// (PaymentProcessed/PaymentFailed), AND the <see cref="InboxMessage"/> marking the inbound event
-    /// processed are all written in ONE EF Core <c>SaveChangesAsync</c> (one SQL transaction). Either
-    /// all three commit or none do — so a redelivery after commit is deduped, and a crash before commit
-    /// re-charges safely (the gateway idempotency key prevents a double charge). See ADR-16/ADR-17/ADR-19.
-    /// </summary>
-    Task SaveChargeAsync(Payment payment, OutboxMessage outbox, Guid inboxEventId, CancellationToken cancellationToken = default);
-
     /// <summary>Read side: the payment recorded for an order, if any.</summary>
     Task<Payment?> GetByOrderIdAsync(Guid orderId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Records that a reservation arrived and a charge is expected, without charging yet: the
+    /// <see cref="Payment"/> row (Status=Pending) and the inbox marker for the inbound
+    /// InventoryReserved event are written in one transaction. No outbox event — nothing to publish
+    /// until the customer explicitly pays or cancels.
+    /// </summary>
+    Task SavePendingAsync(Payment payment, Guid inboxEventId, CancellationToken cancellationToken = default);
+
+    /// <summary>Tracked fetch for <see cref="SaveConfirmationAsync"/> to mutate.</summary>
+    Task<Payment?> GetTrackedByOrderIdAsync(Guid orderId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Commits the charge outcome on an existing (already-tracked) Pending payment: its Status/
+    /// ProviderPaymentId/FailureReason changes and the outcome outbox event (PaymentProcessed/
+    /// PaymentFailed) are written in one transaction.
+    /// </summary>
+    Task SaveConfirmationAsync(Payment payment, OutboxMessage outbox, CancellationToken cancellationToken = default);
 }
