@@ -1,7 +1,7 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
-import { HttpErrorResponse } from '@angular/common/http';
+import { HttpContext, HttpErrorResponse } from '@angular/common/http';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -11,6 +11,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { InventoryService } from '../../core/services/inventory.service';
 import { Inventory } from '../../core/models/inventory.model';
+import { SUPPRESS_404_TOAST } from '../../core/http-context-tokens';
 
 @Component({
   selector: 'app-inventory',
@@ -47,7 +48,7 @@ export class InventoryComponent implements OnInit {
 
   loadInventory() {
     this.loading = true;
-    this.service.getByProductId(this.productId).subscribe({
+    this.service.getByProductId(this.productId, new HttpContext().set(SUPPRESS_404_TOAST, true)).subscribe({
       next: data => {
         this.inventory = data;
         this.restockForm.patchValue({ quantity: data.quantity });
