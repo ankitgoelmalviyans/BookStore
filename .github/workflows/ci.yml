@@ -270,6 +270,70 @@ jobs:
           tags: notificationservice:ci
 
   # ─────────────────────────────────────────
+  # JOB 3e — Validate EF Core migrations (OrderService/PaymentService)
+  # ─────────────────────────────────────────
+  validate-ef-migrations:
+    name: Validate EF Migrations
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # This job only builds/validates — it never pushes — so don't leave the token in .git/config.
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      # `has-pending-model-changes` compares the current model against the last migration's
+      # snapshot — this is what actually catches "entity changed, no migration scaffolded for it".
+      # `migrations script` doesn't check that; it only replays already-scaffolded migrations into
+      # SQL, which catches a different failure mode (a broken migration/design-time factory that
+      # can't generate SQL at all). Neither needs a real connection, so no SQL secrets required here.
+      - name: Check for pending OrderService model changes
+        working-directory: BookStore.OrderSCA/BookStore.OrderService
+        run: |
+          dotnet tool restore
+          dotnet ef migrations has-pending-model-changes \
+            --project src/Infrastructure/Infrastructure.csproj \
+            --startup-project src/BookStore.OrderService.API/BookStore.OrderService.API.csproj \
+            --context OrderDbContext
+
+      - name: Validate OrderService migrations
+        working-directory: BookStore.OrderSCA/BookStore.OrderService
+        run: |
+          dotnet tool restore
+          dotnet ef migrations script \
+            --project src/Infrastructure/Infrastructure.csproj \
+            --startup-project src/BookStore.OrderService.API/BookStore.OrderService.API.csproj \
+            --context OrderDbContext \
+            --idempotent \
+            --output /dev/null
+
+      - name: Check for pending PaymentService model changes
+        working-directory: BookStore.OrderSCA/BookStore.PaymentService
+        run: |
+          dotnet tool restore
+          dotnet ef migrations has-pending-model-changes \
+            --project src/Infrastructure/Infrastructure.csproj \
+            --startup-project src/BookStore.PaymentService.API/BookStore.PaymentService.API.csproj \
+            --context PaymentDbContext
+
+      - name: Validate PaymentService migrations
+        working-directory: BookStore.OrderSCA/BookStore.PaymentService
+        run: |
+          dotnet tool restore
+          dotnet ef migrations script \
+            --project src/Infrastructure/Infrastructure.csproj \
+            --startup-project src/BookStore.PaymentService.API/BookStore.PaymentService.API.csproj \
+            --context PaymentDbContext \
+            --idempotent \
+            --output /dev/null
+
+  # ─────────────────────────────────────────
   # JOB 4 — Build Angular UI
   # ─────────────────────────────────────────
   build-ui:
@@ -463,6 +527,7 @@ jobs:
       - build-order
       - build-payment
       - build-notification
+      - validate-ef-migrations
       - build-ui
       - validate-helm
       - validate-bicep
@@ -480,6 +545,7 @@ jobs:
           echo "✓ OrderService builds"
           echo "✓ PaymentService builds"
           echo "✓ NotificationService builds"
+          echo "✓ EF Core migrations valid (Order/Payment)"
           echo "✓ Angular UI builds"
           echo "✓ Helm charts valid"
           echo "✓ Bicep templates valid"
