@@ -62,6 +62,11 @@ public class AuthController : ControllerBase
             return BadRequest(new { message = "Password must be at least 8 characters." });
         }
 
+        if (request.Username.Length > 200)
+        {
+            return BadRequest(new { message = "Username must be at most 200 characters." });
+        }
+
         if (await _db.Users.AnyAsync(u => u.Username == request.Username))
         {
             return Conflict(new { message = "Username is already taken." });
@@ -77,7 +82,19 @@ public class AuthController : ControllerBase
         user.PasswordHash = _passwordHasher.HashPassword(user, request.Password);
 
         _db.Users.Add(user);
-        await _db.SaveChangesAsync();
+
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // The AnyAsync check above and this insert aren't atomic — a concurrent registration
+            // for the same username can slip in between them. The unique index on Username is the
+            // real guard; this just turns that race's failure mode into the same Conflict response
+            // instead of an unhandled 500.
+            return Conflict(new { message = "Username is already taken." });
+        }
 
         return StatusCode(StatusCodes.Status201Created, new
         {
