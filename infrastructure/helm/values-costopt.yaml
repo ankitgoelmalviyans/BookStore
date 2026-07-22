@@ -1,25 +1,25 @@
 # Profile A — Cost Optimised (NGINX Ingress, no APIM, GitHub Models)
 global:
   profile: costopt
-  ingressHost: ""          # set by pipeline: $INGRESS_IP.nip.io
+  ingressHost: ""          # set by pipeline: $INGRESS_HOST
 
 authservice:
   image:
     tag: ""                # set by pipeline: ${{ github.sha }}
   ingress:
-    host: ""               # set by pipeline: $INGRESS_IP.nip.io
+    host: ""               # set by pipeline: $INGRESS_HOST
 
 productservice:
   image:
     tag: ""                # set by pipeline: ${{ github.sha }}
   ingress:
-    host: ""               # set by pipeline: $INGRESS_IP.nip.io
+    host: ""               # set by pipeline: $INGRESS_HOST
 
 inventoryservice:
   image:
     tag: ""                # set by pipeline: ${{ github.sha }}
   ingress:
-    host: ""               # set by pipeline: $INGRESS_IP.nip.io
+    host: ""               # set by pipeline: $INGRESS_HOST
 
 # Phase 2 — cd-costopt.yml deploys this whenever the ORDER_SQL_CONNECTION repo secret is set
 # (OrderDb is provisioned by infra-bicep.yml — free-tier Azure SQL Serverless, see
@@ -33,21 +33,21 @@ orderservice:
   image:
     tag: ""                # set by pipeline: ${{ github.sha }}
   ingress:
-    host: ""               # set by pipeline: $INGRESS_IP.nip.io
+    host: ""               # set by pipeline: $INGRESS_HOST
 
 # Phase 2 — same gating as orderservice, on the PAYMENT_SQL_CONNECTION repo secret (PaymentDb).
 paymentservice:
   image:
     tag: ""                # set by pipeline: ${{ github.sha }}
   ingress:
-    host: ""               # set by pipeline: $INGRESS_IP.nip.io
+    host: ""               # set by pipeline: $INGRESS_HOST
 
 # Phase 2 — no SQL dependency, deploys unconditionally (Service Bus topology already provisioned).
 notificationservice:
   image:
     tag: ""                # set by pipeline: ${{ github.sha }}
   ingress:
-    host: ""               # set by pipeline: $INGRESS_IP.nip.io
+    host: ""               # set by pipeline: $INGRESS_HOST
 
 # Gateway — Profile A uses NGINX Ingress (free, inside AKS)
 # No APIM in this profile

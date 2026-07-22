@@ -21,7 +21,7 @@
                                             │                  │ REST/JSON over HTTP (TLS partial*)
                                             │                  │ Bearer JWT + X-Correlation-Id
                                             ▼                  ▼
-                            ┌──────────────────┐      http://104.211.94.129.nip.io
+                            ┌──────────────────┐      http://bookstore.ankitgoel.co.in
                             │ Azure Container  │                │
                             │ Registry (ACR)   │                ▼
                             │ bookstoreaurega  │      ┌───────────────────────────┐
@@ -67,14 +67,14 @@
         │  partition key: /id        │
         └────────────────────────────┘
 
-  Also in cluster: ns cert-manager (cert-manager + letsencrypt-prod ClusterIssuer — TLS PARTIAL)
+  Also in cluster: ns cert-manager (cert-manager + letsencrypt-prod ClusterIssuer — wired into ingress TLS)
   Also provisioned by Bicep: Azure Key Vault (bskvankit2026ga, RBAC) — for future secret storage
 ```
 
-> \* **TLS partial:** the SPA itself is served over HTTPS from GitHub Pages, but browser→API calls
-> hit the `nip.io` ingress over **HTTP** — `nip.io` blocks Let's Encrypt HTTP-01, so the ingress TLS
-> is pending a real domain (see ADR-9 / the cert-manager note above). That's why the ingress label
-> reads `http://…` rather than `https://…`.
+> \* **TLS:** the SPA itself is served over HTTPS from GitHub Pages; browser→API calls hit the
+> ingress at `bookstore.ankitgoel.co.in`. Previously routed via `nip.io`, which blocks Let's
+> Encrypt's HTTP-01 challenge — moving to a purchased domain (see ADR-9) unblocks HTTP-01 so the
+> ingress TLS can complete.
 
 ---
 
@@ -85,7 +85,7 @@ pipeline applies (and which infra workflow ran).
 
 ```text
                          ┌───────────────────────── PROFILE A (Cost-Optimised) ─────────────────────────┐
-   Browser ──▶ nip.io ──▶│  NGINX Ingress ──▶ authservice / productservice / inventoryservice           │
+   Browser ──▶ domain ──▶│  NGINX Ingress ──▶ authservice / productservice / inventoryservice           │
                          │  LLM backend (future): GitHub Models (free tier)                              │
                          │  Trigger: every push to main (cd-costopt.yml). Always on. ~$22/mo             │
                          │  values-costopt.yaml: gateway.useApim=false, llm.useGitHubModels=true         │

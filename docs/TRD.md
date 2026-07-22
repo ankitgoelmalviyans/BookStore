@@ -104,16 +104,20 @@ Each ADR follows: **Decision → Why → Alternatives considered → Trade-offs.
 - **Trade-offs:** GitHub Pages has no server-side logic and needs the `404.html`-copy trick for SPA
   deep links (done in `cd-ui.yml`). Fine for a static Angular app.
 
-### ADR-9 — nip.io + Static IP (not a custom domain)
+### ADR-9 — Custom domain + Static IP (superseding nip.io)
 
 - **Decision:** A **static public IP** (`104.211.94.129`) is provisioned in the AKS node resource
-  group; the host is `104.211.94.129.nip.io` (wildcard DNS that resolves any `<ip>.nip.io` to that
-  IP). See `infra-bicep.yml`.
-- **Why:** A stable, DNS-resolvable hostname with **zero domain cost**. The static IP survives
-  cluster stop/start so the URL never changes.
-- **Alternatives:** Buy a domain; use the ephemeral LB IP (changes on recreate); Azure DNS.
-- **Trade-offs:** `nip.io` breaks Let's Encrypt HTTP-01 in practice, so TLS is effectively pending
-  (**PARTIAL** — ClusterIssuer exists, ingress TLS not enforced). A real domain is the Phase-4 fix.
+  group; the host is `bookstore.ankitgoel.co.in`, a purchased domain with an A record pointing at
+  that IP. See `infra-bicep.yml`.
+- **Why:** Originally used `nip.io` wildcard DNS (`<ip>.nip.io`) for zero domain cost, but corporate
+  network filters commonly block `*.nip.io` by hostname pattern (categorized as Dynamic DNS), and
+  it also breaks Let's Encrypt's HTTP-01 challenge. A real domain (~$1/yr) avoids both problems.
+  The static IP still survives cluster stop/start so the underlying IP the domain points at never
+  changes.
+- **Alternatives:** Keep `nip.io`; use the ephemeral LB IP (changes on recreate); Azure DNS instead
+  of the registrar's DNS panel.
+- **Trade-offs:** None significant — domain cost is negligible, and this also unblocks Let's
+  Encrypt HTTP-01, resolving the previously PARTIAL TLS status.
 
 ### ADR-10 — Fluent Bit (not Logstash / Filebeat)
 
@@ -401,7 +405,7 @@ Each ADR follows: **Decision → Why → Alternatives considered → Trade-offs.
 | Angular → AuthService | HTTPS/REST | `POST {authApiUrl}/auth/login`; response `{ token }` saved to `localStorage` |
 | Angular → ProductService | HTTPS/REST | CRUD on `/api/products`; `AuthInterceptor` adds `Bearer` + `X-Correlation-Id` |
 | Angular → InventoryService | HTTPS/REST | `GET /api/inventory/{productId}` |
-| Browser → cluster | NGINX Ingress | Host `104.211.94.129.nip.io`; path prefix `/auth`,`/product`,`/inventory` rewritten to `/…` |
+| Browser → cluster | NGINX Ingress | Host `bookstore.ankitgoel.co.in`; path prefix `/auth`,`/product`,`/inventory` rewritten to `/…` |
 | ProductService → Service Bus | AMQP (SDK) | `AzureServiceBusProducer.PublishAsync` → topic `product-events`, CorrelationId in `ApplicationProperties` |
 | InventoryService ← Service Bus | AMQP (SDK) | `AzureServiceBusSubscriber` on `product-events`/`inventory-subscription`, started at `ApplicationStarted` |
 | ProductService → Cosmos | Cosmos SDK v3 | `Products` container, partition `/id` |
@@ -443,7 +447,7 @@ Each ADR follows: **Decision → Why → Alternatives considered → Trade-offs.
 
 ### CORS
 - Config-driven: `AllowedOrigins` array → `AllowFrontend` policy (`WithOrigins(...).AllowAnyHeader().AllowAnyMethod()`).
-- Overridable at deploy time via `AllowedOrigins__0` (the GitHub Pages / nip.io origin).
+- Overridable at deploy time via `AllowedOrigins__0` (the GitHub Pages / ingress domain origin).
 - **Why explicit origins, not `AllowAnyOrigin`:** credentials/tokens flow, so the browser must be
   told exactly which origin is trusted; a wildcard would be both insecure and incompatible with
   credentialed requests.

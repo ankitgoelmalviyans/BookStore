@@ -13,7 +13,7 @@ architect-level decision-making end to end. There are three services — AuthSer
 ProductService owns the product catalog in Cosmos DB and publishes a `ProductCreatedEvent`, and
 InventoryService subscribes to that event over Azure Service Bus and keeps stock in sync. An Angular
 17 frontend on GitHub Pages sits in front. It all runs on a single-node AKS cluster behind an NGINX
-ingress at `104.211.94.129.nip.io`, provisioned with Bicep and deployed entirely through GitHub
+ingress at `bookstore.ankitgoel.co.in`, provisioned with Bicep and deployed entirely through GitHub
 Actions, with Serilog logs shipped by Fluent Bit to Splunk. The whole thing costs about $22 a month,
 which was a deliberate constraint.
 
@@ -59,7 +59,7 @@ the ingress path rewrites. The "make it actually reachable and observable" work 
 **7. What is running in production right now?**
 All of Phase 1: AuthService, ProductService, InventoryService, the Angular UI on GitHub Pages, Azure
 Service Bus, Cosmos DB, the NGINX ingress on a static IP, Fluent Bit shipping to Splunk, and the full
-GitHub Actions CI/CD. Live URLs are under `http://104.211.94.129.nip.io/{auth,product,inventory}`.
+GitHub Actions CI/CD. Live URLs are under `http://bookstore.ankitgoel.co.in/{auth,product,inventory}`.
 
 **8. What is planned but not built yet?**
 OrderService (CQRS), PaymentService (Saga), NotificationService, the AI layer, Istio canary, full
@@ -76,10 +76,11 @@ LB probe at `/healthz`. It's a great lesson that "running" and "reachable" are d
 
 **10. How do you keep costs low?**
 Deliberate choices at every layer: Cosmos free tier, ACR Basic, one `Standard_B2s` node, GitHub Pages
-for the UI so the frontend never touches AKS compute, nip.io instead of a paid domain, and a
-stop/start schedule so the node deallocates when idle. Plus the two-profile model — the expensive
-APIM/Azure-OpenAI profile is manual-only and self-destructs after four hours. That keeps the always-on
-bill around $22/month.
+for the UI so the frontend never touches AKS compute, and a stop/start schedule so the node
+deallocates when idle. Plus the two-profile model — the expensive APIM/Azure-OpenAI profile is
+manual-only and self-destructs after four hours. That keeps the always-on bill around $22/month.
+(DNS started as free `nip.io` wildcard DNS but was swapped for a ~$1/yr domain — see Q40 — since
+the cost delta was negligible next to everything else here.)
 
 ---
 
@@ -315,10 +316,13 @@ planned drains don't take a service fully offline.
 
 **40. What is the static IP setup and why does it matter?**
 The infra pipeline provisions a Standard static public IP in the AKS node resource group and assigns
-it to the NGINX ingress LoadBalancer service. It matters because the URL — `104.211.94.129.nip.io` —
+it to the NGINX ingress LoadBalancer service. It matters because the URL — `bookstore.ankitgoel.co.in` —
 has to stay stable across cluster stop/start cycles. If I used the default ephemeral LB IP, it could
 change on recreate and break every bookmarked URL, the CORS config, and the Angular environment. The
-static IP plus nip.io gives me a stable, DNS-resolvable hostname for free.
+static IP plus a purchased domain (an A record pointing at that IP) gives me a stable,
+DNS-resolvable hostname that isn't subject to corporate proxy filters the way `nip.io` was — I hit
+that firsthand when a company network blocked `*.nip.io` outright, which is what prompted the move
+off it.
 
 ---
 

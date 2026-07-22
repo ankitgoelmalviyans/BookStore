@@ -155,7 +155,7 @@ Everything below is present in the codebase today.
 - **Cosmos free tier**, **ACR Basic**, **Service Bus Standard**, **1× B2s node**.
 - **GitHub Pages** for the UI (zero AKS cost).
 - **Two deployment profiles** (see below) — the expensive APIM/Azure-OpenAI profile is manual-only and self-destructs after 4 hours.
-- **nip.io** wildcard DNS avoids buying a domain.
+- **Custom domain** (`bookstore.ankitgoel.co.in`) points at the static ingress IP — previously used `nip.io` wildcard DNS, but corporate network filters commonly block it and it broke Let's Encrypt HTTP-01.
 
 ---
 
@@ -175,7 +175,7 @@ These are **PLANNED**, not built. They are documented in `docs/ROADMAP.md`.
 | **APIM full wiring** | Phase 4 — `main.demo.bicep` + `infra-demo.yml` provision a Consumption-tier APIM but it is not yet the enforced gateway; no JWT/rate-limit policies wired |
 | **KEDA autoscaling on Service Bus queue depth** | Phase 4 |
 | ~~OpenTelemetry OTLP export~~ | ✅ **Implemented** — config-gated OTLP exporter + `traceparent` propagation across the Service Bus hop. A managed backend (App Insights) is the only remaining *ops* step |
-| **cert-manager TLS on ingress** | ClusterIssuer is created, but TLS is effectively pending a non-`nip.io` domain |
+| ~~cert-manager TLS on ingress~~ | ✅ **Implemented** — ClusterIssuer + ingress `tls:` block; unblocked by moving off `nip.io` to a purchased domain |
 | Unit / integration tests | *Started* — an xUnit suite for `ProductService.CreateAsync` (outbox behaviour) now runs in CI; broader coverage + integration tests are Phase 5 |
 
 ### Known gaps flagged honestly

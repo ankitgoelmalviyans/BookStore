@@ -24,7 +24,7 @@ Built and deployed today, verified against the code:
 - **Data** — Cosmos DB (free tier, Session): `BookStoreDB` with `Products`, `Inventory`, and
   `ProcessedMessages` (Inbox dedup log, 30-day TTL), all partitioned on `/id`.
 - **Infra** — AKS (1× B2s), ACR (Basic), Key Vault (RBAC), NGINX Ingress, static IP
-  `104.211.94.129` + nip.io, cert-manager (TLS PARTIAL); all as Bicep.
+  `104.211.94.129` + custom domain `bookstore.ankitgoel.co.in`, cert-manager; all as Bicep.
 - **CI/CD** — GitHub Actions: `ci.yml`, `cd-costopt.yml`, `cd-ui.yml`, `infra-bicep.yml`,
   `infra-demo.yml`.
 - **Observability** — Serilog JSON → Fluent Bit DaemonSet → Splunk Cloud (`index=main`,
@@ -559,8 +559,9 @@ Four decisions are now locked for this phase (full reasoning in `docs/TRD.md`):
   library/package** (today it's copied across the three separate solutions) and unify JWT config.
 - **Key Vault-backed secrets** — mount the provisioned Key Vault into pods (CSI driver) instead of
   plain Kubernetes Secrets.
-- **Real TLS** — a purchased domain to unblock Let's Encrypt on the ingress (removing the nip.io
-  HTTP-01 limitation).
+- ~~**Real TLS** — a purchased domain to unblock Let's Encrypt on the ingress (removing the nip.io
+  HTTP-01 limitation).~~ Done — `bookstore.ankitgoel.co.in` purchased and pointed at the static IP;
+  cert-manager's HTTP-01 challenge is no longer blocked.
 - **Angular major-version upgrade (dependency security).** A dependency-security pass cleared the
   .NET side entirely (0 vulnerable NuGet packages) and the safely-fixable npm subset via non-force
   `npm audit fix` (removed the lone critical, `shell-quote`, plus ~20 others). The **~50 remaining
