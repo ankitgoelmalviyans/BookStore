@@ -19,4 +19,10 @@ export class InventoryService {
   getByProductId(productId: string, context?: HttpContext): Observable<any> {
     return this.http.get<any>(`${this.baseUrl}/${productId}`, { context });
   }
+
+  // Sets the absolute stock level (restock / manual correction) — not an increment. Creates the
+  // Inventory record if the product has never been stocked yet (backend upserts on ProductId).
+  update(productId: string, quantity: number): Observable<any> {
+    return this.http.post<any>(this.baseUrl, { productId, quantity });
+  }
 }

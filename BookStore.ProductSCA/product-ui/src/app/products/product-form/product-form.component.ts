@@ -1,5 +1,5 @@
 import { Component, OnInit } from '@angular/core';
-import { FormBuilder, FormGroup, ReactiveFormsModule } from '@angular/forms';
+import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -25,8 +25,10 @@ export class ProductFormComponent implements OnInit {
     private productService: ProductService
   ) {
     this.productForm = this.fb.group({
-      name: [''],
-      description: ['']
+      name: ['', Validators.required],
+      description: [''],
+      price: [0, [Validators.required, Validators.min(0.01)]],
+      category: ['']
     });
   }
 
