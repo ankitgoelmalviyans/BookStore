@@ -410,6 +410,22 @@ jobs:
         run: |
           echo "short=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
 
+      # Fail fast, before any Helm install/upgrade renders manifests, if the ingress hostname is
+      # missing or malformed — every Deploy step below reuses this validated value for both the
+      # ingress rule host and the shared TLS secret's host (see _ingress.yaml).
+      - name: Validate INGRESS_HOST secret
+        run: |
+          HOST="${{ secrets.INGRESS_HOST }}"
+          if [ -z "$HOST" ]; then
+            echo "::error::INGRESS_HOST secret is not set — required for ingress.host and the shared TLS cert host."
+            exit 1
+          fi
+          if ! [[ "$HOST" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$ ]]; then
+            echo "::error::INGRESS_HOST secret is not a valid hostname: $HOST"
+            exit 1
+          fi
+          echo "INGRESS_HOST=$HOST" >> $GITHUB_ENV
+
       # ─────────────────────────────────────────────────────────────────────
       # Phase 2 SQL migrations — gated on the SQL server actually existing.
       # infra-bicep.yml provisions OrderDb/PaymentDb (free-tier Azure SQL
@@ -461,7 +477,7 @@ jobs:
             infrastructure/helm/authservice \
             --values infrastructure/helm/values-costopt.yaml \
             --set image.tag=${{ steps.sha.outputs.short }} \
-            --set ingress.host=${{ secrets.INGRESS_IP }}.nip.io \
+            --set-string ingress.host=${{ env.INGRESS_HOST }} \
             --namespace ${{ env.NAMESPACE }} \
             --wait \
             --timeout 5m
@@ -472,7 +488,7 @@ jobs:
             infrastructure/helm/productservice \
             --values infrastructure/helm/values-costopt.yaml \
             --set image.tag=${{ steps.sha.outputs.short }} \
-            --set ingress.host=${{ secrets.INGRESS_IP }}.nip.io \
+            --set-string ingress.host=${{ env.INGRESS_HOST }} \
             --namespace ${{ env.NAMESPACE }} \
             --wait \
             --timeout 5m
@@ -483,7 +499,7 @@ jobs:
             infrastructure/helm/inventoryservice \
             --values infrastructure/helm/values-costopt.yaml \
             --set image.tag=${{ steps.sha.outputs.short }} \
-            --set ingress.host=${{ secrets.INGRESS_IP }}.nip.io \
+            --set-string ingress.host=${{ env.INGRESS_HOST }} \
             --namespace ${{ env.NAMESPACE }} \
             --wait \
             --timeout 5m
@@ -495,7 +511,7 @@ jobs:
             infrastructure/helm/orderservice \
             --values infrastructure/helm/values-costopt.yaml \
             --set image.tag=${{ steps.sha.outputs.short }} \
-            --set ingress.host=${{ secrets.INGRESS_IP }}.nip.io \
+            --set-string ingress.host=${{ env.INGRESS_HOST }} \
             --namespace ${{ env.NAMESPACE }} \
             --wait \
             --timeout 5m
@@ -507,7 +523,7 @@ jobs:
             infrastructure/helm/paymentservice \
             --values infrastructure/helm/values-costopt.yaml \
             --set image.tag=${{ steps.sha.outputs.short }} \
-            --set ingress.host=${{ secrets.INGRESS_IP }}.nip.io \
+            --set-string ingress.host=${{ env.INGRESS_HOST }} \
             --namespace ${{ env.NAMESPACE }} \
             --wait \
             --timeout 5m
@@ -519,7 +535,7 @@ jobs:
             infrastructure/helm/notificationservice \
             --values infrastructure/helm/values-costopt.yaml \
             --set image.tag=${{ steps.sha.outputs.short }} \
-            --set ingress.host=${{ secrets.INGRESS_IP }}.nip.io \
+            --set-string ingress.host=${{ env.INGRESS_HOST }} \
             --namespace ${{ env.NAMESPACE }} \
             --wait \
             --timeout 5m
@@ -593,21 +609,21 @@ jobs:
           echo "Deployment successful — Profile A"
           echo "=========================================="
           echo "Image tag:    $SHORT_SHA"
-          echo "Auth:         http://${{ secrets.INGRESS_IP }}.nip.io/auth"
-          echo "Product:      http://${{ secrets.INGRESS_IP }}.nip.io/product"
-          echo "Inventory:    http://${{ secrets.INGRESS_IP }}.nip.io/inventory"
-          echo "Notification: http://${{ secrets.INGRESS_IP }}.nip.io/notification"
+          echo "Auth:         https://${{ env.INGRESS_HOST }}/auth"
+          echo "Product:      https://${{ env.INGRESS_HOST }}/product"
+          echo "Inventory:    https://${{ env.INGRESS_HOST }}/inventory"
+          echo "Notification: https://${{ env.INGRESS_HOST }}/notification"
           # Derived from actual Helm release state, not just whether this run's secret was set —
           # a release deployed in an earlier run stays reported as deployed even if the secret
           # was removed since (the Guard step above would already have failed this run in that
           # case, so reaching here means state and secret agree).
           if helm status orderservice -n ${{ env.NAMESPACE }} >/dev/null 2>&1; then
-            echo "Order:        http://${{ secrets.INGRESS_IP }}.nip.io/order"
+            echo "Order:        https://${{ env.INGRESS_HOST }}/order"
           else
             echo "Order:        not deployed (ORDER_SQL_CONNECTION secret unset)"
           fi
           if helm status paymentservice -n ${{ env.NAMESPACE }} >/dev/null 2>&1; then
-            echo "Payment:      http://${{ secrets.INGRESS_IP }}.nip.io/payment"
+            echo "Payment:      https://${{ env.INGRESS_HOST }}/payment"
           else
             echo "Payment:      not deployed (PAYMENT_SQL_CONNECTION secret unset)"
           fi

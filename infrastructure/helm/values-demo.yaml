@@ -1,46 +1,46 @@
 # Profile B — Demo Mode (APIM + Azure OpenAI)
 global:
   profile: demo
-  ingressHost: ""          # set by pipeline: $INGRESS_IP.nip.io
+  ingressHost: ""          # set by pipeline: $INGRESS_HOST
 
 authservice:
   image:
     tag: ""                # set by pipeline: ${{ github.sha }}
   ingress:
-    host: ""               # set by pipeline: $INGRESS_IP.nip.io
+    host: ""               # set by pipeline: $INGRESS_HOST
 
 productservice:
   image:
     tag: ""                # set by pipeline: ${{ github.sha }}
   ingress:
-    host: ""               # set by pipeline: $INGRESS_IP.nip.io
+    host: ""               # set by pipeline: $INGRESS_HOST
 
 inventoryservice:
   image:
     tag: ""                # set by pipeline: ${{ github.sha }}
   ingress:
-    host: ""               # set by pipeline: $INGRESS_IP.nip.io
+    host: ""               # set by pipeline: $INGRESS_HOST
 
 # Phase 2 (planned deploy) — chart + CI validation exist; CD deploy gated on Azure SQL provisioning.
 orderservice:
   image:
     tag: ""                # set by pipeline: ${{ github.sha }}
   ingress:
-    host: ""               # set by pipeline: $INGRESS_IP.nip.io
+    host: ""               # set by pipeline: $INGRESS_HOST
 
 # Phase 2 (planned deploy) — chart + CI validation exist; CD deploy gated on Azure SQL provisioning.
 paymentservice:
   image:
     tag: ""                # set by pipeline: ${{ github.sha }}
   ingress:
-    host: ""               # set by pipeline: $INGRESS_IP.nip.io
+    host: ""               # set by pipeline: $INGRESS_HOST
 
 # Phase 2 (planned deploy) — chart + CI validation exist; CD deploy gated on Service Bus topology.
 notificationservice:
   image:
     tag: ""                # set by pipeline: ${{ github.sha }}
   ingress:
-    host: ""               # set by pipeline: $INGRESS_IP.nip.io
+    host: ""               # set by pipeline: $INGRESS_HOST
 
 # Gateway — Profile B uses APIM in front of NGINX
 gateway:

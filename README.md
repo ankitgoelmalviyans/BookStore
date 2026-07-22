@@ -104,16 +104,16 @@ No gRPC, no Kafka — all inter-service async messaging is Azure Service Bus (to
 
 ## 3. Live URLs
 
-Base: `http://104.211.94.129.nip.io`
+Base: `https://bookstore.ankitgoel.co.in`
 
 | Purpose | URL |
 |---|---|
-| Auth health | http://104.211.94.129.nip.io/auth/health |
-| Product health | http://104.211.94.129.nip.io/product/health |
-| Inventory health | http://104.211.94.129.nip.io/inventory/health |
-| Auth Swagger | http://104.211.94.129.nip.io/auth/swagger/index.html |
-| Product Swagger | http://104.211.94.129.nip.io/product/swagger/index.html |
-| Inventory Swagger | http://104.211.94.129.nip.io/inventory/swagger/index.html |
+| Auth health | https://bookstore.ankitgoel.co.in/auth/health |
+| Product health | https://bookstore.ankitgoel.co.in/product/health |
+| Inventory health | https://bookstore.ankitgoel.co.in/inventory/health |
+| Auth Swagger | https://bookstore.ankitgoel.co.in/auth/swagger/index.html |
+| Product Swagger | https://bookstore.ankitgoel.co.in/product/swagger/index.html |
+| Inventory Swagger | https://bookstore.ankitgoel.co.in/inventory/swagger/index.html |
 | Frontend (GitHub Pages) | https://ankitgoelmalviyans.github.io/BookStore/ |
 
 ---
@@ -180,7 +180,7 @@ Runs on push to `main` (and manually). Builds and pushes all three images to ACR
 Runs on push to `main` when `product-ui/**` changes (and manually). `npm ci` → replaces the `#{...}#` tokens in `environment.prod.ts` with `AUTH_API_URL`/`PRODUCT_API_URL`/`INVENTORY_API_URL` secrets → `ng build --configuration production --base-href /BookStore/` → copies `index.html` to `404.html` for Angular's client-side routing → publishes `dist/product-ui` to the `gh-pages` branch via `peaceiris/actions-gh-pages@v3`.
 
 ### `infra-bicep.yml` — Infrastructure — Bicep (Always-On)
-Runs on push to `infrastructure/bicep/**` (and manually). Creates the resource group, registers the `Microsoft.ContainerService` provider, deploys `main.bicep` (ACR, AKS, Service Bus, Cosmos DB, Key Vault), attaches ACR to AKS via `az aks update --attach-acr`, provisions a static public IP in the AKS node resource group, installs NGINX Ingress and cert-manager via Helm, creates a Let's Encrypt `ClusterIssuer` (not currently wired into the ingress templates — TLS is commented out there pending a non-`nip.io` domain), opens NSG rules for 80/443, and prints the values to add as GitHub secrets.
+Runs on push to `infrastructure/bicep/**` (and manually). Creates the resource group, registers the `Microsoft.ContainerService` provider, deploys `main.bicep` (ACR, AKS, Service Bus, Cosmos DB, Key Vault), attaches ACR to AKS via `az aks update --attach-acr`, provisions a static public IP in the AKS node resource group, installs NGINX Ingress and cert-manager via Helm, creates a Let's Encrypt `ClusterIssuer` and wires it into the ingress templates via the `tls:` block and `cert-manager.io/cluster-issuer` annotation (previously blocked by `nip.io` breaking the HTTP-01 challenge — now uses a real domain, see [Live URLs](#3-live-urls)), opens NSG rules for 80/443, and prints the values to add as GitHub secrets.
 
 ### `infra-demo.yml` — Infrastructure — Demo Profile (APIM)
 Manual-only. Deploys `main.demo.bicep` (APIM, Consumption tier) into `BookStoreRG` — a separate resource group from the always-on `BookStoreRG_GA` — then a dependent job sleeps 4 hours and runs `az apim delete` to tear it back down.
@@ -357,7 +357,7 @@ Note: `values-costopt.yaml`/`values-demo.yaml` already stub out an `llm` block (
 | Region | Central India | Lowest-latency Azure region for the primary audience |
 | Database — Product/Inventory (Phase 1, current) | Cosmos DB (free tier) | No SQL Server needed here — free-tier NoSQL keeps always-on cost near zero for catalog/stock documents keyed by id |
 | Messaging | Azure Service Bus (topic + subscription) | Native Azure pub/sub, no extra cluster to run (Kafka was removed) |
-| DNS | `nip.io` wildcard | Avoids buying a domain for a portfolio project; trades away Let's Encrypt HTTP-01 (see ingress template TODOs) |
+| DNS | `bookstore.ankitgoel.co.in` (A record -> static IP) | Real domain purchased so corporate DNS/proxy filters that block `nip.io` don't affect access, and so Let's Encrypt HTTP-01 can complete |
 | Frontend hosting | GitHub Pages | Free static hosting; keeps the Angular build off the AKS cost budget entirely |
 | IaC tool | Bicep | First-party Azure IaC, no state file to manage |
 | CI/CD tool | GitHub Actions | Consolidates CI/CD in GitHub alongside the code, replacing the legacy Azure DevOps pipelines (kept in `azure-pipelines-reference/` for history) |
@@ -373,7 +373,7 @@ Note: `values-costopt.yaml`/`values-demo.yaml` already stub out an `llm` block (
 
 ## 10. Security
 
-- **GitHub Secrets** hold every credential used by the pipelines: `AZURE_CREDENTIALS`, `ACR_USERNAME`, `ACR_PASSWORD`, `JWT_KEY`, `COSMOS_ENDPOINT`, `COSMOS_KEY`, `SERVICE_BUS_CONNECTION`, `ALLOWED_ORIGINS`, `INGRESS_IP`, `AUTH_API_URL`, `PRODUCT_API_URL`, `INVENTORY_API_URL`
+- **GitHub Secrets** hold every credential used by the pipelines: `AZURE_CREDENTIALS`, `ACR_USERNAME`, `ACR_PASSWORD`, `JWT_KEY`, `COSMOS_ENDPOINT`, `COSMOS_KEY`, `SERVICE_BUS_CONNECTION`, `ALLOWED_ORIGINS`, `INGRESS_IP`, `INGRESS_HOST`, `AUTH_API_URL`, `PRODUCT_API_URL`, `INVENTORY_API_URL`
 - **Secret scanning in CI** — the `security-scan` job in `ci.yml` fails the build on hardcoded `AccountKey=`, `Password=`, or `azurewebsites.net` literals
 - **CORS** is config-driven (`AllowedOrigins` array → `AllowFrontend` policy) in all three services, overridable at deploy time via `AllowedOrigins__0` env var
 - **JWT validation**: `AuthService` issues tokens; `ProductService` validates incoming bearer tokens (`AddJwtBearer` + `TokenValidationParameters`). **`InventoryService` does not currently configure JWT authentication** — its `Program.cs` calls `UseAuthorization()` without a matching `AddAuthentication`/`AddJwtBearer`, so its endpoints aren't enforcing token validation yet. Flagging this as a real gap rather than glossing over it.

@@ -29,9 +29,9 @@ earns its keep through self-healing, rollout/rollback, service discovery, and th
 |-----------|-----------|
 | **bookstore** | `authservice`, `productservice`, `inventoryservice` Deployments (ClusterIP Services); `fluent-bit` DaemonSet; secrets `authservice-secrets`, `productservice-secrets`, `inventoryservice-secrets`, `splunk-secrets` |
 | **ingress-nginx** | `ingress-nginx-controller` Deployment + **LoadBalancer** Service holding static IP **104.211.94.129** |
-| **cert-manager** | `cert-manager` (+ `letsencrypt-prod` ClusterIssuer) — TLS wiring is PARTIAL (nip.io blocks HTTP-01) |
+| **cert-manager** | `cert-manager` (+ `letsencrypt-prod` ClusterIssuer) — wired into ingress `tls:` block; HTTP-01 now succeeds since moving off `nip.io` to a real domain |
 
-External traffic: `http://104.211.94.129.nip.io/{auth|product|inventory}/...` → NGINX (ingress-nginx)
+External traffic: `https://bookstore.ankitgoel.co.in/{auth|product|inventory}/...` → NGINX (ingress-nginx)
 → strips the prefix → ClusterIP Service → pod `:80`.
 
 ---
@@ -43,7 +43,7 @@ Helm is the K8s package manager. Instead of static YAML per service, a **chart**
 *values*. Benefits here:
 - **DRY:** all three services share one templated Deployment/Service/Ingress/HPA (see the library
   chart below) instead of three near-identical copies.
-- **Parameterisation:** `--set image.tag=<sha>` and `--set ingress.host=<ip>.nip.io` at deploy time.
+- **Parameterisation:** `--set image.tag=<sha>` and `--set ingress.host=bookstore.ankitgoel.co.in` at deploy time.
 - **Release lifecycle:** `helm upgrade --install`, `helm history`, `helm rollback` — versioned,
   reversible releases. Raw `kubectl apply` has none of that.
 
@@ -91,7 +91,7 @@ helm get values authservice -n bookstore
 # Render templates locally WITHOUT touching the cluster (dry run) — what CI does
 helm template authservice infrastructure/helm/authservice \
   --values infrastructure/helm/values-costopt.yaml \
-  --set ingress.host=104.211.94.129.nip.io \
+  --set ingress.host=bookstore.ankitgoel.co.in \
   --set image.tag=abc1234
 
 # Roll back to a previous good revision (e.g. revision 1)
@@ -178,7 +178,7 @@ kubectl describe ingress authservice-ingress -n bookstore
 kubectl logs deployment/ingress-nginx-controller -n ingress-nginx --tail=30
 # Test routing from INSIDE the cluster with the right Host header:
 kubectl run test-curl --rm -it --image=curlimages/curl -n bookstore -- \
-  curl -H "Host: 104.211.94.129.nip.io" http://ingress-nginx-controller.ingress-nginx/auth/health
+  curl -H "Host: bookstore.ankitgoel.co.in" http://ingress-nginx-controller.ingress-nginx/auth/health
 # What external IP did the LB get?
 kubectl get svc ingress-nginx-controller -n ingress-nginx \
   -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
@@ -208,7 +208,7 @@ kubectl describe configmap <name> -n bookstore
 | **CrashLoopBackOff** | App throws on startup — usually a missing/empty secret (`Jwt__Key`, Cosmos endpoint) | `kubectl logs --previous`; check `*-secrets`; the CD job recreates them from GitHub Secrets |
 | **Pod Pending** | No schedulable capacity on the single B2s node | `kubectl describe pod` (Insufficient cpu/memory); lower requests or scale the node pool |
 | **External URL times out** | **Azure LB health probe hitting `/` returns 404 → LB marks backend unhealthy** | Annotate the ingress LB service health-probe path to `/healthz` (see war story) |
-| **404 from NGINX** | Ingress path/rewrite mismatch, or wrong Host | `kubectl describe ingress`; confirm the path regex `/auth(/\|$)(.*)` + `rewrite-target: /$2`; use the correct `*.nip.io` Host header |
+| **404 from NGINX** | Ingress path/rewrite mismatch, or wrong Host | `kubectl describe ingress`; confirm the path regex `/auth(/\|$)(.*)` + `rewrite-target: /$2`; use the correct `bookstore.ankitgoel.co.in` Host header |
 | **Service Bus errors** | Bad/empty `AzureServiceBus__ConnectionString`, or topic/subscription missing | Check the secret; confirm topic `product-events` + subscription `inventory-subscription` exist (Bicep creates them) |
 | **Cosmos errors** | Empty endpoint/key, wrong DB/container, or throttling (429) | Check `CosmosDb__*` secret values; confirm DB `BookStoreDB` + containers `Products`/`Inventory`/`ProcessedMessages`; transient 429s → the subscriber abandons+retries |
 | **CD pipeline fails at ACR** | Rotated/incorrect `ACR_USERNAME`/`ACR_PASSWORD`, or ACR admin disabled | Refresh the GitHub Secrets from `az acr credential show`; (Managed Identity for ACR is a Phase-5 fix) |
@@ -217,7 +217,7 @@ kubectl describe configmap <name> -n bookstore
 ### The Azure LB health-probe war story (great interview answer)
 **Symptom:** After a fresh infra deploy, everything looked healthy *inside* the cluster —
 `kubectl get pods` all Running, `kubectl port-forward` to a service returned 200 — but hitting
-`http://104.211.94.129.nip.io/auth/health` from a browser **timed out**.
+`https://bookstore.ankitgoel.co.in/auth/health` from a browser **timed out**.
 
 **Diagnosis:** The NGINX ingress is exposed by a Kubernetes `Service` of type `LoadBalancer`, which
 provisions an **Azure Load Balancer**. Azure's LB only forwards traffic to backends its **health

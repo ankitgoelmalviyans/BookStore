@@ -101,7 +101,6 @@ jobs:
 
           echo "STATIC_IP=$STATIC_IP" >> $GITHUB_ENV
           echo "INGRESS_IP=$STATIC_IP" >> $GITHUB_ENV
-          echo "BASE_URL=http://$STATIC_IP.nip.io" >> $GITHUB_ENV
           echo "Static IP: $STATIC_IP"
 
       - name: Install NGINX Ingress via Helm
@@ -206,6 +205,7 @@ jobs:
 
       - name: Get Ingress Public IP
         run: |
+          FOUND=""
           for i in {1..20}; do
             IP=$(kubectl get svc ingress-nginx-controller \
               -n ingress-nginx \
@@ -213,11 +213,15 @@ jobs:
             echo "Current IP: $IP"
             if [ -n "$IP" ]; then
               echo "INGRESS_IP=$IP" >> $GITHUB_ENV
-              echo "BASE_URL=http://$IP.nip.io" >> $GITHUB_ENV
+              FOUND="$IP"
               break
             fi
             sleep 15
           done
+          if [ -z "$FOUND" ]; then
+            echo "::error::ingress-nginx-controller LoadBalancer never got an external IP after 20 attempts (5 minutes) — aborting before printing DNS/secret instructions."
+            exit 1
+          fi
 
       - name: Allow HTTP and HTTPS through NSG
         run: |
@@ -263,18 +267,20 @@ jobs:
           echo "=========================================="
           echo "Infrastructure deployed successfully"
           echo "Ingress IP:     ${{ env.INGRESS_IP }}"
-          echo "Base URL:       ${{ env.BASE_URL }}"
           echo "Cosmos:         ${{ env.COSMOS_ENDPOINT }}"
           echo "ACR:            ${{ env.ACR_SERVER }}"
           echo "SQL Server:     ${{ env.SQL_SERVER_FQDN }}"
           echo "=========================================="
           echo ""
-          echo "ACTION REQUIRED: Add these to GitHub Secrets:"
+          echo "ACTION REQUIRED:"
+          echo "  1. Point your domain's DNS A record at INGRESS_IP above (e.g. bookstore.ankitgoel.co.in -> ${{ env.INGRESS_IP }})"
+          echo "  2. Add these to GitHub Secrets:"
           echo "  INGRESS_IP        = ${{ env.INGRESS_IP }}"
-          echo "  AUTH_API_URL      = http://${{ env.INGRESS_IP }}.nip.io/auth/api"
-          echo "  PRODUCT_API_URL   = http://${{ env.INGRESS_IP }}.nip.io/product/api"
-          echo "  INVENTORY_API_URL = http://${{ env.INGRESS_IP }}.nip.io/inventory/api"
-          echo "  ALLOWED_ORIGINS   = http://${{ env.INGRESS_IP }}.nip.io"
+          echo "  INGRESS_HOST      = bookstore.ankitgoel.co.in"
+          echo "  AUTH_API_URL      = https://\${INGRESS_HOST}/auth/api"
+          echo "  PRODUCT_API_URL   = https://\${INGRESS_HOST}/product/api"
+          echo "  INVENTORY_API_URL = https://\${INGRESS_HOST}/inventory/api"
+          echo "  ALLOWED_ORIGINS   = https://ankitgoelmalviyans.github.io  (the SPA's origin — NOT the ingress host; CORS matches against the browser's Origin header)"
           echo ""
           echo "  Phase 2 SQL (OrderService/PaymentService) — build these from SQL_SERVER_FQDN"
           echo "  above + the SQL_ADMIN_PASSWORD you set + sqlAdminLogin (default"

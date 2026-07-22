@@ -11,7 +11,7 @@ metadata:
     cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
   ingressClassName: nginx
-  # All three services share the same nip.io host, so they share one TLS secret
+  # All services share the same ingress host, so they share one TLS secret
   # (and therefore one Let's Encrypt certificate) rather than each requesting
   # its own near-duplicate cert for the identical hostname.
   tls:
