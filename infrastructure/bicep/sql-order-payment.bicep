@@ -1,7 +1,7 @@
-// ─── Phase 2 — Azure SQL Serverless for OrderService/PaymentService (ADR-16) ───────────────────
+// ─── Phase 2 — Azure SQL Serverless for OrderService/PaymentService (ADR-16), plus AuthDb ──────
 //
 // Deployed by infra-bicep.yml as a module from main.bicep, in the same subscription/resource group
-// as everything else — no second account, no manual Portal step. Cost is a non-issue: both
+// as everything else — no second account, no manual Portal step. Cost is a non-issue: all three
 // databases opt into Azure SQL's free offer (useFreeLimit — up to 10 free databases per
 // subscription, each with its own 100,000 vCore-seconds + 32GB data + 32GB backup storage,
 // refreshing monthly, for the subscription's lifetime). freeLimitExhaustionBehavior: 'AutoPause'
@@ -10,9 +10,9 @@
 // already does both.
 //
 // CD still consumes the resulting connection strings as plain GitHub secrets
-// (ORDER_SQL_CONNECTION / PAYMENT_SQL_CONNECTION) — the same pattern already used for
-// COSMOS_ENDPOINT/COSMOS_KEY — because GitHub Actions can't write its own secrets back from a
-// workflow run. The operator builds them once from this file's `sqlServerFqdn` output (printed by
+// (AUTH_SQL_CONNECTION / ORDER_SQL_CONNECTION / PAYMENT_SQL_CONNECTION) — the same pattern already
+// used for COSMOS_ENDPOINT/COSMOS_KEY — because GitHub Actions can't write its own secrets back
+// from a workflow run. The operator builds them once from this file's `sqlServerFqdn` output (printed by
 // infra-bicep.yml) plus the SQL_ADMIN_PASSWORD they chose.
 
 @description('Azure region for the SQL server and databases')
@@ -62,6 +62,35 @@ resource allowAzureServices 'Microsoft.Sql/servers/firewallRules@2023-08-01-prev
   properties: {
     startIpAddress: '0.0.0.0'
     endIpAddress: '0.0.0.0'
+  }
+}
+
+// Server-level threat-detection alerts, sent to the subscription's admins (no specific mailbox
+// hardcoded here) — otherwise Azure SQL's threat detection has no configured recipient at all.
+resource securityAlertPolicy 'Microsoft.Sql/servers/securityAlertPolicies@2023-08-01-preview' = {
+  parent: sqlServer
+  name: 'Default'
+  properties: {
+    state: 'Enabled'
+    emailAccountAdmins: true
+  }
+}
+
+// ─── AuthDb ─────────────────────────────────────────────────────────────────
+
+resource authDb 'Microsoft.Sql/servers/databases@2023-08-01-preview' = {
+  parent: sqlServer
+  name: 'AuthDb'
+  location: location
+  sku: {
+    name: sqlDatabaseSku
+    tier: 'GeneralPurpose'
+  }
+  properties: {
+    autoPauseDelay: autoPauseDelayMinutes
+    minCapacity: json('0.5')
+    useFreeLimit: true
+    freeLimitExhaustionBehavior: 'AutoPause'
   }
 }
 
