@@ -1,14 +1,17 @@
 import { Component, OnInit } from '@angular/core';
 import { ProductService } from '../../core/services/product.service';
 import { CartService } from '../../core/services/cart.service';
+import { InventoryService } from '../../core/services/inventory.service';
 import { Product } from '../../core/models/product.model';
 import { Router } from '@angular/router';
+import { HttpContext } from '@angular/common/http';
 import { MatCardModule } from '@angular/material/card';
 import { MatTableModule } from '@angular/material/table';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { SUPPRESS_404_TOAST } from '../../core/http-context-tokens';
 
 @Component({
   selector: 'app-product-list',
@@ -25,6 +28,7 @@ export class ProductListComponent implements OnInit {
   constructor(
     private productService: ProductService,
     private cartService: CartService,
+    private inventoryService: InventoryService,
     private router: Router,
     private snackBar: MatSnackBar
   ) {}
@@ -68,7 +72,26 @@ export class ProductListComponent implements OnInit {
   }
 
   addToCart(product: Product) {
-    this.cartService.addItem(product, 1);
-    this.snackBar.open(`Added "${product.name}" to cart`, 'Dismiss', { duration: 3000 });
+    if (!product.price || product.price <= 0) {
+      this.snackBar.open(`"${product.name}" has no price set yet and can't be ordered.`, 'Dismiss', { duration: 4000 });
+      return;
+    }
+
+    // Checked at add-to-cart time rather than for the whole list on load — avoids an inventory
+    // lookup per row just to render the table, at the cost of one call on the actual add action.
+    this.inventoryService.getByProductId(product.id, new HttpContext().set(SUPPRESS_404_TOAST, true)).subscribe({
+      next: (inventory: any) => {
+        const available = (inventory?.quantity ?? 0) - (inventory?.reserved ?? 0);
+        if (available <= 0) {
+          this.snackBar.open(`"${product.name}" is out of stock.`, 'Dismiss', { duration: 4000 });
+          return;
+        }
+        this.cartService.addItem(product, 1);
+        this.snackBar.open(`Added "${product.name}" to cart`, 'Dismiss', { duration: 3000 });
+      },
+      error: () => {
+        this.snackBar.open(`"${product.name}" has no inventory record yet and can't be ordered.`, 'Dismiss', { duration: 4000 });
+      }
+    });
   }
 }

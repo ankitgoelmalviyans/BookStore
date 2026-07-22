@@ -33,7 +33,8 @@
       <ng-container matColumnDef="actions">
         <th mat-header-cell *matHeaderCellDef>Actions</th>
         <td mat-cell *matCellDef="let element">
-          <button mat-icon-button color="primary" (click)="addToCart(element)" aria-label="Add to cart" title="Add to cart">
+          <button mat-icon-button color="primary" (click)="addToCart(element)" [disabled]="!element.price || element.price <= 0"
+                  aria-label="Add to cart" [title]="element.price > 0 ? 'Add to cart' : 'No price set — cannot be ordered'">
             <mat-icon>add_shopping_cart</mat-icon>
           </button>
           <button mat-button color="accent" (click)="editProduct(element.id)">Edit</button>
