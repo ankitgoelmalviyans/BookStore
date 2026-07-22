@@ -270,7 +270,7 @@ jobs:
           tags: notificationservice:ci
 
   # ─────────────────────────────────────────
-  # JOB 3e — Validate EF Core migrations (OrderService/PaymentService)
+  # JOB 3e — Validate EF Core migrations (AuthService/OrderService/PaymentService)
   # ─────────────────────────────────────────
   validate-ef-migrations:
     name: Validate EF Migrations
@@ -293,6 +293,22 @@ jobs:
       # `migrations script` doesn't check that; it only replays already-scaffolded migrations into
       # SQL, which catches a different failure mode (a broken migration/design-time factory that
       # can't generate SQL at all). Neither needs a real connection, so no SQL secrets required here.
+      - name: Check for pending AuthService model changes
+        working-directory: AuthService/src/AuthService
+        run: |
+          dotnet tool restore
+          dotnet ef migrations has-pending-model-changes \
+            --context AuthDbContext
+
+      - name: Validate AuthService migrations
+        working-directory: AuthService/src/AuthService
+        run: |
+          dotnet tool restore
+          dotnet ef migrations script \
+            --context AuthDbContext \
+            --idempotent \
+            --output /dev/null
+
       - name: Check for pending OrderService model changes
         working-directory: BookStore.OrderSCA/BookStore.OrderService
         run: |

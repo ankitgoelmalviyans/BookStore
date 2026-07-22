@@ -1,9 +1,13 @@
 using Serilog;
 using Serilog.Enrichers.Span;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using AuthService.Middleware;
+using AuthService.Models;
+using AuthService.Persistence;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 
@@ -13,6 +17,14 @@ builder.Configuration
     .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
     .AddJsonFile("serilog.json", optional: true, reloadOnChange: true)
     .AddEnvironmentVariables();
+
+// CD-only path: `dotnet run -- --seed` applies migrations + inserts the seed user, then exits —
+// never builds the web host, so it can't run as part of normal startup.
+if (args.Contains("--seed"))
+{
+    await SeedRunner.RunAsync(builder.Configuration);
+    return;
+}
 
 var allowedOrigins = builder.Configuration
     .GetSection("AllowedOrigins")
@@ -96,6 +108,11 @@ builder.Services.AddSwaggerGen(c =>
     }
 });
 builder.Services.AddScoped<ITokenService, TokenService>();
+builder.Services.AddSingleton<PasswordHasher<User>>();
+builder.Services.AddDbContext<AuthDbContext>(options =>
+    options.UseSqlServer(
+        builder.Configuration.GetConnectionString("AuthDb") ?? builder.Configuration["ConnectionStrings:AuthDb"],
+        sql => sql.EnableRetryOnFailure()));
 
 builder.Services.AddAuthentication("Bearer")
     .AddJwtBearer("Bearer", options =>

@@ -268,6 +268,7 @@ jobs:
     env:
       # Mirrored from secrets into env so step `if:` conditions can check "is this set" without
       # referencing the secrets context directly in an expression.
+      AUTH_SQL_CONNECTION: ${{ secrets.AUTH_SQL_CONNECTION }}
       ORDER_SQL_CONNECTION: ${{ secrets.ORDER_SQL_CONNECTION }}
       PAYMENT_SQL_CONNECTION: ${{ secrets.PAYMENT_SQL_CONNECTION }}
 
@@ -313,6 +314,7 @@ jobs:
             --from-literal=Jwt__Key="${{ secrets.JWT_KEY }}" \
             --from-literal=Auth__Username="${{ secrets.AUTH_USERNAME }}" \
             --from-literal=Auth__Password="${{ secrets.AUTH_PASSWORD }}" \
+            --from-literal=ConnectionStrings__AuthDb="${{ secrets.AUTH_SQL_CONNECTION }}" \
             --from-literal=AllowedOrigins__0="${{ secrets.ALLOWED_ORIGINS }}" \
             --namespace=${{ env.NAMESPACE }} \
             --dry-run=client -o yaml | kubectl apply -f -
@@ -437,11 +439,24 @@ jobs:
       # Until they're set, these steps (and the two Deploy steps below) are
       # no-ops — everything else in this job runs unaffected.
       # ─────────────────────────────────────────────────────────────────────
-      - name: Setup .NET (Order/Payment migrations + seed)
-        if: ${{ env.ORDER_SQL_CONNECTION != '' || env.PAYMENT_SQL_CONNECTION != '' }}
+      - name: Setup .NET (Auth/Order/Payment migrations + seed)
+        if: ${{ env.AUTH_SQL_CONNECTION != '' || env.ORDER_SQL_CONNECTION != '' || env.PAYMENT_SQL_CONNECTION != '' }}
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+
+      - name: Apply AuthDb migrations + seed user
+        if: ${{ env.AUTH_SQL_CONNECTION != '' }}
+        working-directory: AuthService/src/AuthService
+        env:
+          AUTH_DB_CONNECTION: ${{ secrets.AUTH_SQL_CONNECTION }}
+          ConnectionStrings__AuthDb: ${{ secrets.AUTH_SQL_CONNECTION }}
+          Auth__Username: ${{ secrets.AUTH_USERNAME }}
+          Auth__Password: ${{ secrets.AUTH_PASSWORD }}
+        run: |
+          dotnet tool restore
+          dotnet ef database update --context AuthDbContext
+          dotnet run -- --seed
 
       - name: Apply OrderDb migrations + seed demo data
         if: ${{ env.ORDER_SQL_CONNECTION != '' }}
@@ -471,7 +486,11 @@ jobs:
             --context PaymentDbContext
           dotnet run --project src/BookStore.PaymentService.API/BookStore.PaymentService.API.csproj -- --seed
 
+      # Gated on AUTH_SQL_CONNECTION, same as Order/Payment below — until that secret is set, this
+      # step is skipped and the currently-running authservice release (whatever version it's on) is
+      # left untouched rather than redeployed with code that now requires a database it can't reach.
       - name: Deploy AuthService
+        if: ${{ env.AUTH_SQL_CONNECTION != '' }}
         run: |
           helm upgrade --install authservice \
             infrastructure/helm/authservice \
@@ -610,6 +629,10 @@ jobs:
           echo "=========================================="
           echo "Image tag:    $SHORT_SHA"
           echo "Auth:         https://${{ env.INGRESS_HOST }}/auth"
+          if [ -z "${{ env.AUTH_SQL_CONNECTION }}" ]; then
+            echo "              (AUTH_SQL_CONNECTION unset — still running the previously deployed"
+            echo "              version, not the DB-backed login; set the secret and re-run to switch.)"
+          fi
           echo "Product:      https://${{ env.INGRESS_HOST }}/product"
           echo "Inventory:    https://${{ env.INGRESS_HOST }}/inventory"
           echo "Notification: https://${{ env.INGRESS_HOST }}/notification"

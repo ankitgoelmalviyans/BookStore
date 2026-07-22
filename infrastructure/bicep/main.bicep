@@ -23,7 +23,7 @@ param aksNodeCount int = 1
 @description('VM size for AKS nodes')
 param aksNodeSize string = 'Standard_B2s'
 
-@description('Name of the Azure SQL logical server (Phase 2 — Order/Payment, see sql-order-payment.bicep)')
+@description('Name of the Azure SQL logical server (Auth/Order/Payment, see sql-order-payment.bicep)')
 param sqlServerName string = 'bookstore-sql-ga'
 
 @description('Azure SQL admin password (Phase 2) — passed by infra-bicep.yml from the SQL_ADMIN_PASSWORD secret, never committed')
