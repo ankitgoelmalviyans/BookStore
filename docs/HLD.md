@@ -21,7 +21,7 @@
                                             │                  │ REST/JSON over HTTP (TLS partial*)
                                             │                  │ Bearer JWT + X-Correlation-Id
                                             ▼                  ▼
-                            ┌──────────────────┐      http://bookstore.ankitgoel.co.in
+                            ┌──────────────────┐      https://bookstore.ankitgoel.co.in
                             │ Azure Container  │                │
                             │ Registry (ACR)   │                ▼
                             │ bookstoreaurega  │      ┌───────────────────────────┐

@@ -31,7 +31,7 @@ earns its keep through self-healing, rollout/rollback, service discovery, and th
 | **ingress-nginx** | `ingress-nginx-controller` Deployment + **LoadBalancer** Service holding static IP **104.211.94.129** |
 | **cert-manager** | `cert-manager` (+ `letsencrypt-prod` ClusterIssuer) — wired into ingress `tls:` block; HTTP-01 now succeeds since moving off `nip.io` to a real domain |
 
-External traffic: `http://bookstore.ankitgoel.co.in/{auth|product|inventory}/...` → NGINX (ingress-nginx)
+External traffic: `https://bookstore.ankitgoel.co.in/{auth|product|inventory}/...` → NGINX (ingress-nginx)
 → strips the prefix → ClusterIP Service → pod `:80`.
 
 ---
@@ -217,7 +217,7 @@ kubectl describe configmap <name> -n bookstore
 ### The Azure LB health-probe war story (great interview answer)
 **Symptom:** After a fresh infra deploy, everything looked healthy *inside* the cluster —
 `kubectl get pods` all Running, `kubectl port-forward` to a service returned 200 — but hitting
-`http://bookstore.ankitgoel.co.in/auth/health` from a browser **timed out**.
+`https://bookstore.ankitgoel.co.in/auth/health` from a browser **timed out**.
 
 **Diagnosis:** The NGINX ingress is exposed by a Kubernetes `Service` of type `LoadBalancer`, which
 provisions an **Azure Load Balancer**. Azure's LB only forwards traffic to backends its **health

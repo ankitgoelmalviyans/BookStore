@@ -171,7 +171,7 @@ action arguments; query params bind by name.
 The browser calls the **external** path, NGINX strips the service prefix, the pod sees its **native**
 path:
 ```text
-External:  http://bookstore.ankitgoel.co.in/auth/api/auth/login
+External:  https://bookstore.ankitgoel.co.in/auth/api/auth/login
                                         └───┘
                               NGINX strips /auth  (rewrite-target: /$2)
 Internal:  http://authservice/api/auth/login

@@ -205,6 +205,7 @@ jobs:
 
       - name: Get Ingress Public IP
         run: |
+          FOUND=""
           for i in {1..20}; do
             IP=$(kubectl get svc ingress-nginx-controller \
               -n ingress-nginx \
@@ -212,10 +213,15 @@ jobs:
             echo "Current IP: $IP"
             if [ -n "$IP" ]; then
               echo "INGRESS_IP=$IP" >> $GITHUB_ENV
+              FOUND="$IP"
               break
             fi
             sleep 15
           done
+          if [ -z "$FOUND" ]; then
+            echo "::error::ingress-nginx-controller LoadBalancer never got an external IP after 20 attempts (5 minutes) — aborting before printing DNS/secret instructions."
+            exit 1
+          fi
 
       - name: Allow HTTP and HTTPS through NSG
         run: |
@@ -271,10 +277,10 @@ jobs:
           echo "  2. Add these to GitHub Secrets:"
           echo "  INGRESS_IP        = ${{ env.INGRESS_IP }}"
           echo "  INGRESS_HOST      = bookstore.ankitgoel.co.in"
-          echo "  AUTH_API_URL      = http://\${INGRESS_HOST}/auth/api"
-          echo "  PRODUCT_API_URL   = http://\${INGRESS_HOST}/product/api"
-          echo "  INVENTORY_API_URL = http://\${INGRESS_HOST}/inventory/api"
-          echo "  ALLOWED_ORIGINS   = http://\${INGRESS_HOST}"
+          echo "  AUTH_API_URL      = https://\${INGRESS_HOST}/auth/api"
+          echo "  PRODUCT_API_URL   = https://\${INGRESS_HOST}/product/api"
+          echo "  INVENTORY_API_URL = https://\${INGRESS_HOST}/inventory/api"
+          echo "  ALLOWED_ORIGINS   = https://ankitgoelmalviyans.github.io  (the SPA's origin — NOT the ingress host; CORS matches against the browser's Origin header)"
           echo ""
           echo "  Phase 2 SQL (OrderService/PaymentService) — build these from SQL_SERVER_FQDN"
           echo "  above + the SQL_ADMIN_PASSWORD you set + sqlAdminLogin (default"

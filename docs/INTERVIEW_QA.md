@@ -59,7 +59,7 @@ the ingress path rewrites. The "make it actually reachable and observable" work 
 **7. What is running in production right now?**
 All of Phase 1: AuthService, ProductService, InventoryService, the Angular UI on GitHub Pages, Azure
 Service Bus, Cosmos DB, the NGINX ingress on a static IP, Fluent Bit shipping to Splunk, and the full
-GitHub Actions CI/CD. Live URLs are under `http://bookstore.ankitgoel.co.in/{auth,product,inventory}`.
+GitHub Actions CI/CD. Live URLs are under `https://bookstore.ankitgoel.co.in/{auth,product,inventory}`.
 
 **8. What is planned but not built yet?**
 OrderService (CQRS), PaymentService (Saga), NotificationService, the AI layer, Istio canary, full

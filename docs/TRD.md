@@ -447,7 +447,9 @@ Each ADR follows: **Decision → Why → Alternatives considered → Trade-offs.
 
 ### CORS
 - Config-driven: `AllowedOrigins` array → `AllowFrontend` policy (`WithOrigins(...).AllowAnyHeader().AllowAnyMethod()`).
-- Overridable at deploy time via `AllowedOrigins__0` (the GitHub Pages / ingress domain origin).
+- Overridable at deploy time via `AllowedOrigins__0` — set to the SPA's own origin,
+  `https://ankitgoelmalviyans.github.io` (no trailing slash/path), since CORS matches against the
+  browser's `Origin` header, not the ingress domain the API itself is served from.
 - **Why explicit origins, not `AllowAnyOrigin`:** credentials/tokens flow, so the browser must be
   told exactly which origin is trusted; a wildcard would be both insecure and incompatible with
   credentialed requests.

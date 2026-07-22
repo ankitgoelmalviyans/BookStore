@@ -104,16 +104,16 @@ No gRPC, no Kafka — all inter-service async messaging is Azure Service Bus (to
 
 ## 3. Live URLs
 
-Base: `http://bookstore.ankitgoel.co.in`
+Base: `https://bookstore.ankitgoel.co.in`
 
 | Purpose | URL |
 |---|---|
-| Auth health | http://bookstore.ankitgoel.co.in/auth/health |
-| Product health | http://bookstore.ankitgoel.co.in/product/health |
-| Inventory health | http://bookstore.ankitgoel.co.in/inventory/health |
-| Auth Swagger | http://bookstore.ankitgoel.co.in/auth/swagger/index.html |
-| Product Swagger | http://bookstore.ankitgoel.co.in/product/swagger/index.html |
-| Inventory Swagger | http://bookstore.ankitgoel.co.in/inventory/swagger/index.html |
+| Auth health | https://bookstore.ankitgoel.co.in/auth/health |
+| Product health | https://bookstore.ankitgoel.co.in/product/health |
+| Inventory health | https://bookstore.ankitgoel.co.in/inventory/health |
+| Auth Swagger | https://bookstore.ankitgoel.co.in/auth/swagger/index.html |
+| Product Swagger | https://bookstore.ankitgoel.co.in/product/swagger/index.html |
+| Inventory Swagger | https://bookstore.ankitgoel.co.in/inventory/swagger/index.html |
 | Frontend (GitHub Pages) | https://ankitgoelmalviyans.github.io/BookStore/ |
 
 ---
@@ -373,7 +373,7 @@ Note: `values-costopt.yaml`/`values-demo.yaml` already stub out an `llm` block (
 
 ## 10. Security
 
-- **GitHub Secrets** hold every credential used by the pipelines: `AZURE_CREDENTIALS`, `ACR_USERNAME`, `ACR_PASSWORD`, `JWT_KEY`, `COSMOS_ENDPOINT`, `COSMOS_KEY`, `SERVICE_BUS_CONNECTION`, `ALLOWED_ORIGINS`, `INGRESS_IP`, `AUTH_API_URL`, `PRODUCT_API_URL`, `INVENTORY_API_URL`
+- **GitHub Secrets** hold every credential used by the pipelines: `AZURE_CREDENTIALS`, `ACR_USERNAME`, `ACR_PASSWORD`, `JWT_KEY`, `COSMOS_ENDPOINT`, `COSMOS_KEY`, `SERVICE_BUS_CONNECTION`, `ALLOWED_ORIGINS`, `INGRESS_IP`, `INGRESS_HOST`, `AUTH_API_URL`, `PRODUCT_API_URL`, `INVENTORY_API_URL`
 - **Secret scanning in CI** — the `security-scan` job in `ci.yml` fails the build on hardcoded `AccountKey=`, `Password=`, or `azurewebsites.net` literals
 - **CORS** is config-driven (`AllowedOrigins` array → `AllowFrontend` policy) in all three services, overridable at deploy time via `AllowedOrigins__0` env var
 - **JWT validation**: `AuthService` issues tokens; `ProductService` validates incoming bearer tokens (`AddJwtBearer` + `TokenValidationParameters`). **`InventoryService` does not currently configure JWT authentication** — its `Program.cs` calls `UseAuthorization()` without a matching `AddAuthentication`/`AddJwtBearer`, so its endpoints aren't enforcing token validation yet. Flagging this as a real gap rather than glossing over it.
