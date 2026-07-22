@@ -26,7 +26,14 @@ public enum ConfirmationOutcome
 
     /// <summary>A transient gateway fault (network/5xx/rate-limit) — the payment is still Pending;
     /// the customer can retry the Pay action.</summary>
-    TransientError
+    TransientError,
+
+    /// <summary>The payment was no longer Pending by the time the charge tried to commit — a
+    /// concurrent Confirm already claimed it, or the order was cancelled while this charge was in
+    /// flight. The gateway charge that was attempted here is not retroactively undone (see
+    /// ProcessReservationHandler.ConfirmAsync) — a known, documented limitation pending the Stripe
+    /// webhook/refund path (docs/ROADMAP.md).</summary>
+    AlreadyResolved
 }
 
 /// <summary>
@@ -46,6 +53,15 @@ public interface IProcessReservationHandler
     Task<ConfirmationOutcome> ConfirmAsync(
         Guid orderId,
         string paymentMethodId,
+        string? correlationId = null,
+        string? traceParent = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>The order was cancelled (customer-initiated, or a saga failure) — resolve a Pending
+    /// payment for it as Failed so a Confirm racing with the cancel can no longer succeed. A no-op
+    /// if the payment is already resolved or doesn't exist yet.</summary>
+    Task HandleOrderCancelledAsync(
+        OrderCancelledEvent cancelled,
         string? correlationId = null,
         string? traceParent = null,
         CancellationToken cancellationToken = default);

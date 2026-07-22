@@ -92,7 +92,10 @@ public class ProcessReservationHandler : IProcessReservationHandler
         string? traceParent = null,
         CancellationToken cancellationToken = default)
     {
-        var payment = await _repository.GetTrackedByOrderIdAsync(orderId, cancellationToken);
+        // Early, non-authoritative check — avoids charging a card for an order that's already
+        // resolved in the common case. The AUTHORITATIVE check is the conditional update below;
+        // this one just saves a gateway round-trip when it's obviously already too late.
+        var payment = await _repository.GetByOrderIdAsync(orderId, cancellationToken);
         if (payment is null || payment.Status != PaymentStatus.Pending)
         {
             return ConfirmationOutcome.NotFound;
@@ -116,9 +119,7 @@ public class ProcessReservationHandler : IProcessReservationHandler
         }
 
         var outboundEventId = Guid.NewGuid();
-        payment.Status = charge.Succeeded ? PaymentStatus.Captured : PaymentStatus.Failed;
-        payment.ProviderPaymentId = charge.ProviderPaymentId;
-        payment.FailureReason = charge.Succeeded ? null : charge.FailureReason;
+        var newStatus = charge.Succeeded ? PaymentStatus.Captured : PaymentStatus.Failed;
 
         OutboxMessage outbox;
         if (charge.Succeeded)
@@ -145,13 +146,47 @@ public class ProcessReservationHandler : IProcessReservationHandler
             outbox = BuildOutbox(outboundEventId, nameof(PaymentFailedEvent), outboundTopic, payload, correlationId, traceParent);
         }
 
-        await _repository.SaveConfirmationAsync(payment, outbox, cancellationToken);
+        // Atomic claim: commits the Status/outbox together, but only if the payment is STILL Pending
+        // right now — closing the race a plain tracked update would miss (a concurrent Confirm, or
+        // HandleOrderCancelledAsync resolving it first). If we lose the race, the gateway charge
+        // above already happened and isn't undone here — see ConfirmationOutcome.AlreadyResolved.
+        var claimed = await _repository.TryClaimAndConfirmAsync(
+            payment.Id, newStatus, charge.ProviderPaymentId, charge.Succeeded ? null : charge.FailureReason, outbox, cancellationToken);
+
+        if (!claimed)
+        {
+            _logger.LogWarning(
+                "Order {OrderId} payment {PaymentId} was no longer Pending when the charge tried to commit — " +
+                "a concurrent confirm or cancellation resolved it first",
+                orderId, payment.Id);
+            return ConfirmationOutcome.AlreadyResolved;
+        }
 
         _logger.LogInformation(
             "Order {OrderId} charge {Result}; payment {PaymentId}, outbox event {EventId} ({EventType}) queued for '{Topic}'",
             orderId, charge.Succeeded ? "captured" : "declined", payment.Id, outboundEventId, outbox.EventType, outboundTopic);
 
         return charge.Succeeded ? ConfirmationOutcome.Charged : ConfirmationOutcome.Declined;
+    }
+
+    public async Task HandleOrderCancelledAsync(
+        OrderCancelledEvent cancelled,
+        string? correlationId = null,
+        string? traceParent = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (cancelled is null)
+        {
+            throw new ArgumentNullException(nameof(cancelled));
+        }
+
+        // No inbox dedup needed: MarkCancelledIfPendingAsync's conditional update is naturally
+        // idempotent — a redelivery finds the payment already non-Pending and does nothing.
+        await _repository.MarkCancelledIfPendingAsync(cancelled.OrderId, "Order cancelled by customer", cancellationToken);
+
+        _logger.LogInformation(
+            "Order {OrderId} cancelled — any Pending payment for it resolved Failed so it can no longer be charged",
+            cancelled.OrderId);
     }
 
     private static OutboxMessage BuildOutbox(

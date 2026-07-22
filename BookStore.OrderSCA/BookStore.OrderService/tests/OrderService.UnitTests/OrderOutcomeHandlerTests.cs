@@ -113,6 +113,27 @@ public class OrderOutcomeHandlerTests
     }
 
     [Fact]
+    public async Task InventoryReserved_arriving_after_the_customer_already_cancelled_is_a_safe_noop()
+    {
+        // Race: the customer cancels while the order is still Pending (before InventoryReserved even
+        // reaches OrderService), so the order is already Cancelled by the time the reservation's
+        // success event is processed. The monotonic guard must leave it Cancelled rather than
+        // regressing it to AwaitingPayment — the actual stock release for this race is InventoryService's
+        // concern (it independently compensates via the OrderCancelled it already received, using its
+        // own reservation-tombstone pattern; see ReservationService.ReserveAsync/ReleaseForCancelAsync),
+        // not something OrderService needs to re-trigger here.
+        var repo = new FakeOrderRepository();
+        var order = PendingOrder();
+        order.Status = OrderStatus.Cancelled;
+        repo.Seed(order);
+
+        await Handler(repo).HandleInventoryReservedAsync(new InventoryReservedEvent { EventId = Guid.NewGuid(), OrderId = order.Id });
+
+        Assert.Equal(OrderStatus.Cancelled, order.Status); // unchanged, not regressed
+        Assert.Null(repo.OutcomeOutbox); // no spurious event — nothing to compensate here
+    }
+
+    [Fact]
     public async Task InventoryReserved_moves_a_pending_order_to_AwaitingPayment_no_outbox()
     {
         var repo = new FakeOrderRepository();

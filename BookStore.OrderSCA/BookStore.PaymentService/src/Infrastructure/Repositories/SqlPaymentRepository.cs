@@ -1,4 +1,5 @@
 using BookStore.PaymentService.Core.Entities;
+using BookStore.PaymentService.Core.Enums;
 using BookStore.PaymentService.Core.Repositories;
 using BookStore.PaymentService.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -28,16 +29,40 @@ public class SqlPaymentRepository : IPaymentRepository
         await _db.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task<Payment?> GetTrackedByOrderIdAsync(Guid orderId, CancellationToken cancellationToken = default)
+    public async Task<bool> TryClaimAndConfirmAsync(
+        Guid paymentId, PaymentStatus status, string? providerPaymentId, string? failureReason,
+        OutboxMessage outbox, CancellationToken cancellationToken = default)
     {
-        return await _db.Payments.FirstOrDefaultAsync(p => p.OrderId == orderId, cancellationToken);
-    }
+        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
 
-    public async Task SaveConfirmationAsync(Payment payment, OutboxMessage outbox, CancellationToken cancellationToken = default)
-    {
-        // payment was loaded tracked, so its Status/ProviderPaymentId/FailureReason changes are
-        // already pending. The outbox event is added and both flushed in ONE transaction.
+        // Conditional UPDATE — only rows still Pending are touched. This is the atomic claim: at
+        // most one caller (a concurrent Confirm, or MarkCancelledIfPendingAsync below) can ever move
+        // a given payment off Pending.
+        var rowsAffected = await _db.Payments
+            .Where(p => p.Id == paymentId && p.Status == PaymentStatus.Pending)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(p => p.Status, status)
+                .SetProperty(p => p.ProviderPaymentId, providerPaymentId)
+                .SetProperty(p => p.FailureReason, failureReason), cancellationToken);
+
+        if (rowsAffected == 0)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return false;
+        }
+
         _db.OutboxMessages.Add(outbox);
         await _db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task MarkCancelledIfPendingAsync(Guid orderId, string reason, CancellationToken cancellationToken = default)
+    {
+        await _db.Payments
+            .Where(p => p.OrderId == orderId && p.Status == PaymentStatus.Pending)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(p => p.Status, PaymentStatus.Failed)
+                .SetProperty(p => p.FailureReason, reason), cancellationToken);
     }
 }

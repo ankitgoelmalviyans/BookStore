@@ -81,9 +81,13 @@ namespace BookStore.PaymentService.API.Controllers
             return outcome switch
             {
                 ConfirmationOutcome.Charged => Ok(new { status = "Captured" }),
-                ConfirmationOutcome.Declined => Ok(new { status = "Failed" }),
+                // Non-2xx: a decline is a failure outcome for the caller, not a success — a client
+                // that only branches on HTTP status (rather than inspecting the body) must not treat
+                // this as "paid".
+                ConfirmationOutcome.Declined => BadRequest(new { status = "Failed", error = "Payment declined." }),
                 ConfirmationOutcome.TransientError => StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = "Payment gateway temporarily unavailable — please try again." }),
                 ConfirmationOutcome.NotFound => NotFound(),
+                ConfirmationOutcome.AlreadyResolved => Conflict(new { error = "This order's payment was already resolved (paid, or the order was cancelled)." }),
                 _ => StatusCode(500)
             };
         }

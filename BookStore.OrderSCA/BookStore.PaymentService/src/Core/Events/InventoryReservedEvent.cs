@@ -2,10 +2,10 @@ namespace BookStore.PaymentService.Core.Events;
 
 /// <summary>
 /// Inbound contract: published by InventoryService to the <c>inventory-events</c> topic once stock is
-/// reserved for an order. PaymentService subscribes to this (and only this) event and charges — which
-/// is what enforces "reserve, then charge" (docs/TRD.md ADR-17). Defined here as the consumer's view
-/// of the contract; the producing InventoryService reservation step is a separate increment, so
-/// nothing emits this yet — PaymentService is built against the agreed shape.
+/// reserved for an order. PaymentService subscribes to this and records a Pending payment — which
+/// is what enforces "reserve, then charge" (docs/TRD.md ADR-17); the actual charge only happens on
+/// the customer's explicit Pay action (see <c>OrderCancelledEvent</c> for the sibling Cancel path).
+/// Defined here as the consumer's view of the contract.
 /// </summary>
 public class InventoryReservedEvent
 {

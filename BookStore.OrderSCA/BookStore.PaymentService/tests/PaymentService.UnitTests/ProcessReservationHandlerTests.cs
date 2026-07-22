@@ -155,4 +155,57 @@ public class ProcessReservationHandlerTests
 
         Assert.Equal(paymentId.ToString(), gateway.LastRequest!.IdempotencyKey);
     }
+
+    [Fact]
+    public async Task HandleOrderCancelledAsync_resolves_a_pending_payment_as_failed()
+    {
+        var repo = new FakePaymentRepository();
+        var gateway = new StubPaymentGateway(ChargeResult.Success("pi_should_not_be_used"));
+        var handler = CreateHandler(new FakeInboxStore(false), gateway, repo);
+        var reserved = Reserved();
+        await handler.RecordPendingAsync(reserved);
+
+        await handler.HandleOrderCancelledAsync(new OrderCancelledEvent { EventId = Guid.NewGuid(), OrderId = reserved.OrderId });
+
+        Assert.Equal(1, repo.CancelCallCount);
+        Assert.Equal(PaymentStatus.Failed, repo.SavedPayment!.Status);
+    }
+
+    [Fact]
+    public async Task HandleOrderCancelledAsync_is_a_noop_for_an_already_resolved_payment()
+    {
+        var repo = new FakePaymentRepository();
+        var gateway = new StubPaymentGateway(ChargeResult.Success("pi_123"));
+        var handler = CreateHandler(new FakeInboxStore(false), gateway, repo);
+        var reserved = Reserved();
+        await handler.RecordPendingAsync(reserved);
+        await handler.ConfirmAsync(reserved.OrderId, PaymentMethodId); // already Captured
+
+        await handler.HandleOrderCancelledAsync(new OrderCancelledEvent { EventId = Guid.NewGuid(), OrderId = reserved.OrderId });
+
+        Assert.Equal(0, repo.CancelCallCount); // conditional update found it wasn't Pending — didn't touch it
+        Assert.Equal(PaymentStatus.Captured, repo.SavedPayment!.Status); // unchanged
+    }
+
+    [Fact]
+    public async Task ConfirmAsync_loses_the_race_to_a_cancellation_and_reports_AlreadyResolved()
+    {
+        // Simulates the exact race the atomic claim exists for: ConfirmAsync's early read sees
+        // Pending and proceeds to charge, but the order is cancelled (resolving the payment Failed)
+        // WHILE the gateway call is in flight — a real, non-instant step. The atomic claim at the
+        // end must see the row is no longer Pending and refuse to commit, rather than overwriting
+        // the cancellation's Failed with its own Charged.
+        var repo = new FakePaymentRepository();
+        var reserved = Reserved();
+        var gateway = new StubPaymentGateway(
+            ChargeResult.Success("pi_123"),
+            duringCharge: () => repo.MarkCancelledIfPendingAsync(reserved.OrderId, "Order cancelled by customer").GetAwaiter().GetResult());
+        var handler = CreateHandler(new FakeInboxStore(false), gateway, repo);
+        await handler.RecordPendingAsync(reserved);
+
+        var outcome = await handler.ConfirmAsync(reserved.OrderId, PaymentMethodId);
+
+        Assert.Equal(ConfirmationOutcome.AlreadyResolved, outcome);
+        Assert.Equal(PaymentStatus.Failed, repo.SavedPayment!.Status); // still the cancellation's Failed, not overwritten to Captured
+    }
 }
