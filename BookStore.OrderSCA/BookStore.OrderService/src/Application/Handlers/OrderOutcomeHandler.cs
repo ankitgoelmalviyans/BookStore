@@ -11,11 +11,13 @@ using Microsoft.Extensions.Logging;
 namespace BookStore.OrderService.Application.Handlers;
 
 /// <summary>
-/// Inbound saga handler. Confirms an order on payment success; cancels it on payment failure (and
-/// emits <c>OrderCancelled</c> so InventoryService releases the reserved stock) or on a reservation
-/// failure (no compensation event — InventoryService already released its own partial holds). Each
-/// transition only applies from <c>Pending</c>, so a duplicate/out-of-order delivery can never regress
-/// a terminal state; the inbound event is inbox-deduped.
+/// Inbound saga handler. Moves an order to <c>AwaitingPayment</c> once stock is reserved (holding for
+/// an explicit customer pay/cancel instead of auto-charging); confirms it on payment success; cancels
+/// it on payment failure (emitting <c>OrderCancelled</c> so InventoryService releases the reservation),
+/// a reservation failure (no compensation event — InventoryService already released its own partial
+/// holds), or a direct customer cancel. Every transition applies only from a non-terminal state
+/// (Pending/AwaitingPayment), so a duplicate/out-of-order delivery can never regress a terminal state;
+/// inbound saga events are inbox-deduped.
 /// </summary>
 public class OrderOutcomeHandler : IOrderOutcomeHandler
 {
@@ -48,6 +50,53 @@ public class OrderOutcomeHandler : IOrderOutcomeHandler
         // own partial holds locally, so there's nothing for it to compensate.
         ApplyAsync(e.EventId, e.OrderId, OrderStatus.Cancelled, emitCancelled: false, correlationId, traceParent, cancellationToken);
 
+    public Task HandleInventoryReservedAsync(InventoryReservedEvent e, string? correlationId = null, string? traceParent = null, CancellationToken cancellationToken = default) =>
+        // Stock is reserved — hold for the customer's explicit pay/cancel instead of PaymentService
+        // charging automatically. No compensation event: nothing has been cancelled yet.
+        ApplyAsync(e.EventId, e.OrderId, OrderStatus.AwaitingPayment, emitCancelled: false, correlationId, traceParent, cancellationToken);
+
+    public async Task<OrderCancelResult> CancelByCustomerAsync(Guid orderId, string customerId, string? correlationId = null, string? traceParent = null, CancellationToken cancellationToken = default)
+    {
+        var order = await _repository.GetTrackedByIdAsync(orderId, cancellationToken);
+        if (order is null || !string.Equals(order.CustomerId, customerId, StringComparison.Ordinal))
+        {
+            return OrderCancelResult.NotFound;
+        }
+
+        // Only Pending (reservation still in flight) or AwaitingPayment (reserved, not yet paid) can
+        // be cancelled by the customer — a Confirmed/already-Cancelled order is a terminal state.
+        if (order.Status != OrderStatus.Pending && order.Status != OrderStatus.AwaitingPayment)
+        {
+            return OrderCancelResult.AlreadyTerminal;
+        }
+
+        order.Status = OrderStatus.Cancelled;
+
+        var topic = _configuration["AzureServiceBus:TopicName"];
+        if (string.IsNullOrWhiteSpace(topic)) topic = "order-events";
+
+        var outboundEventId = Guid.NewGuid();
+        var payload = new OrderCancelledEvent { EventId = outboundEventId, OrderId = orderId };
+        var outbox = new OutboxMessage
+        {
+            EventId = outboundEventId,
+            EventType = nameof(OrderCancelledEvent),
+            Topic = topic,
+            Status = OutboxMessage.Pending,
+            CorrelationId = correlationId,
+            TraceParent = traceParent,
+            Payload = JsonSerializer.Serialize(payload),
+            CreatedAt = DateTime.UtcNow
+        };
+
+        // No real inbound event drove this (it's a customer command, not a saga delivery) — a fresh
+        // guid as the inbox marker is inert, just keeping SaveOutcomeAsync's one-transaction shape.
+        await _repository.SaveOutcomeAsync(order, outbox, Guid.NewGuid(), cancellationToken);
+
+        _logger.LogInformation("Order {OrderId} cancelled by customer {CustomerId} (OrderCancelled queued)", orderId, customerId);
+        return OrderCancelResult.Cancelled;
+    }
+
     private async Task ApplyAsync(
         Guid eventId, Guid orderId, OrderStatus target, bool emitCancelled,
         string? correlationId, string? traceParent, CancellationToken cancellationToken)
@@ -68,9 +117,11 @@ public class OrderOutcomeHandler : IOrderOutcomeHandler
             return;
         }
 
-        // Monotonic guard: only transition from Pending. A terminal order (already Confirmed/Cancelled)
-        // is left untouched — this is what makes an out-of-order or duplicate delivery safe.
-        if (order.Status != OrderStatus.Pending)
+        // Monotonic guard: only transition from a non-terminal state (Pending — reservation still in
+        // flight — or AwaitingPayment — reserved, not yet paid). A terminal order (already
+        // Confirmed/Cancelled) is left untouched — this is what makes an out-of-order or duplicate
+        // delivery safe.
+        if (order.Status != OrderStatus.Pending && order.Status != OrderStatus.AwaitingPayment)
         {
             _logger.LogInformation(
                 "Order {OrderId} already {Status}; ignoring outcome event {EventId}", orderId, order.Status, eventId);

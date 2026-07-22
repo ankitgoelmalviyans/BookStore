@@ -24,4 +24,16 @@ export class PaymentService {
       })
       .pipe(catchError((err: HttpErrorResponse) => (err.status === 404 ? of(null) : throwError(() => err))));
   }
+
+  // paymentMethodId comes from Stripe Elements (created client-side) — no raw card data ever
+  // reaches this API. The backend only returns 200 for an actual capture — a decline, an
+  // already-resolved payment, or a transient gateway fault are all non-2xx (see PaymentController),
+  // so a successful subscription here always means Captured; callers don't need to inspect status.
+  confirm(orderId: string, paymentMethodId: string): Observable<ConfirmPaymentResponse> {
+    return this.http.post<ConfirmPaymentResponse>(`${this.baseUrl}/${orderId}/confirm`, { paymentMethodId });
+  }
+}
+
+export interface ConfirmPaymentResponse {
+  status: 'Captured';
 }

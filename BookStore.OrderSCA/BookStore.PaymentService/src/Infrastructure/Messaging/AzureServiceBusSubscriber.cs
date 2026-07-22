@@ -13,11 +13,15 @@ using Serilog.Context;
 namespace BookStore.PaymentService.Infrastructure.Messaging;
 
 /// <summary>
-/// Long-running subscriber on <c>inventory-events</c> / <c>payment-subscription</c>. On each
-/// <see cref="InventoryReservedEvent"/> it opens a DI scope (the handler and its EF context are
-/// scoped) and delegates to <see cref="IProcessReservationHandler"/>. Manual settlement, same posture
-/// as InventoryService: complete on success, abandon transient failures for redelivery, dead-letter a
-/// message that can never be parsed.
+/// Long-running subscriber on two topics. <c>inventory-events</c> / <c>payment-subscription</c>:
+/// on each <see cref="InventoryReservedEvent"/> it records a Pending payment via
+/// <see cref="IProcessReservationHandler"/> — it does NOT charge; charging only happens on the
+/// customer's explicit Pay action (see PaymentController). <c>order-events</c> /
+/// <c>payment-order-subscription</c>: on each <see cref="OrderCancelledEvent"/> it resolves a
+/// Pending payment as Failed, so a Confirm racing with the cancel can no longer succeed. Each
+/// message opens its own DI scope (the handler and its EF context are scoped). Manual settlement,
+/// same posture as InventoryService: complete on success, abandon transient failures for
+/// redelivery, dead-letter a message that can never be parsed.
 /// </summary>
 public class AzureServiceBusSubscriber : IEventSubscriber, IAsyncDisposable
 {
@@ -25,7 +29,8 @@ public class AzureServiceBusSubscriber : IEventSubscriber, IAsyncDisposable
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<AzureServiceBusSubscriber> _logger;
     private ServiceBusClient? _client;
-    private ServiceBusProcessor? _processor;
+    private ServiceBusProcessor? _reservationProcessor;
+    private ServiceBusProcessor? _orderOutcomeProcessor;
 
     public AzureServiceBusSubscriber(
         IConfiguration config,
@@ -44,30 +49,35 @@ public class AzureServiceBusSubscriber : IEventSubscriber, IAsyncDisposable
         // AutoCompleteMessages off: we catch handler exceptions to log them, so with auto-complete on
         // a failed message would be silently ack'd and lost. Manual settlement lets us abandon (retry)
         // or dead-letter deliberately.
-        _processor = _client.CreateProcessor(
+        _reservationProcessor = _client.CreateProcessor(
             _config["AzureServiceBus:InboundTopic"],
             _config["AzureServiceBus:SubscriptionName"],
             new ServiceBusProcessorOptions { AutoCompleteMessages = false });
-
-        _processor.ProcessMessageAsync += OnMessageAsync;
-        _processor.ProcessErrorAsync += args =>
+        _reservationProcessor.ProcessMessageAsync += OnReservationMessageAsync;
+        _reservationProcessor.ProcessErrorAsync += args =>
         {
-            _logger.LogError(args.Exception, "Azure Service Bus processor error");
+            _logger.LogError(args.Exception, "Reservation processor error");
             return Task.CompletedTask;
         };
 
-        _processor.StartProcessingAsync().GetAwaiter().GetResult();
+        _orderOutcomeProcessor = _client.CreateProcessor(
+            _config["AzureServiceBus:OrderEventsTopic"] ?? "order-events",
+            _config["AzureServiceBus:OrderOutcomeSubscription"] ?? "payment-order-subscription",
+            new ServiceBusProcessorOptions { AutoCompleteMessages = false });
+        _orderOutcomeProcessor.ProcessMessageAsync += OnOrderOutcomeMessageAsync;
+        _orderOutcomeProcessor.ProcessErrorAsync += args =>
+        {
+            _logger.LogError(args.Exception, "Order outcome processor error");
+            return Task.CompletedTask;
+        };
+
+        _reservationProcessor.StartProcessingAsync().GetAwaiter().GetResult();
+        _orderOutcomeProcessor.StartProcessingAsync().GetAwaiter().GetResult();
     }
 
-    private async Task OnMessageAsync(ProcessMessageEventArgs args)
+    private async Task OnReservationMessageAsync(ProcessMessageEventArgs args)
     {
-        var correlationId = args.Message.ApplicationProperties.TryGetValue("CorrelationId", out var cid)
-            ? cid?.ToString()
-            : Guid.NewGuid().ToString();
-
-        var traceParent = args.Message.ApplicationProperties.TryGetValue("traceparent", out var tp)
-            ? tp?.ToString()
-            : null;
+        var (correlationId, traceParent) = ReadContext(args);
 
         using var activity = PaymentServiceActivitySource.Instance.StartActivity(
             "ServiceBus.Process inventory-events", ActivityKind.Consumer, traceParent);
@@ -102,10 +112,9 @@ public class AzureServiceBusSubscriber : IEventSubscriber, IAsyncDisposable
 
             try
             {
-                // Scoped handler + EF context per message (this subscriber is a singleton).
                 using var scope = _scopeFactory.CreateScope();
                 var handler = scope.ServiceProvider.GetRequiredService<IProcessReservationHandler>();
-                await handler.HandleAsync(
+                await handler.RecordPendingAsync(
                     reserved, correlationId, activity?.Id ?? traceParent, args.CancellationToken);
 
                 await args.CompleteMessageAsync(args.Message);
@@ -120,25 +129,99 @@ public class AzureServiceBusSubscriber : IEventSubscriber, IAsyncDisposable
         }
     }
 
-    /// <summary>
-    /// Stops the processor and disposes the client on host shutdown (this is a DI singleton, so the
-    /// container disposes it). Null-guarded so it's safe if <see cref="Subscribe"/> was never called
-    /// or only partially initialised.
-    /// </summary>
-    public async ValueTask DisposeAsync()
+    private async Task OnOrderOutcomeMessageAsync(ProcessMessageEventArgs args)
     {
-        if (_processor is not null)
+        var (correlationId, traceParent) = ReadContext(args);
+        var eventType = args.Message.ApplicationProperties.TryGetValue("EventType", out var et)
+            ? et?.ToString()
+            : null;
+
+        using var activity = PaymentServiceActivitySource.Instance.StartActivity(
+            "ServiceBus.Process order-events", ActivityKind.Consumer, traceParent);
+        activity?.SetTag("messaging.system", "servicebus");
+        activity?.SetTag("correlation.id", correlationId);
+
+        using (LogContext.PushProperty("CorrelationId", correlationId))
         {
+            // Only OrderCancelled matters here — OrderCreated is InventoryService's concern, not
+            // PaymentService's. Anything else on this topic/subscription is unexpected, not just
+            // uninteresting, so it's dead-lettered rather than silently dropped.
+            if (eventType != nameof(OrderCancelledEvent))
+            {
+                _logger.LogWarning("Order outcome message has unexpected EventType '{EventType}', dead-lettering", eventType);
+                await args.DeadLetterMessageAsync(args.Message, "UnexpectedEventType", $"Unexpected EventType '{eventType}'");
+                return;
+            }
+
+            OrderCancelledEvent? cancelled;
             try
             {
-                await _processor.StopProcessingAsync();
+                cancelled = JsonSerializer.Deserialize<OrderCancelledEvent>(args.Message.Body.ToString());
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogError(ex, "OrderCancelled deserialization failed, dead-lettering");
+                await args.DeadLetterMessageAsync(args.Message, "DeserializationFailed", ex.Message);
+                return;
+            }
+
+            if (cancelled is null || cancelled.OrderId == Guid.Empty)
+            {
+                _logger.LogError("OrderCancelled failed validation (missing OrderId), dead-lettering");
+                await args.DeadLetterMessageAsync(args.Message, "ValidationFailed", "Missing OrderId");
+                return;
+            }
+
+            try
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var handler = scope.ServiceProvider.GetRequiredService<IProcessReservationHandler>();
+                await handler.HandleOrderCancelledAsync(
+                    cancelled, correlationId, activity?.Id ?? traceParent, args.CancellationToken);
+
+                await args.CompleteMessageAsync(args.Message);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Error stopping Service Bus processor during shutdown");
+                _logger.LogError(ex, "OrderCancelled processing failed, abandoning for retry");
+                await args.AbandonMessageAsync(args.Message);
             }
+        }
+    }
 
-            await _processor.DisposeAsync();
+    private static (string? CorrelationId, string? TraceParent) ReadContext(ProcessMessageEventArgs args)
+    {
+        var correlationId = args.Message.ApplicationProperties.TryGetValue("CorrelationId", out var cid)
+            ? cid?.ToString()
+            : Guid.NewGuid().ToString();
+        var traceParent = args.Message.ApplicationProperties.TryGetValue("traceparent", out var tp)
+            ? tp?.ToString()
+            : null;
+        return (correlationId, traceParent);
+    }
+
+    /// <summary>
+    /// Stops both processors and disposes the client on host shutdown (this is a DI singleton, so
+    /// the container disposes it). Null-guarded so it's safe if <see cref="Subscribe"/> was never
+    /// called or only partially initialised.
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        foreach (var processor in new[] { _reservationProcessor, _orderOutcomeProcessor })
+        {
+            if (processor is not null)
+            {
+                try
+                {
+                    await processor.StopProcessingAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error stopping a Service Bus processor during shutdown");
+                }
+
+                await processor.DisposeAsync();
+            }
         }
 
         if (_client is not null)

@@ -21,4 +21,10 @@ export class OrderService {
   placeOrder(command: PlaceOrderCommand): Observable<{ id: string }> {
     return this.http.post<{ id: string }>(this.baseUrl, command);
   }
+
+  // Only valid while the order is Pending or AwaitingPayment — the backend rejects a cancel on an
+  // already-Confirmed/Cancelled order with 409.
+  cancel(id: string): Observable<void> {
+    return this.http.post<void>(`${this.baseUrl}/${id}/cancel`, {});
+  }
 }

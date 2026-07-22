@@ -105,6 +105,12 @@ resource notificationOrderSub 'Microsoft.ServiceBus/namespaces/topics/subscripti
   parent: orderEventsTopic
   name: 'notification-order-subscription'
 }
+// PaymentService needs OrderCancelled so a Pending payment for an order the customer cancelled
+// (racing with, or before, "Pay") can't still be charged — see docs/TRD.md ADR-19.
+resource paymentOrderSub 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
+  parent: orderEventsTopic
+  name: 'payment-order-subscription'
+}
 
 // inventory-events (published by InventoryService) → PaymentService charges, OrderService cancels on failure.
 resource inventoryEventsTopic 'Microsoft.ServiceBus/namespaces/topics@2022-10-01-preview' = {

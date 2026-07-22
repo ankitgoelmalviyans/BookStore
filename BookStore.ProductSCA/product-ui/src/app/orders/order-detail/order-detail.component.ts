@@ -11,13 +11,14 @@ import { PaymentService } from '../../core/services/payment.service';
 import { OrderDetail } from '../../core/models/order.model';
 import { Payment } from '../../core/models/payment.model';
 import { PaymentStatusComponent } from '../payment-status/payment-status.component';
+import { PaymentFormComponent } from '../payment-form/payment-form.component';
 
 const POLL_INTERVAL_MS = 4000;
 
 @Component({
   selector: 'app-order-detail',
   standalone: true,
-  imports: [CommonModule, RouterLink, MatIconModule, MatButtonModule, MatTableModule, MatProgressSpinnerModule, PaymentStatusComponent],
+  imports: [CommonModule, RouterLink, MatIconModule, MatButtonModule, MatTableModule, MatProgressSpinnerModule, PaymentStatusComponent, PaymentFormComponent],
   templateUrl: './order-detail.component.html',
   styleUrls: ['./order-detail.component.scss']
 })
@@ -61,7 +62,7 @@ export class OrderDetailComponent implements OnInit, OnDestroy {
             })
           )
         ),
-        takeWhile(order => order.status === 'Pending', true)
+        takeWhile(order => order.status === 'Pending' || order.status === 'AwaitingPayment', true)
       )
       .subscribe(order => {
         this.loadError = false;
@@ -73,6 +74,17 @@ export class OrderDetailComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.pollSub?.unsubscribe();
+  }
+
+  // Called when the payment form's Pay/Cancel completes — a one-off immediate refresh so the UI
+  // doesn't wait up to POLL_INTERVAL_MS to reflect a change the user just made themselves. The
+  // regular poll (still running) picks up anything this misses (e.g. the async PaymentProcessed
+  // hop after a successful Pay).
+  onPaymentActionCompleted(): void {
+    this.orderService.getById(this.orderId).subscribe(order => {
+      this.order = order;
+      this.refreshPayment();
+    });
   }
 
   private refreshPayment(): void {

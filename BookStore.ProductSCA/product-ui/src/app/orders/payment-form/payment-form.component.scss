@@ -1,0 +1,27 @@
+.payment-form {
+  margin-top: 16px;
+}
+
+.hint {
+  font-size: 0.85rem;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.card-element {
+  padding: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.23);
+  border-radius: 4px;
+  margin: 12px 0;
+}
+
+.error {
+  color: #b00020;
+  font-size: 0.85rem;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
