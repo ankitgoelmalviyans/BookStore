@@ -23,40 +23,47 @@ public static class SeedRunner
         await using var db = new OrderDbContext(options);
         await db.Database.MigrateAsync();
 
-        // Serializable so the "is it empty" check and the insert are atomic — without this, two
-        // overlapping CD runs could both pass the AnyAsync check before either commits and both
-        // insert a demo row.
-        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
-
-        if (await db.Orders.AnyAsync())
+        // EnableRetryOnFailure requires EF to own the whole transaction so it can retry it
+        // atomically — a manually opened transaction (db.Database.BeginTransactionAsync) isn't
+        // allowed alongside it, so the retriable unit is wrapped via CreateExecutionStrategy()
+        // instead. Serializable so the "is it empty" check and the insert stay atomic — without
+        // this, two overlapping CD runs could both pass the AnyAsync check before either commits
+        // and both insert a demo row.
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
         {
-            Console.WriteLine("Seed: Orders table already has data — skipping.");
-            return;
-        }
+            await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
 
-        var orderId = Guid.NewGuid();
-        db.Orders.Add(new Order
-        {
-            Id = orderId,
-            CustomerId = "seed-customer",
-            Status = OrderStatus.Confirmed,
-            Total = 39.98m,
-            CreatedAt = DateTime.UtcNow,
-            Items = new List<OrderItem>
+            if (await db.Orders.AnyAsync())
             {
-                new()
-                {
-                    Id = Guid.NewGuid(),
-                    OrderId = orderId,
-                    ProductId = Guid.NewGuid(),
-                    Quantity = 2,
-                    UnitPrice = 19.99m
-                }
+                Console.WriteLine("Seed: Orders table already has data — skipping.");
+                return;
             }
-        });
 
-        await db.SaveChangesAsync();
-        await transaction.CommitAsync();
-        Console.WriteLine($"Seed: inserted demo order {orderId}.");
+            var orderId = Guid.NewGuid();
+            db.Orders.Add(new Order
+            {
+                Id = orderId,
+                CustomerId = "seed-customer",
+                Status = OrderStatus.Confirmed,
+                Total = 39.98m,
+                CreatedAt = DateTime.UtcNow,
+                Items = new List<OrderItem>
+                {
+                    new()
+                    {
+                        Id = Guid.NewGuid(),
+                        OrderId = orderId,
+                        ProductId = Guid.NewGuid(),
+                        Quantity = 2,
+                        UnitPrice = 19.99m
+                    }
+                }
+            });
+
+            await db.SaveChangesAsync();
+            await transaction.CommitAsync();
+            Console.WriteLine($"Seed: inserted demo order {orderId}.");
+        });
     }
 }
