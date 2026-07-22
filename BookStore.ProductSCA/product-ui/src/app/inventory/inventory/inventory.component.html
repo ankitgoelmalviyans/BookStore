@@ -25,7 +25,22 @@
 
   @if (!loading && !inventory && !loadFailed) {
     <mat-card>
-      <p>No inventory record found for this product yet.</p>
+      <p>No inventory record found for this product yet. Set a quantity below to create one.</p>
+    </mat-card>
+  }
+
+  @if (!loading && !loadFailed) {
+    <mat-card>
+      <h2>Update Stock</h2>
+      <form [formGroup]="restockForm" (ngSubmit)="updateStock()">
+        <mat-form-field appearance="fill">
+          <mat-label>Quantity</mat-label>
+          <input matInput type="number" step="1" min="0" formControlName="quantity" required />
+        </mat-form-field>
+        <button mat-raised-button color="primary" [disabled]="restockForm.invalid">
+          Update Stock
+        </button>
+      </form>
     </mat-card>
   }
 
