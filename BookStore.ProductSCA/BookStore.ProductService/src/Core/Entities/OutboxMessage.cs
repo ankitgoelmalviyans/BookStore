@@ -46,6 +46,15 @@ namespace BookStore.ProductService.Core.Entities
         [JsonProperty("payload")]
         public ProductCreatedEvent? Payload { get; set; }
 
+        // Only one of Payload/UpdatedPayload/DeletedPayload is populated, selected by EventType.
+        // Kept as separate typed fields (rather than one polymorphic field) so Cosmos deserializes
+        // each straight back into its concrete C# type with no TypeNameHandling/JObject indirection.
+        [JsonProperty("updatedPayload")]
+        public ProductUpdatedEvent? UpdatedPayload { get; set; }
+
+        [JsonProperty("deletedPayload")]
+        public ProductDeletedEvent? DeletedPayload { get; set; }
+
         [JsonProperty("createdAt")]
         public DateTime CreatedAt { get; set; }
 

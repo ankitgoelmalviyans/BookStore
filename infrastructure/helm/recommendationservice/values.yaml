@@ -1,0 +1,34 @@
+namespace: bookstore
+environment: Production
+replicaCount: 1
+
+service:
+  name: recommendationservice
+  port: 80
+
+image:
+  repository: bookstoreaurega.azurecr.io/recommendationservice
+  tag: latest
+  pullPolicy: Always
+
+ingress:
+  host: ""
+  path: /recommendation
+
+istio:
+  # Not meshed — a Service Bus consumer plus a read API called only from the UI via ingress, no
+  # synchronous in-cluster callers (same posture as notificationservice).
+  inject: false
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 96Mi
+  limits:
+    cpu: 250m
+    memory: 192Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3

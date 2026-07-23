@@ -81,7 +81,23 @@ namespace BookStore.ProductService.API.BackgroundServices
                 }
 
                 var outbox = product.Outbox;
-                if (outbox?.Payload is null)
+                if (outbox is null)
+                {
+                    continue;
+                }
+
+                // Only one of these is populated, selected by EventType (see OutboxMessage) — Create
+                // still uses the original Payload field, Update/Delete use their own typed fields so
+                // each round-trips through Cosmos as its own concrete type.
+                object? eventPayload = outbox.EventType switch
+                {
+                    nameof(ProductCreatedEvent) => outbox.Payload,
+                    nameof(ProductUpdatedEvent) => outbox.UpdatedPayload,
+                    nameof(ProductDeletedEvent) => outbox.DeletedPayload,
+                    _ => null
+                };
+
+                if (eventPayload is null)
                 {
                     continue;
                 }
@@ -89,7 +105,7 @@ namespace BookStore.ProductService.API.BackgroundServices
                 using (LogContext.PushProperty("CorrelationId", outbox.CorrelationId))
                 {
                     await publisher.PublishAsync(
-                        outbox.Payload, outbox.Topic, outbox.CorrelationId, outbox.TraceParent);
+                        eventPayload, outbox.Topic, outbox.CorrelationId, outbox.TraceParent);
                     await outboxStore.MarkPublishedAsync(product, stoppingToken);
 
                     _logger.LogInformation(

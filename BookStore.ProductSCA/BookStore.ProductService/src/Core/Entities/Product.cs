@@ -19,6 +19,15 @@ namespace BookStore.ProductService.Core.Entities
         // Optional partition key
         public string Category { get; set; } = string.Empty;
 
+        // Soft-delete flag. A hard Cosmos delete would remove the document before its embedded
+        // ProductDeletedEvent outbox record could ever be drained — the same dual-write gap the
+        // outbox pattern exists to close, just on the delete path instead of create. Deleting a
+        // product therefore sets this flag and writes the outbox in one atomic upsert instead;
+        // GetAllAsync/GetByIdAsync filter these out so the API still behaves as if it were gone.
+        [JsonIgnore]
+        [Newtonsoft.Json.JsonProperty("isDeleted")]
+        public bool IsDeleted { get; set; }
+
         // Embedded transactional outbox record. Persisted to Cosmos (Newtonsoft) as part of the
         // atomic single-document write, but hidden from the API response and never bound from
         // client input (System.Text.Json [JsonIgnore]).

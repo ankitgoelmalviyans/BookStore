@@ -112,4 +112,59 @@ public class ProductServiceTests
         Assert.NotNull(fetched);
         Assert.Equal(created.Id, fetched!.Id);
     }
+
+    [Fact]
+    public async Task UpdateAsync_PopulatesPendingOutbox_WithUpdatedPayload()
+    {
+        var repo = new FakeProductRepository();
+        var service = BuildService(repo);
+        var created = await service.CreateAsync(new Product { Name = "Old Name", Price = 10m });
+
+        created.Name = "New Name";
+        created.Description = "New description";
+        created.Category = "Fiction";
+        var result = await service.UpdateAsync(created, correlationId: "corr-456");
+
+        var outbox = Assert.IsType<OutboxMessage>(result!.Outbox);
+        Assert.Equal(OutboxMessage.Pending, outbox.Status);
+        Assert.Equal(nameof(ProductUpdatedEvent), outbox.EventType);
+        Assert.Equal("corr-456", outbox.CorrelationId);
+
+        var payload = Assert.IsType<ProductUpdatedEvent>(outbox.UpdatedPayload);
+        Assert.Equal(outbox.EventId, payload.EventId);
+        Assert.Equal("New Name", payload.Name);
+        Assert.Equal("New description", payload.Description);
+        Assert.Equal("Fiction", payload.Category);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_SoftDeletes_AndPopulatesPendingOutbox_WithDeletedPayload()
+    {
+        var repo = new FakeProductRepository();
+        var service = BuildService(repo);
+        var created = await service.CreateAsync(new Product { Name = "x" });
+
+        var result = await service.DeleteAsync(created.Id, correlationId: "corr-789");
+
+        Assert.True(result);
+        var stored = await repo.GetByIdAsync(created.Id);
+        Assert.NotNull(stored);
+        Assert.True(stored!.IsDeleted);
+
+        var outbox = Assert.IsType<OutboxMessage>(stored.Outbox);
+        Assert.Equal(nameof(ProductDeletedEvent), outbox.EventType);
+        var payload = Assert.IsType<ProductDeletedEvent>(outbox.DeletedPayload);
+        Assert.Equal(created.Id, payload.Id);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_ReturnsFalse_WhenProductDoesNotExist()
+    {
+        var repo = new FakeProductRepository();
+        var service = BuildService(repo);
+
+        var result = await service.DeleteAsync(Guid.NewGuid());
+
+        Assert.False(result);
+    }
 }

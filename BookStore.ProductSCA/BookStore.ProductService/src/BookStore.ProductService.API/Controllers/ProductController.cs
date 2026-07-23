@@ -53,7 +53,9 @@ namespace BookStore.ProductService.API.Controllers
             if (id != product.Id)
                 return BadRequest();
 
-            var updatedProduct = await _productService.UpdateAsync(product);
+            var correlationId = HttpContext.Items[CorrelationConstants.HttpContextItemKey]?.ToString();
+            var traceParent = System.Diagnostics.Activity.Current?.Id;
+            var updatedProduct = await _productService.UpdateAsync(product, correlationId, traceParent);
             if (updatedProduct == null)
                 return NotFound();
 
@@ -63,7 +65,9 @@ namespace BookStore.ProductService.API.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
-            var result = await _productService.DeleteAsync(id);
+            var correlationId = HttpContext.Items[CorrelationConstants.HttpContextItemKey]?.ToString();
+            var traceParent = System.Diagnostics.Activity.Current?.Id;
+            var result = await _productService.DeleteAsync(id, correlationId, traceParent);
             if (!result)
                 return NotFound();
 

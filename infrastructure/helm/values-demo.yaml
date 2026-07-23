@@ -42,6 +42,20 @@ notificationservice:
   ingress:
     host: ""               # set by pipeline: $INGRESS_HOST
 
+# Phase 3 (planned deploy) — classic ML, no SQL/external-AI dependency.
+recommendationservice:
+  image:
+    tag: ""                # set by pipeline: ${{ github.sha }}
+  ingress:
+    host: ""               # set by pipeline: $INGRESS_HOST
+
+# Phase 3 (planned deploy) — RAG. AzureOpenAI:Key selects the real client over the built-in fake.
+aiservice:
+  image:
+    tag: ""                # set by pipeline: ${{ github.sha }}
+  ingress:
+    host: ""               # set by pipeline: $INGRESS_HOST
+
 # Gateway — Profile B uses APIM in front of NGINX
 gateway:
   useApim: true

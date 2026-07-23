@@ -49,6 +49,23 @@ notificationservice:
   ingress:
     host: ""               # set by pipeline: $INGRESS_HOST
 
+# Phase 3 — classic ML, no SQL/external-AI dependency, deploys unconditionally. Recommendations:Enabled
+# gates the order-events subscriber only; the read API works either way (empty until data flows in).
+recommendationservice:
+  image:
+    tag: ""                # set by pipeline: ${{ github.sha }}
+  ingress:
+    host: ""               # set by pipeline: $INGRESS_HOST
+
+# Phase 3 — RAG. No SQL dependency, deploys unconditionally. Ai:IngestionEnabled gates the
+# product-events subscriber; AzureOpenAI:Key (AZURE_OPENAI_KEY secret, a separate Azure OpenAI
+# resource in its own account — see cd-costopt.yml) selects the real client over the built-in fake.
+aiservice:
+  image:
+    tag: ""                # set by pipeline: ${{ github.sha }}
+  ingress:
+    host: ""               # set by pipeline: $INGRESS_HOST
+
 # Gateway — Profile A uses NGINX Ingress (free, inside AKS)
 # No APIM in this profile
 gateway:
