@@ -35,5 +35,10 @@ export const routes: Routes = [
     canActivate: [authGuard],
     loadChildren: () => import('./orders/orders.routes').then(m => m.ORDERS_ROUTES)
   },
+  {
+    path: 'ai-search',
+    loadComponent: () => import('./ai-search/ai-search.component').then(m => m.AiSearchComponent),
+    canActivate: [authGuard]
+  },
   { path: '', redirectTo: 'login', pathMatch: 'full' }
 ];

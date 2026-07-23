@@ -62,6 +62,15 @@ jobs:
           sed -i "s|#{PAYMENT_API_URL}#|${{ secrets.PAYMENT_API_URL }}|g" \
             environment.prod.ts
 
+          # Recommendation/AI are supplementary, read-only panels (co-purchase suggestions, book
+          # search) — unlike Orders/Payment, nothing in the app is blocked if these are unset. An
+          # empty base URL here just means those two calls fail and their own empty/error states
+          # render, so no hard-fail guard like the one above.
+          sed -i "s|#{RECOMMENDATION_API_URL}#|${{ secrets.RECOMMENDATION_API_URL }}|g" \
+            environment.prod.ts
+          sed -i "s|#{AI_API_URL}#|${{ secrets.AI_API_URL }}|g" \
+            environment.prod.ts
+
       - name: Build Angular production
         run: |
           cd BookStore.ProductSCA/product-ui

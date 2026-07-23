@@ -14,7 +14,7 @@
     }
 
     @if (!loading) {
-    <table mat-table [dataSource]="products" class="mat-elevation-z1">
+    <table mat-table [dataSource]="products" multiTemplateDataRows class="mat-elevation-z1">
       <ng-container matColumnDef="name">
         <th mat-header-cell *matHeaderCellDef>Name</th>
         <td mat-cell *matCellDef="let element">{{ element.name }}</td>
@@ -40,11 +40,39 @@
           <button mat-button color="accent" (click)="editProduct(element.id)">Edit</button>
           <button mat-button color="warn" (click)="deleteProduct(element.id)">Delete</button>
           <button mat-button (click)="viewInventory(element.id)">Inventory</button>
+          <button mat-icon-button (click)="toggleRecommendations(element)"
+                  aria-label="Show similar books" title="Customers who bought this also bought">
+            <mat-icon>auto_awesome</mat-icon>
+          </button>
+        </td>
+      </ng-container>
+
+      <ng-container matColumnDef="recommendations">
+        <td mat-cell *matCellDef="let element" [attr.colspan]="displayedColumns.length" class="recommendations-cell">
+          <div class="recommendations-panel">
+            <h4>Customers who bought "{{ element.name }}" also bought</h4>
+
+            @if (recommendationsLoading) {
+              <div class="recommendations-loading">
+                <mat-spinner diameter="20"></mat-spinner>
+              </div>
+            } @else if (recommendationsFor(element.id).length === 0) {
+              <p class="recommendations-empty">No recommendations yet — check back once more orders come in.</p>
+            } @else {
+              <ul class="recommendations-list">
+                @for (rec of recommendationsFor(element.id); track rec.productId) {
+                  <li>{{ rec.name }} — ₹{{ rec.price }} <span class="rec-count">(bought together {{ rec.count }}×)</span></li>
+                }
+              </ul>
+            }
+          </div>
         </td>
       </ng-container>
 
       <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
       <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+      <tr mat-row *matRowDef="let row; columns: ['recommendations']"
+          [class.recommendations-row-hidden]="expandedProductId !== row.id"></tr>
     </table>
     }
   </mat-card>
