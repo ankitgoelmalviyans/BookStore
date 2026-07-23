@@ -16,7 +16,7 @@ public class AzureOpenAiAnswerGenerator : IAnswerGenerator
     {
         var endpoint = configuration["AzureOpenAI:Endpoint"]!;
         var key = configuration["AzureOpenAI:Key"]!;
-        var deployment = configuration["AzureOpenAI:ChatDeployment"] ?? "gpt-4o-mini";
+        var deployment = configuration["AzureOpenAI:ChatDeployment"] ?? "gpt-5-mini";
 
         var azureClient = new AzureOpenAIClient(new Uri(endpoint), new AzureKeyCredential(key));
         _client = azureClient.GetChatClient(deployment);
