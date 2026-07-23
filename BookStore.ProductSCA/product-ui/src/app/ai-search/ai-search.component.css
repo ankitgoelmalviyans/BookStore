@@ -1,0 +1,76 @@
+.page {
+  max-width: 960px;
+  margin: 24px auto;
+  padding: 0 16px;
+}
+
+.subtitle {
+  color: rgba(0, 0, 0, 0.6);
+  margin-top: 0;
+}
+
+.search-form {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.search-field {
+  flex: 1;
+}
+
+.search-form button {
+  margin-top: 8px;
+}
+
+.search-form button mat-icon {
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+.loading-row {
+  display: flex;
+  justify-content: center;
+  padding: 24px 0;
+}
+
+.result {
+  margin-top: 8px;
+}
+
+.answer {
+  font-size: 1.05rem;
+  line-height: 1.5;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 4px;
+  padding: 16px;
+}
+
+.matches {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.match-card {
+  padding: 12px;
+}
+
+.match-card h4 {
+  margin: 0 0 4px;
+}
+
+.match-description {
+  color: rgba(0, 0, 0, 0.6);
+  font-size: 0.85rem;
+  margin: 0 0 8px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.match-price {
+  font-weight: 500;
+  margin: 0;
+}

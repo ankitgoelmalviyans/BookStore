@@ -25,3 +25,40 @@
 table {
   width: 100%;
 }
+
+.recommendations-row-hidden {
+  display: none;
+}
+
+.recommendations-cell {
+  border-bottom: none;
+  padding: 0 16px 16px;
+}
+
+.recommendations-panel h4 {
+  margin: 0 0 8px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.7);
+}
+
+.recommendations-loading {
+  display: flex;
+  padding: 8px 0;
+}
+
+.recommendations-empty {
+  margin: 0;
+  color: rgba(0, 0, 0, 0.5);
+  font-size: 0.875rem;
+}
+
+.recommendations-list {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.rec-count {
+  color: rgba(0, 0, 0, 0.5);
+  font-size: 0.8rem;
+}

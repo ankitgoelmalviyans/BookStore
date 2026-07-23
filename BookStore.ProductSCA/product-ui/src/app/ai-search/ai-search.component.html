@@ -1,0 +1,41 @@
+<div class="page">
+  <mat-card>
+    <h2>Ask about our books</h2>
+    <p class="subtitle">Describe what you're looking for in plain language — "a book about writing clean code" or "something on distributed systems".</p>
+
+    <form class="search-form" (ngSubmit)="search()">
+      <mat-form-field appearance="fill" class="search-field">
+        <mat-label>What are you looking for?</mat-label>
+        <input matInput [(ngModel)]="query" name="query" [disabled]="loading" />
+      </mat-form-field>
+      <button mat-raised-button color="primary" type="submit" [disabled]="!query.trim() || loading">
+        <mat-icon>auto_awesome</mat-icon> Ask
+      </button>
+    </form>
+
+    @if (loading) {
+      <div class="loading-row">
+        <mat-spinner diameter="28"></mat-spinner>
+      </div>
+    }
+
+    @if (!loading && searched && result) {
+      <div class="result">
+        <p class="answer">{{ result.answer }}</p>
+
+        @if (result.matches.length > 0) {
+          <h3>Books this answer is based on</h3>
+          <div class="matches">
+            @for (match of result.matches; track match.productId) {
+              <mat-card class="match-card">
+                <h4>{{ match.name }}</h4>
+                <p class="match-description">{{ match.description }}</p>
+                <p class="match-price">₹{{ match.price }}</p>
+              </mat-card>
+            }
+          </div>
+        }
+      </div>
+    }
+  </mat-card>
+</div>
