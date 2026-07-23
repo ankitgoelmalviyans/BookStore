@@ -27,4 +27,9 @@ public class CoPurchasePartner
 
     [JsonProperty("count")]
     public int Count { get; set; }
+
+    /// <summary>Cosine similarity from the trained model, when this ranking came from
+    /// CoPurchaseModelRecord rather than raw counts; null for raw-count rows.</summary>
+    [JsonProperty("score")]
+    public double? Score { get; set; }
 }

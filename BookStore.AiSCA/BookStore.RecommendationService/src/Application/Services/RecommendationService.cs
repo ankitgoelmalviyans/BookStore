@@ -9,19 +9,31 @@ using Microsoft.Extensions.Logging;
 namespace BookStore.RecommendationService.Application.Services;
 
 /// <summary>
-/// Classic ML, not an LLM call: "customers who bought X also bought Y" is pure co-occurrence
-/// counting over order history, updated incrementally per OrderCreated event — no model, no
-/// inference call at request time. All the "learning" already happened by the time a read comes in.
+/// Two tiers of "customers who bought X also bought Y": a trained matrix-factorization model
+/// (CoPurchaseModelTrainer, run periodically by RecommendationModelTrainingWorker) is preferred when
+/// available, falling back per-product to the original raw co-occurrence counting — pure counting
+/// over order history, updated incrementally per OrderCreated event, no model or inference call at
+/// request time — for any product the trained model hasn't covered yet (new products, thin data,
+/// before the first training cycle, or training disabled).
 /// </summary>
 public class RecommendationService : IRecommendationService
 {
     private readonly ICoPurchaseStore _store;
+    private readonly IOrderBasketStore _basketStore;
+    private readonly ICoPurchaseModelStore _modelStore;
     private readonly IInboxStore _inbox;
     private readonly ILogger<RecommendationService> _logger;
 
-    public RecommendationService(ICoPurchaseStore store, IInboxStore inbox, ILogger<RecommendationService> logger)
+    public RecommendationService(
+        ICoPurchaseStore store,
+        IOrderBasketStore basketStore,
+        ICoPurchaseModelStore modelStore,
+        IInboxStore inbox,
+        ILogger<RecommendationService> logger)
     {
         _store = store;
+        _basketStore = basketStore;
+        _modelStore = modelStore;
         _inbox = inbox;
         _logger = logger;
     }
@@ -35,6 +47,27 @@ public class RecommendationService : IRecommendationService
         }
 
         var distinctProductIds = order.Items.Select(i => i.ProductId).Distinct().ToList();
+
+        // Persisted unconditionally (even single-item orders — still useful training signal) as raw
+        // training input for CoPurchaseModelTrainer. A failure here is logged then rethrown (not
+        // swallowed) — IInboxStore's own contract requires MarkProcessedAsync only be called after
+        // every business effect succeeds, so a partial failure gets a clean retry on redelivery
+        // instead of silently and permanently losing this order's basket.
+        try
+        {
+            await _basketStore.SaveAsync(new OrderBasket
+            {
+                Id = order.OrderId.ToString(),
+                OrderId = order.OrderId,
+                ProductIds = distinctProductIds,
+                RecordedAtUtc = DateTime.UtcNow
+            }, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to persist raw basket for order {OrderId} — will retry on redelivery", order.OrderId);
+            throw;
+        }
 
         // A single-item order has no co-purchase pair to record — nothing to correlate it with.
         if (distinctProductIds.Count >= 2)
@@ -55,6 +88,26 @@ public class RecommendationService : IRecommendationService
     public async Task<IReadOnlyList<CoPurchasePartner>> GetRecommendationsAsync(
         Guid productId, int topN = 5, CancellationToken cancellationToken = default)
     {
+        CoPurchaseModelRecord? modelRecord = null;
+        try
+        {
+            modelRecord = await _modelStore.GetAsync(productId, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Failed to read trained model for product {ProductId} — falling back to raw counts", productId);
+        }
+
+        if (modelRecord is { Neighbors.Count: > 0 })
+        {
+            return modelRecord.Neighbors
+                .OrderByDescending(n => n.Score)
+                .Take(topN)
+                .Select(n => new CoPurchasePartner { ProductId = n.ProductId, Count = 0, Score = n.Score })
+                .ToList();
+        }
+
+        // Fallback: no trained model coverage for this product yet — raw counts, exactly as before.
         var record = await _store.GetAsync(productId, cancellationToken);
         if (record is null)
         {
