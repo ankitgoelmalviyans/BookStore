@@ -1,7 +1,6 @@
 using System.Text;
 using System.Text.Json;
 using Azure.Messaging.ServiceBus;
-using Microsoft.Azure.Cosmos;
 using Microsoft.Data.SqlClient;
 
 // One-off backfill tool: replays OrderService's 75 seeded demo orders (CustomerId = "seed-customer")
@@ -11,22 +10,21 @@ using Microsoft.Data.SqlClient;
 // below.
 //
 // Usage:
-//   ORDER_SQL_CONNECTION=... SERVICE_BUS_CONNECTION=... COSMOS_ENDPOINT=... COSMOS_KEY=... dotnet run
+//   ORDER_SQL_CONNECTION=... SERVICE_BUS_CONNECTION=... dotnet run
 //
-// Note: OrderService's SeedRunner already writes a real OrderOutbox row for each of these 75 orders.
-// If those rows are still Status=Pending (never drained by OutboxPublisherService), the basket-capture
-// code may pick them up automatically on next publish — check that table before assuming this script
-// is required. It's safe to run either way: it always uses a fresh EventId, so it never collides with
-// the Inbox dedup that would otherwise skip a redelivered/already-processed event.
+// Deliberately does NOT touch the ProductCoPurchase Cosmos container: that aggregate is keyed by
+// ProductId only and can't be attributed back to which customer/order contributed which count, so
+// deleting/resetting it here could silently wipe legitimate counts contributed by real (non-seed)
+// customers if a demo-catalog product id ever overlaps with one they've actually ordered. The
+// tradeoff is a bounded, non-destructive one: if these seed orders' original OrderOutbox rows already
+// drained once before (see the pending-row guard below) or drain again independently later, the raw
+// fallback-tier counts for these 15 products could be off by a small, self-contained amount — never a
+// loss of someone else's data.
 
 var orderSqlConnection = RequireEnv("ORDER_SQL_CONNECTION");
 var serviceBusConnection = RequireEnv("SERVICE_BUS_CONNECTION");
-var cosmosEndpoint = RequireEnv("COSMOS_ENDPOINT");
-var cosmosKey = RequireEnv("COSMOS_KEY");
 
 const string OrderTopic = "order-events";
-const string CosmosDatabaseName = "BookStoreDB";
-const string CoPurchaseContainerName = "ProductCoPurchase";
 const string SeedCustomerId = "seed-customer";
 
 Console.WriteLine("Querying OrderService SQL for seed orders...");
@@ -40,15 +38,29 @@ if (orders.Count == 0)
 
 var distinctProductIds = orders.SelectMany(o => o.Items.Select(i => i.ProductId)).Distinct().ToList();
 Console.WriteLine($"Found {orders.Count} seed orders covering {distinctProductIds.Count} distinct products.");
+
+Console.WriteLine("Checking OrderOutbox for pending rows that would double-process these same orders...");
+var seedOrderIds = orders.Select(o => o.OrderId).ToHashSet();
+var conflictingOrderIds = await FindPendingOutboxConflictsAsync(orderSqlConnection, seedOrderIds);
+if (conflictingOrderIds.Count > 0)
+{
+    Console.Error.WriteLine();
+    Console.Error.WriteLine(
+        $"ABORTING: {conflictingOrderIds.Count} of these seed orders still have a Pending " +
+        "OrderCreatedEvent row in OrderOutbox. If OutboxPublisherService drains those independently " +
+        "(now or later), the same order would be processed twice — once via this replay's fresh " +
+        "EventId, once via the original — double-counting the raw fallback tier. Let those rows drain " +
+        "naturally first (or mark/handle them deliberately), then re-run this tool.");
+    Environment.Exit(1);
+    return;
+}
+Console.WriteLine("No conflicting pending rows found.");
+
 Console.WriteLine();
-Console.WriteLine("This will:");
-Console.WriteLine($"  1. Delete any existing ProductCoPurchase docs for those {distinctProductIds.Count} products (avoids double-counting).");
-Console.WriteLine($"  2. Publish {orders.Count} fresh OrderCreatedEvent messages to '{OrderTopic}'.");
-Console.WriteLine();
+Console.WriteLine($"This will publish {orders.Count} fresh OrderCreatedEvent messages to '{OrderTopic}'.");
 Console.Write("Press Enter to continue, or Ctrl+C to abort... ");
 Console.ReadLine();
 
-await ResetCoPurchaseCountsAsync(cosmosEndpoint, cosmosKey, distinctProductIds);
 await PublishOrderEventsAsync(serviceBusConnection, orders);
 
 Console.WriteLine("Done. Verify the OrderBaskets Cosmos container now has ~" + orders.Count + " new docs.");
@@ -103,25 +115,32 @@ static async Task<List<SeedOrder>> LoadSeedOrdersAsync(string connectionString)
     return ordersById.Values.ToList();
 }
 
-static async Task ResetCoPurchaseCountsAsync(string cosmosEndpoint, string cosmosKey, List<Guid> productIds)
+static async Task<HashSet<Guid>> FindPendingOutboxConflictsAsync(string connectionString, HashSet<Guid> seedOrderIds)
 {
-    Console.WriteLine("Resetting existing ProductCoPurchase docs for affected products...");
+    // OutboxMessage has no OrderId column (see BookStore.OrderService.Core.Entities.OutboxMessage) —
+    // OrderId only exists inside the serialized Payload JSON, so pending rows must be pulled and
+    // parsed rather than filtered in SQL.
+    const string sql = "SELECT Payload FROM OrderOutbox WHERE EventType = 'OrderCreatedEvent' AND Status = 'Pending';";
 
-    using var cosmosClient = new CosmosClient(cosmosEndpoint, cosmosKey);
-    var container = cosmosClient.GetDatabase(CosmosDatabaseName).GetContainer(CoPurchaseContainerName);
+    await using var connection = new SqlConnection(connectionString);
+    await connection.OpenAsync();
+    await using var command = new SqlCommand(sql, connection);
 
-    foreach (var productId in productIds)
+    var conflicts = new HashSet<Guid>();
+    await using var reader = await command.ExecuteReaderAsync();
+    while (await reader.ReadAsync())
     {
-        var id = productId.ToString();
-        try
+        var payload = reader.GetString(0);
+        using var doc = JsonDocument.Parse(payload);
+        if (doc.RootElement.TryGetProperty("OrderId", out var orderIdProp) &&
+            orderIdProp.TryGetGuid(out var orderId) &&
+            seedOrderIds.Contains(orderId))
         {
-            await container.DeleteItemAsync<object>(id, new PartitionKey(id));
-        }
-        catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            // Already absent — nothing to reset for this product.
+            conflicts.Add(orderId);
         }
     }
+
+    return conflicts;
 }
 
 static async Task PublishOrderEventsAsync(string serviceBusConnection, List<SeedOrder> orders)

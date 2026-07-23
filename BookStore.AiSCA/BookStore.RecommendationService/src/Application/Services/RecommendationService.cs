@@ -49,8 +49,10 @@ public class RecommendationService : IRecommendationService
         var distinctProductIds = order.Items.Select(i => i.ProductId).Distinct().ToList();
 
         // Persisted unconditionally (even single-item orders — still useful training signal) as raw
-        // training input for CoPurchaseModelTrainer. Wrapped in its own try/catch so a Cosmos hiccup on
-        // this new write can never block the proven counting path below.
+        // training input for CoPurchaseModelTrainer. A failure here is logged then rethrown (not
+        // swallowed) — IInboxStore's own contract requires MarkProcessedAsync only be called after
+        // every business effect succeeds, so a partial failure gets a clean retry on redelivery
+        // instead of silently and permanently losing this order's basket.
         try
         {
             await _basketStore.SaveAsync(new OrderBasket
@@ -63,7 +65,8 @@ public class RecommendationService : IRecommendationService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to persist raw basket for order {OrderId} — co-purchase counting still proceeds", order.OrderId);
+            _logger.LogWarning(ex, "Failed to persist raw basket for order {OrderId} — will retry on redelivery", order.OrderId);
+            throw;
         }
 
         // A single-item order has no co-purchase pair to record — nothing to correlate it with.
@@ -85,7 +88,16 @@ public class RecommendationService : IRecommendationService
     public async Task<IReadOnlyList<CoPurchasePartner>> GetRecommendationsAsync(
         Guid productId, int topN = 5, CancellationToken cancellationToken = default)
     {
-        var modelRecord = await _modelStore.GetAsync(productId, cancellationToken);
+        CoPurchaseModelRecord? modelRecord = null;
+        try
+        {
+            modelRecord = await _modelStore.GetAsync(productId, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Failed to read trained model for product {ProductId} — falling back to raw counts", productId);
+        }
+
         if (modelRecord is { Neighbors.Count: > 0 })
         {
             return modelRecord.Neighbors

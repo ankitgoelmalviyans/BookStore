@@ -41,7 +41,7 @@ public class CoPurchaseModelTrainerTests
     [Fact]
     public void Train_RanksMoreFrequentCoOccurringProduct_Higher()
     {
-        var trainer = new CoPurchaseModelTrainer();
+        var trainer = new CoPurchaseModelTrainer(seed: 42);
         var productA = Guid.NewGuid();
         var productB = Guid.NewGuid();
         var productC = Guid.NewGuid();

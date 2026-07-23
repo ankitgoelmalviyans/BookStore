@@ -11,13 +11,25 @@ namespace BookStore.RecommendationService.Application.Services;
 /// ProductId, implicit positive-only feedback) and turns the learned per-product latent factors into
 /// ranked "also bought" neighbor lists via cosine similarity. A pure function over domain types — no
 /// ML.NET type ever leaks past this class — so it stays unit-testable the same way the rest of this
-/// service is. Training is stochastic (MatrixFactorizationTrainer exposes no deterministic seed), so
-/// callers/tests should assert qualitative ranking, not exact scores.
+/// service is. Fixing both MLContext's seed and NumberOfThreads=1 makes training reproducible
+/// (verified empirically: identical output across repeated runs at both toy and production-like
+/// scale) — callers/tests may still prefer qualitative ranking assertions over exact scores, since
+/// reproducibility here is a property of this specific ML.NET version, not a documented API guarantee.
 /// </summary>
 public class CoPurchaseModelTrainer
 {
     private const int DefaultApproximationRank = 8;
     private const int DefaultNumberOfIterations = 100;
+
+    private readonly int? _seed;
+
+    /// <param name="seed">Optional fixed seed for MLContext, so tests can pin down reproducible
+    /// output. Defaults to null (a fresh random seed per Train call), preserving production's
+    /// existing per-cycle retraining behavior.</param>
+    public CoPurchaseModelTrainer(int? seed = null)
+    {
+        _seed = seed;
+    }
 
     public IReadOnlyList<CoPurchaseModelRecord> Train(IReadOnlyList<OrderBasket> baskets, int topNPerProduct)
     {
@@ -52,7 +64,7 @@ public class CoPurchaseModelTrainer
             return Array.Empty<CoPurchaseModelRecord>();
         }
 
-        var mlContext = new MLContext();
+        var mlContext = new MLContext(seed: _seed);
 
         var schemaDefinition = SchemaDefinition.Create(typeof(BasketProductEntry));
         schemaDefinition[nameof(BasketProductEntry.OrderIndex)].ColumnType =
@@ -70,6 +82,10 @@ public class CoPurchaseModelTrainer
             LossFunction = MatrixFactorizationTrainer.LossFunctionType.SquareLossOneClass,
             ApproximationRank = Math.Min(DefaultApproximationRank, productIndex.Count - 1),
             NumberOfIterations = DefaultNumberOfIterations,
+            // Single-threaded: this container's CPU allocation (see Helm values.yaml) is already
+            // thin, multiple threads wouldn't meaningfully speed up a dataset this size, and it
+            // removes any thread-interleaving source of run-to-run nondeterminism.
+            NumberOfThreads = 1,
             Quiet = true
         };
 
