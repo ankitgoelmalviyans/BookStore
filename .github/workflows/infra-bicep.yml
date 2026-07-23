@@ -44,6 +44,49 @@ jobs:
             sleep 10
           done
 
+      - name: Enable Cosmos DB Vector Search capability
+        run: |
+          # bscosmosankit2026ga was created by an earlier run of this workflow, before the
+          # BookEmbeddings container (vectorEmbeddingPolicy/vectorIndexes) existed. Cosmos DB
+          # does not retroactively apply new entries in the account's `capabilities` list from
+          # a Bicep/ARM update on an already-existing account — EnableNoSQLVectorSearch has to
+          # be turned on via this self-serve update path (or the portal's Features blade) first.
+          ACCOUNT_NAME=bscosmosankit2026ga
+
+          if ! az cosmosdb show \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --name $ACCOUNT_NAME \
+              --output none 2>/dev/null; then
+            echo "Account $ACCOUNT_NAME doesn't exist yet — Bicep will create it below with the capability already set."
+            exit 0
+          fi
+
+          # Real failures here (auth, throttling, service errors) must fail the job — only
+          # "account not found" above is a legitimate no-op.
+          az cosmosdb update \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name $ACCOUNT_NAME \
+            --capabilities EnableNoSQLVectorSearch \
+            --output none
+
+          echo "Waiting for EnableNoSQLVectorSearch to report active on $ACCOUNT_NAME..."
+          for i in {1..30}; do
+            ENABLED=$(az cosmosdb show \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --name $ACCOUNT_NAME \
+              --query "length(capabilities[?name=='EnableNoSQLVectorSearch'])" \
+              --output tsv)
+            if [ "$ENABLED" == "1" ]; then
+              echo "EnableNoSQLVectorSearch is active."
+              exit 0
+            fi
+            echo "Not active yet (attempt $i/30) — sleeping 20s..."
+            sleep 20
+          done
+
+          echo "::error::EnableNoSQLVectorSearch did not become active on $ACCOUNT_NAME within 10 minutes."
+          exit 1
+
       - name: Deploy Bicep — Core Resources
         id: bicep
         env:
