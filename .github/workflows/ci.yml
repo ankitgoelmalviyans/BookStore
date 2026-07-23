@@ -12,6 +12,13 @@ env:
   DOTNET_VERSION: '8.0.x'
   NODE_VERSION: '18.x'
 
+# None of these jobs push to git or otherwise need repo write access — they only build/test/validate
+# (dotnet build/test, npm build, helm/bicep validation). Pinning to read-only here means a compromised
+# step can't abuse an org/repo default that grants broader GITHUB_TOKEN permissions — same reasoning
+# and same block already used in cd-costopt.yml.
+permissions:
+  contents: read
+
 jobs:
 
   # ─────────────────────────────────────────
