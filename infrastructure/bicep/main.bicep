@@ -269,6 +269,40 @@ resource productCoPurchaseContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDa
   }
 }
 
+// Raw per-order basket data (order id -> distinct product ids) — the durable training input for
+// CoPurchaseModelTrainer's matrix factorization. Kept separate from ProductCoPurchase above so
+// retraining can never touch the raw-count fallback data.
+resource orderBasketsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-02-15-preview' = {
+  parent: cosmosDb
+  name: 'OrderBaskets'
+  properties: {
+    resource: {
+      id: 'OrderBaskets'
+      partitionKey: {
+        paths: ['/id']
+        kind: 'Hash'
+      }
+    }
+  }
+}
+
+// Precomputed "also bought" neighbor lists from the trained matrix-factorization model — one document
+// per product, cosine-similarity-ranked. Deliberately separate from ProductCoPurchase (the raw-count
+// fallback tier) so training output can be cleared/rolled back without touching fallback data.
+resource productSimilarityModelContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-02-15-preview' = {
+  parent: cosmosDb
+  name: 'ProductSimilarityModel'
+  properties: {
+    resource: {
+      id: 'ProductSimilarityModel'
+      partitionKey: {
+        paths: ['/id']
+        kind: 'Hash'
+      }
+    }
+  }
+}
+
 // AiService's RAG vector index: one document per product, embedding + denormalised catalog fields.
 // Declared on a newer container API version than the rest of this file (2024-02-15-preview predates
 // reliable vectorEmbeddingPolicy/vectorIndexes support) — deliberately scoped to just this one new

@@ -20,13 +20,16 @@ istio:
   # synchronous in-cluster callers (same posture as notificationservice).
   inject: false
 
+# Bumped from cpu 50m/250m, memory 96Mi/192Mi to cover Microsoft.ML's native runtime memory floor plus
+# the periodic in-process matrix-factorization training cycle (RecommendationModelTrainingWorker) —
+# this pod still also serves live read traffic, so the bump has headroom for both concerns.
 resources:
   requests:
-    cpu: 50m
-    memory: 96Mi
+    cpu: 75m
+    memory: 160Mi
   limits:
-    cpu: 250m
-    memory: 192Mi
+    cpu: 400m
+    memory: 320Mi
 
 autoscaling:
   enabled: false

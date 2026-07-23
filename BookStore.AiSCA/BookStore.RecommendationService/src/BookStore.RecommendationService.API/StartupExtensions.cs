@@ -1,4 +1,6 @@
+using BookStore.RecommendationService.API.BackgroundServices;
 using BookStore.RecommendationService.API.Middleware;
+using BookStore.RecommendationService.Application.Services;
 using BookStore.RecommendationService.Core.Abstractions;
 using BookStore.RecommendationService.Core.Messaging;
 using BookStore.RecommendationService.Infrastructure.Messaging;
@@ -24,11 +26,15 @@ namespace BookStore.RecommendationService.Extensions
                     config["CosmosDb:CosmosEndpoint"],
                     config["CosmosDb:AccountKey"]));
                 services.AddSingleton<ICoPurchaseStore, CosmosCoPurchaseStore>();
+                services.AddSingleton<IOrderBasketStore, CosmosOrderBasketStore>();
+                services.AddSingleton<ICoPurchaseModelStore, CosmosCoPurchaseModelStore>();
                 services.AddSingleton<IInboxStore, CosmosInboxStore>();
             }
             else
             {
                 services.AddSingleton<ICoPurchaseStore, InMemoryCoPurchaseStore>();
+                services.AddSingleton<IOrderBasketStore, InMemoryOrderBasketStore>();
+                services.AddSingleton<ICoPurchaseModelStore, InMemoryCoPurchaseModelStore>();
                 services.AddSingleton<IInboxStore, InMemoryInboxStore>();
             }
 
@@ -43,6 +49,15 @@ namespace BookStore.RecommendationService.Extensions
             if (config.GetValue<bool>("Recommendations:Enabled"))
             {
                 services.AddSingleton<IEventSubscriber, AzureServiceBusSubscriber>();
+            }
+
+            // Deliberately a separate flag from Recommendations:Enabled above — lets an operator turn
+            // model retraining on/off independently of the subscriber. Trainer is a pure function over
+            // domain types, safe to register unconditionally.
+            services.AddSingleton<CoPurchaseModelTrainer>();
+            if (config.GetValue<bool>("Recommendations:ModelTrainingEnabled"))
+            {
+                services.AddHostedService<RecommendationModelTrainingWorker>();
             }
 
             return services;

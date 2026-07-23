@@ -433,6 +433,7 @@ jobs:
             --from-literal=AzureServiceBus__ConnectionString="${{ secrets.SERVICE_BUS_CONNECTION }}" \
             --from-literal=AllowedOrigins__0="${{ secrets.ALLOWED_ORIGINS }}" \
             --from-literal=Recommendations__Enabled="true" \
+            --from-literal=Recommendations__ModelTrainingEnabled="true" \
             --namespace=${{ env.NAMESPACE }} \
             --dry-run=client -o yaml | kubectl apply -f -
 
