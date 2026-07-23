@@ -44,6 +44,19 @@ jobs:
             sleep 10
           done
 
+      - name: Enable Cosmos DB Vector Search capability
+        run: |
+          # bscosmosankit2026ga was created by an earlier run of this workflow, before the
+          # BookEmbeddings container (vectorEmbeddingPolicy/vectorIndexes) existed. Cosmos DB
+          # does not retroactively apply new entries in the account's `capabilities` list from
+          # a Bicep/ARM update on an already-existing account — EnableNoSQLVectorSearch has to
+          # be turned on via this self-serve update path (or the portal's Features blade) first.
+          # No-op (fails harmlessly) if already enabled or the account doesn't exist yet.
+          az cosmosdb update \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name bscosmosankit2026ga \
+            --capabilities EnableNoSQLVectorSearch || true
+
       - name: Deploy Bicep — Core Resources
         id: bicep
         env:
