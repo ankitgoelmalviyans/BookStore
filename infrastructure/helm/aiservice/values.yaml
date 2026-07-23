@@ -1,0 +1,34 @@
+namespace: bookstore
+environment: Production
+replicaCount: 1
+
+service:
+  name: aiservice
+  port: 80
+
+image:
+  repository: bookstoreaurega.azurecr.io/aiservice
+  tag: latest
+  pullPolicy: Always
+
+ingress:
+  host: ""
+  path: /ai
+
+istio:
+  # Not meshed — a Service Bus consumer plus a search API called only from the UI via ingress, no
+  # synchronous in-cluster callers (same posture as notificationservice/recommendationservice).
+  inject: false
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3

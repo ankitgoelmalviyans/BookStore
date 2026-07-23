@@ -30,7 +30,9 @@ internal sealed class FakeProductRepository : IProductRepository
     public Task<Product?> GetByIdAsync(Guid id) =>
         Task.FromResult(CreatedProduct?.Id == id ? CreatedProduct : null);
 
-    public Task<Product> UpdateAsync(Product product) => Task.FromResult(product);
-
-    public Task<bool> DeleteAsync(Guid id) => Task.FromResult(true);
+    public Task<Product> UpdateAsync(Product product)
+    {
+        CreatedProduct = product;
+        return Task.FromResult(product);
+    }
 }

@@ -35,6 +35,14 @@ else
     Console.WriteLine($"Loaded {builder.Environment.EnvironmentName} configuration");
 }
 
+// CD-only path: `dotnet run -- --seed` inserts demo catalog data, then exits — never builds the web
+// host, so it can't run as part of normal startup (same pattern as Auth/Order/PaymentService).
+if (args.Contains("--seed"))
+{
+    await BookStore.ProductService.Infrastructure.Persistence.SeedRunner.RunAsync(builder.Configuration);
+    return;
+}
+
 // Add services
 builder.Services.AddApplicationServices(builder.Configuration);
 builder.Services.AddControllers();

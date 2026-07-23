@@ -270,6 +270,96 @@ jobs:
           tags: notificationservice:ci
 
   # ─────────────────────────────────────────
+  # JOB 3f — Build and test RecommendationService
+  # ─────────────────────────────────────────
+  build-recommendation:
+    name: Build RecommendationService
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Build/test only — never pushes — so don't leave the token in .git/config.
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore
+        run: |
+          dotnet restore \
+            BookStore.AiSCA/BookStore.RecommendationService/BookStore.RecommendationService.sln
+
+      - name: Build
+        run: |
+          dotnet build \
+            BookStore.AiSCA/BookStore.RecommendationService/BookStore.RecommendationService.sln \
+            --no-restore \
+            --configuration Release
+
+      - name: Test
+        run: |
+          dotnet test \
+            BookStore.AiSCA/BookStore.RecommendationService/tests/RecommendationService.UnitTests/RecommendationService.UnitTests.csproj \
+            --configuration Release
+
+      - name: Docker build check
+        uses: docker/build-push-action@v5
+        with:
+          context: BookStore.AiSCA/BookStore.RecommendationService/src
+          file: BookStore.AiSCA/BookStore.RecommendationService/src/BookStore.RecommendationService.API/Dockerfile
+          push: false
+          tags: recommendationservice:ci
+
+  # ─────────────────────────────────────────
+  # JOB 3g — Build and test AiService
+  # ─────────────────────────────────────────
+  build-ai:
+    name: Build AiService
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Build/test only — never pushes — so don't leave the token in .git/config.
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore
+        run: |
+          dotnet restore \
+            BookStore.AiSCA/BookStore.AiService/BookStore.AiService.sln
+
+      - name: Build
+        run: |
+          dotnet build \
+            BookStore.AiSCA/BookStore.AiService/BookStore.AiService.sln \
+            --no-restore \
+            --configuration Release
+
+      - name: Test
+        run: |
+          dotnet test \
+            BookStore.AiSCA/BookStore.AiService/tests/AiService.UnitTests/AiService.UnitTests.csproj \
+            --configuration Release
+
+      - name: Docker build check
+        uses: docker/build-push-action@v5
+        with:
+          context: BookStore.AiSCA/BookStore.AiService/src
+          file: BookStore.AiSCA/BookStore.AiService/src/BookStore.AiService.API/Dockerfile
+          push: false
+          tags: aiservice:ci
+
+  # ─────────────────────────────────────────
   # JOB 3e — Validate EF Core migrations (AuthService/OrderService/PaymentService)
   # ─────────────────────────────────────────
   validate-ef-migrations:
@@ -403,6 +493,8 @@ jobs:
           helm dependency update infrastructure/helm/orderservice
           helm dependency update infrastructure/helm/paymentservice
           helm dependency update infrastructure/helm/notificationservice
+          helm dependency update infrastructure/helm/recommendationservice
+          helm dependency update infrastructure/helm/aiservice
 
       - name: Helm lint
         run: |
@@ -412,6 +504,8 @@ jobs:
           helm lint infrastructure/helm/orderservice
           helm lint infrastructure/helm/paymentservice
           helm lint infrastructure/helm/notificationservice
+          helm lint infrastructure/helm/recommendationservice
+          helm lint infrastructure/helm/aiservice
 
       - name: Helm dry run — Profile A
         run: |
@@ -446,6 +540,18 @@ jobs:
             > /dev/null
 
           helm template notificationservice infrastructure/helm/notificationservice \
+            --values infrastructure/helm/values-costopt.yaml \
+            --set ingress.host=1.2.3.4.nip.io \
+            --set image.tag=ci-test \
+            > /dev/null
+
+          helm template recommendationservice infrastructure/helm/recommendationservice \
+            --values infrastructure/helm/values-costopt.yaml \
+            --set ingress.host=1.2.3.4.nip.io \
+            --set image.tag=ci-test \
+            > /dev/null
+
+          helm template aiservice infrastructure/helm/aiservice \
             --values infrastructure/helm/values-costopt.yaml \
             --set ingress.host=1.2.3.4.nip.io \
             --set image.tag=ci-test \
@@ -543,6 +649,8 @@ jobs:
       - build-order
       - build-payment
       - build-notification
+      - build-recommendation
+      - build-ai
       - validate-ef-migrations
       - build-ui
       - validate-helm
@@ -561,6 +669,8 @@ jobs:
           echo "✓ OrderService builds"
           echo "✓ PaymentService builds"
           echo "✓ NotificationService builds"
+          echo "✓ RecommendationService builds"
+          echo "✓ AiService builds"
           echo "✓ EF Core migrations valid (Order/Payment)"
           echo "✓ Angular UI builds"
           echo "✓ Helm charts valid"

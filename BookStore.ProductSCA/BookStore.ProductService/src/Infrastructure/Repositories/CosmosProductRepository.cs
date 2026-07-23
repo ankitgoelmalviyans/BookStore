@@ -17,7 +17,9 @@ public class CosmosProductRepository : IProductRepository
 
     public async Task<IEnumerable<Product>> GetAllAsync()
     {
-        var query = _container.GetItemQueryIterator<Product>("SELECT * FROM c");
+        // NOT IS_DEFINED guards documents written before the soft-delete flag existed.
+        var query = _container.GetItemQueryIterator<Product>(
+            "SELECT * FROM c WHERE NOT IS_DEFINED(c.isDeleted) OR c.isDeleted = false");
         var results = new List<Product>();
 
         while (query.HasMoreResults)
@@ -37,7 +39,7 @@ public class CosmosProductRepository : IProductRepository
                 id.ToString(),
                 new PartitionKey(id.ToString()));
 
-            return response.Resource;
+            return response.Resource.IsDeleted ? null : response.Resource;
         }
         catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
@@ -81,22 +83,6 @@ public class CosmosProductRepository : IProductRepository
         catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
             throw new KeyNotFoundException($"Product {product.Id} not found.", ex);
-        }
-    }
-
-    public async Task<bool> DeleteAsync(Guid id)
-    {
-        try
-        {
-            await _container.DeleteItemAsync<Product>(
-                id.ToString(),
-                new PartitionKey(id.ToString()));
-
-            return true;
-        }
-        catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            return false;
         }
     }
 }

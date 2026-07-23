@@ -65,6 +65,8 @@ namespace BookStore.ProductService.Application.Services
                     EventId = eventId,
                     Id = product.Id,
                     Name = product.Name,
+                    Description = product.Description,
+                    Category = product.Category,
                     Price = product.Price
                 }
             };
@@ -78,14 +80,83 @@ namespace BookStore.ProductService.Application.Services
             return createdProduct;
         }
 
-        public async Task<Product?> UpdateAsync(Product product)
+        public async Task<Product?> UpdateAsync(Product product, string? correlationId = null, string? traceParent = null)
         {
-            return await _productRepository.UpdateAsync(product);
+            var topic = _configuration["AzureServiceBus:TopicName"] ?? "product-events";
+            var eventId = Guid.NewGuid();
+
+            // A single embedded-outbox slot holds at most one pending event per document (same
+            // constraint Create already has) — an Update immediately following an undrained Create
+            // outbox overwrites it. Acceptable at the default 10s drain interval; a multi-slot outbox
+            // would be the fix if this ever became a real race in practice.
+            product.Outbox = new OutboxMessage
+            {
+                EventId = eventId,
+                EventType = nameof(ProductUpdatedEvent),
+                Topic = topic,
+                Status = OutboxMessage.Pending,
+                CorrelationId = correlationId,
+                TraceParent = traceParent,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedPayload = new ProductUpdatedEvent
+                {
+                    EventId = eventId,
+                    Id = product.Id,
+                    Name = product.Name,
+                    Description = product.Description,
+                    Category = product.Category,
+                    Price = product.Price
+                }
+            };
+
+            var updatedProduct = await _productRepository.UpdateAsync(product);
+
+            _logger.LogInformation(
+                "Product updated with ID {ProductId}; outbox event {EventId} queued for topic '{Topic}'",
+                updatedProduct.Id, product.Outbox.EventId, topic);
+
+            return updatedProduct;
         }
 
-        public async Task<bool> DeleteAsync(Guid id)
+        public async Task<bool> DeleteAsync(Guid id, string? correlationId = null, string? traceParent = null)
         {
-            return await _productRepository.DeleteAsync(id);
+            var existing = await _productRepository.GetByIdAsync(id);
+            if (existing is null)
+            {
+                return false;
+            }
+
+            var topic = _configuration["AzureServiceBus:TopicName"] ?? "product-events";
+            var eventId = Guid.NewGuid();
+
+            // Soft delete: a hard Cosmos delete here would remove the document before the background
+            // publisher ever got to drain its ProductDeletedEvent, reintroducing the dual-write gap
+            // the outbox pattern exists to close. GetAllAsync/GetByIdAsync filter IsDeleted products
+            // out, so the API still behaves as if the product were gone.
+            existing.IsDeleted = true;
+            existing.Outbox = new OutboxMessage
+            {
+                EventId = eventId,
+                EventType = nameof(ProductDeletedEvent),
+                Topic = topic,
+                Status = OutboxMessage.Pending,
+                CorrelationId = correlationId,
+                TraceParent = traceParent,
+                CreatedAt = DateTime.UtcNow,
+                DeletedPayload = new ProductDeletedEvent
+                {
+                    EventId = eventId,
+                    Id = existing.Id
+                }
+            };
+
+            await _productRepository.UpdateAsync(existing);
+
+            _logger.LogInformation(
+                "Product soft-deleted with ID {ProductId}; outbox event {EventId} queued for topic '{Topic}'",
+                existing.Id, existing.Outbox.EventId, topic);
+
+            return true;
         }
     }
 }

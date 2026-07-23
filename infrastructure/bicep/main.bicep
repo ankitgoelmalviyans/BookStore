@@ -91,6 +91,14 @@ resource sbSubscription 'Microsoft.ServiceBus/namespaces/topics/subscriptions@20
   name: 'inventory-subscription'
 }
 
+// AiService's RAG ingestion: a sibling subscription on the same product-events topic, so every
+// product Created/Updated/Deleted also flows to AiService's embedding index independently of the
+// existing InventoryService consumer.
+resource aiProductSub 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
+  parent: topic
+  name: 'ai-product-subscription'
+}
+
 // ─── Phase 2 saga topology ────────────────────────────────────────────────────
 // order-events (published by OrderService) → InventoryService reserves, NotificationService notifies.
 resource orderEventsTopic 'Microsoft.ServiceBus/namespaces/topics@2022-10-01-preview' = {
@@ -110,6 +118,12 @@ resource notificationOrderSub 'Microsoft.ServiceBus/namespaces/topics/subscripti
 resource paymentOrderSub 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
   parent: orderEventsTopic
   name: 'payment-order-subscription'
+}
+// RecommendationService's classic-ML co-purchase counting: a sibling subscription on the same
+// order-events topic, reacting only to OrderCreated (see docs/ROADMAP.md).
+resource recommendationOrderSub 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
+  parent: orderEventsTopic
+  name: 'recommendation-order-subscription'
 }
 
 // inventory-events (published by InventoryService) → PaymentService charges, OrderService cancels on failure.
@@ -158,6 +172,11 @@ resource cosmos 'Microsoft.DocumentDB/databaseAccounts@2024-02-15-preview' = {
     consistencyPolicy: {
       defaultConsistencyLevel: 'Session'
     }
+    // Required account-level opt-in for vector search (BookEmbeddings container, below) — cheap,
+    // additive capability flag, same mechanism as EnableServerless/EnableCassandra elsewhere.
+    capabilities: [
+      { name: 'EnableNoSQLVectorSearch' }
+    ]
   }
 }
 
@@ -229,6 +248,70 @@ resource orderReservationsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDa
       partitionKey: {
         paths: ['/id']
         kind: 'Hash'
+      }
+    }
+  }
+}
+
+// RecommendationService's classic-ML co-purchase counts: one document per source product
+// (partitioned on /id like every other container here), listing its top co-purchased partners.
+resource productCoPurchaseContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-02-15-preview' = {
+  parent: cosmosDb
+  name: 'ProductCoPurchase'
+  properties: {
+    resource: {
+      id: 'ProductCoPurchase'
+      partitionKey: {
+        paths: ['/id']
+        kind: 'Hash'
+      }
+    }
+  }
+}
+
+// AiService's RAG vector index: one document per product, embedding + denormalised catalog fields.
+// Declared on a newer container API version than the rest of this file (2024-02-15-preview predates
+// reliable vectorEmbeddingPolicy/vectorIndexes support) — deliberately scoped to just this one new
+// container rather than retrofitting the shared Products/Inventory/etc. containers above, which stay
+// on their existing API version untouched. Dimensions (1536) must match whatever embedding model is
+// actually deployed (see BookStore.AiService's FakeEmbeddingClient.Dimensions / AzureOpenAI:
+// EmbeddingDeployment config) — bump both together if the model ever changes.
+resource bookEmbeddingsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-08-15' = {
+  parent: cosmosDb
+  name: 'BookEmbeddings'
+  properties: {
+    resource: {
+      id: 'BookEmbeddings'
+      partitionKey: {
+        paths: ['/id']
+        kind: 'Hash'
+      }
+      vectorEmbeddingPolicy: {
+        vectorEmbeddings: [
+          {
+            path: '/embedding'
+            dataType: 'float32'
+            dimensions: 1536
+            distanceFunction: 'cosine'
+          }
+        ]
+      }
+      indexingPolicy: {
+        indexingMode: 'consistent'
+        automatic: true
+        includedPaths: [
+          { path: '/*' }
+        ]
+        excludedPaths: [
+          { path: '/embedding/*' }
+          { path: '/"_etag"/?' }
+        ]
+        vectorIndexes: [
+          {
+            path: '/embedding'
+            type: 'quantizedFlat'
+          }
+        ]
       }
     }
   }
