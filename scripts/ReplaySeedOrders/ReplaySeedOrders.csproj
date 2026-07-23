@@ -9,7 +9,15 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
-    <PackageReference Include="Azure.Messaging.ServiceBus" Version="7.19.0" />
+    <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.48.1" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Reused so this tool writes the exact same OrderBasket shape (JSON property names/casing)
+         RecommendationService itself writes — no risk of a hand-rolled duplicate type drifting out
+         of sync with the real entity. -->
+    <ProjectReference Include="../../BookStore.AiSCA/BookStore.RecommendationService/src/Core/Core.csproj" />
   </ItemGroup>
 
 </Project>

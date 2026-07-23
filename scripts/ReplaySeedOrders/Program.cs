@@ -1,30 +1,36 @@
-using System.Text;
-using System.Text.Json;
-using Azure.Messaging.ServiceBus;
+using BookStore.RecommendationService.Core.Entities;
+using Microsoft.Azure.Cosmos;
 using Microsoft.Data.SqlClient;
 
-// One-off backfill tool: replays OrderService's 75 seeded demo orders (CustomerId = "seed-customer")
-// onto the order-events Service Bus topic with fresh EventIds, so RecommendationService's new
-// basket-capture code path (added alongside the trained co-purchase model) has training data to work
-// with. Not part of the deployed service — run manually, once, by a human with the connection strings
-// below.
+// One-off backfill tool: seeds RecommendationService's OrderBaskets Cosmos container directly from
+// OrderService's 75 seeded demo orders (CustomerId = "seed-customer"), so CoPurchaseModelTrainer has
+// training data to work with. Not part of the deployed service — run manually, once, by a human with
+// the connection strings below.
 //
 // Usage:
-//   ORDER_SQL_CONNECTION=... SERVICE_BUS_CONNECTION=... dotnet run
+//   ORDER_SQL_CONNECTION=... COSMOS_ENDPOINT=... COSMOS_KEY=... dotnet run
 //
-// Deliberately does NOT touch the ProductCoPurchase Cosmos container: that aggregate is keyed by
-// ProductId only and can't be attributed back to which customer/order contributed which count, so
-// deleting/resetting it here could silently wipe legitimate counts contributed by real (non-seed)
-// customers if a demo-catalog product id ever overlaps with one they've actually ordered. The
-// tradeoff is a bounded, non-destructive one: if these seed orders' original OrderOutbox rows already
-// drained once before (see the pending-row guard below) or drain again independently later, the raw
-// fallback-tier counts for these 15 products could be off by a small, self-contained amount — never a
-// loss of someone else's data.
+// Deliberately writes ONLY to OrderBaskets, and deliberately does NOT go through order-events/
+// RecordOrderAsync at all (no Service Bus involved). Replaying these orders as OrderCreatedEvent
+// messages was the original design, but that inevitably re-triggers RecordOrderAsync's raw
+// pairwise-count increments too — and there's no reliable way to tell from OrderOutbox alone whether
+// the ORIGINAL event for a given order already drained and was counted once before (Status could be
+// Published already, well before this script ever runs, with no trace left to detect). A fresh
+// EventId bypasses Inbox dedup by design, so replaying would then double-count the raw fallback tier
+// for these products. Writing the basket directly sidesteps that risk structurally: this path never
+// invokes the counting logic at all, so there is nothing to double-count.
+//
+// Also deliberately does NOT touch the ProductCoPurchase Cosmos container for the same reason as
+// before: that aggregate is keyed by ProductId only and can't be attributed back to which
+// customer/order contributed which count, so resetting it here could silently wipe legitimate counts
+// contributed by real (non-seed) customers.
 
 var orderSqlConnection = RequireEnv("ORDER_SQL_CONNECTION");
-var serviceBusConnection = RequireEnv("SERVICE_BUS_CONNECTION");
+var cosmosEndpoint = RequireEnv("COSMOS_ENDPOINT");
+var cosmosKey = RequireEnv("COSMOS_KEY");
 
-const string OrderTopic = "order-events";
+const string CosmosDatabaseName = "BookStoreDB";
+const string OrderBasketContainerName = "OrderBaskets";
 const string SeedCustomerId = "seed-customer";
 
 Console.WriteLine("Querying OrderService SQL for seed orders...");
@@ -32,36 +38,18 @@ var orders = await LoadSeedOrdersAsync(orderSqlConnection);
 
 if (orders.Count == 0)
 {
-    Console.WriteLine("No orders found for CustomerId = 'seed-customer' — nothing to replay.");
+    Console.WriteLine("No orders found for CustomerId = 'seed-customer' — nothing to backfill.");
     return;
 }
 
 var distinctProductIds = orders.SelectMany(o => o.Items.Select(i => i.ProductId)).Distinct().ToList();
 Console.WriteLine($"Found {orders.Count} seed orders covering {distinctProductIds.Count} distinct products.");
-
-Console.WriteLine("Checking OrderOutbox for pending rows that would double-process these same orders...");
-var seedOrderIds = orders.Select(o => o.OrderId).ToHashSet();
-var conflictingOrderIds = await FindPendingOutboxConflictsAsync(orderSqlConnection, seedOrderIds);
-if (conflictingOrderIds.Count > 0)
-{
-    Console.Error.WriteLine();
-    Console.Error.WriteLine(
-        $"ABORTING: {conflictingOrderIds.Count} of these seed orders still have a Pending " +
-        "OrderCreatedEvent row in OrderOutbox. If OutboxPublisherService drains those independently " +
-        "(now or later), the same order would be processed twice — once via this replay's fresh " +
-        "EventId, once via the original — double-counting the raw fallback tier. Let those rows drain " +
-        "naturally first (or mark/handle them deliberately), then re-run this tool.");
-    Environment.Exit(1);
-    return;
-}
-Console.WriteLine("No conflicting pending rows found.");
-
 Console.WriteLine();
-Console.WriteLine($"This will publish {orders.Count} fresh OrderCreatedEvent messages to '{OrderTopic}'.");
+Console.WriteLine($"This will upsert {orders.Count} OrderBasket documents directly into Cosmos ('{OrderBasketContainerName}').");
 Console.Write("Press Enter to continue, or Ctrl+C to abort... ");
 Console.ReadLine();
 
-await PublishOrderEventsAsync(serviceBusConnection, orders);
+await BackfillOrderBasketsAsync(cosmosEndpoint, cosmosKey, orders);
 
 Console.WriteLine("Done. Verify the OrderBaskets Cosmos container now has ~" + orders.Count + " new docs.");
 
@@ -115,71 +103,35 @@ static async Task<List<SeedOrder>> LoadSeedOrdersAsync(string connectionString)
     return ordersById.Values.ToList();
 }
 
-static async Task<HashSet<Guid>> FindPendingOutboxConflictsAsync(string connectionString, HashSet<Guid> seedOrderIds)
+static async Task BackfillOrderBasketsAsync(string cosmosEndpoint, string cosmosKey, List<SeedOrder> orders)
 {
-    // OutboxMessage has no OrderId column (see BookStore.OrderService.Core.Entities.OutboxMessage) —
-    // OrderId only exists inside the serialized Payload JSON, so pending rows must be pulled and
-    // parsed rather than filtered in SQL.
-    const string sql = "SELECT Payload FROM OrderOutbox WHERE EventType = 'OrderCreatedEvent' AND Status = 'Pending';";
+    Console.WriteLine($"Upserting {orders.Count} OrderBasket documents...");
 
-    await using var connection = new SqlConnection(connectionString);
-    await connection.OpenAsync();
-    await using var command = new SqlCommand(sql, connection);
+    using var cosmosClient = new CosmosClient(cosmosEndpoint, cosmosKey);
+    var container = cosmosClient.GetDatabase(CosmosDatabaseName).GetContainer(OrderBasketContainerName);
 
-    var conflicts = new HashSet<Guid>();
-    await using var reader = await command.ExecuteReaderAsync();
-    while (await reader.ReadAsync())
-    {
-        var payload = reader.GetString(0);
-        using var doc = JsonDocument.Parse(payload);
-        if (doc.RootElement.TryGetProperty("OrderId", out var orderIdProp) &&
-            orderIdProp.TryGetGuid(out var orderId) &&
-            seedOrderIds.Contains(orderId))
-        {
-            conflicts.Add(orderId);
-        }
-    }
-
-    return conflicts;
-}
-
-static async Task PublishOrderEventsAsync(string serviceBusConnection, List<SeedOrder> orders)
-{
-    Console.WriteLine($"Publishing {orders.Count} OrderCreatedEvent messages to '{OrderTopic}'...");
-
-    var client = new ServiceBusClient(serviceBusConnection);
-    var sender = client.CreateSender(OrderTopic);
-
-    var sent = 0;
+    var written = 0;
     foreach (var order in orders)
     {
-        var payload = new
+        // Same shape/derivation RecommendationService.RecordOrderAsync itself writes — distinct
+        // product ids from the order's items, id = OrderId.ToString().
+        var basket = new OrderBasket
         {
-            EventId = Guid.NewGuid(), // fresh, so Inbox dedup never skips this replay
+            Id = order.OrderId.ToString(),
             OrderId = order.OrderId,
-            CustomerId = order.CustomerId,
-            Total = order.Total,
-            Items = order.Items.Select(i => new { i.ProductId, i.Quantity, i.UnitPrice }).ToList()
+            ProductIds = order.Items.Select(i => i.ProductId).Distinct().ToList(),
+            RecordedAtUtc = DateTime.UtcNow
         };
 
-        var body = JsonSerializer.SerializeToUtf8Bytes(payload);
-        var message = new ServiceBusMessage(body)
+        await container.UpsertItemAsync(basket, new PartitionKey(basket.Id));
+        written++;
+        if (written % 10 == 0)
         {
-            ContentType = "application/json"
-        };
-        message.ApplicationProperties["EventType"] = "OrderCreatedEvent";
-
-        await sender.SendMessageAsync(message);
-        sent++;
-        if (sent % 10 == 0)
-        {
-            Console.WriteLine($"  ...{sent}/{orders.Count} sent");
+            Console.WriteLine($"  ...{written}/{orders.Count} written");
         }
     }
 
-    await sender.DisposeAsync();
-    await client.DisposeAsync();
-    Console.WriteLine($"Published {sent} messages.");
+    Console.WriteLine($"Wrote {written} baskets.");
 }
 
 record SeedOrder(Guid OrderId, string CustomerId, decimal Total, List<SeedOrderItem> Items);
