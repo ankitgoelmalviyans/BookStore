@@ -1,11 +1,13 @@
 #!/bin/bash
-# Step 3 of the Help Assistant setup — indexes docs/help/*.md (already synced to blob by
-# sync-help-docs.yml) into Azure AI Search: chunks each doc, embeds the chunks via the Foundry
-# account's embedding deployment, and writes vectors + text into a searchable index.
+# Indexes docs/help/*.md (already synced to blob by sync-help-docs.yml) into Azure AI Search:
+# chunks each doc, embeds the chunks via the Foundry account's embedding deployment, and writes
+# vectors + text into a searchable index.
 #
 # This talks to Azure AI Search's *data-plane* REST API (indexes/indexers/skillsets/datasources) —
-# those are not ARM resources, so this can't be a Bicep file; it's the standard way this pipeline
-# is automated (idempotent PUTs, safe to re-run any time the docs or skillset config change).
+# those are not ARM resources, so this can't be a Bicep file. Runs the same way locally or as the
+# "Index Help Docs into AI Search" job in infra-help-assistant.yml — that job just calls this
+# script; it's the single source of truth either way. Idempotent PUTs, safe to re-run any time the
+# docs or skillset config change.
 #
 # Usage: ./infra/setup-ai-search-pipeline.sh <resource-group> [search-service-name] [storage-account-name] [foundry-account-name] [embedding-deployment-name]
 set -euo pipefail
@@ -142,4 +144,7 @@ curl -sf "${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}/status?api-version=${API_V
 echo ""
 echo "Done. Re-run this script any time docs/help/*.md changes and you want to force a re-index:"
 echo "  curl -X POST \"${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}/run?api-version=${API_VERSION}\" -H \"api-key: \$SEARCH_ADMIN_KEY\""
-echo "Next: run ./infra/setup-foundry-agent.sh $RESOURCE_GROUP to create the agent wired to index '${INDEX_NAME}'."
+echo "Next: create the agent yourself in the Foundry portal (Agents panel), attaching this index"
+echo "('${INDEX_NAME}' in search service '${SEARCH_SERVICE}') as its Knowledge source. Then run"
+echo "infra/create-help-assistant-service-principal.sh once, and publish the agent (pipeline job"
+echo "'Publish Foundry Agent Application', or ./infra/deploy-foundry-agent-publish.sh)."

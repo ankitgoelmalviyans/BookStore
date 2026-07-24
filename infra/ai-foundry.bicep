@@ -57,13 +57,14 @@ resource aiSearch 'Microsoft.Search/searchServices@2023-11-01' = {
 // Azure AI Foundry account + project
 //
 // This is base infra only — it does NOT create the agent itself (instructions/model/tools are a
-// control-plane, Entra-ID-only operation against the project's data-plane endpoint, not an ARM
-// resource) and does NOT publish it. After this deploys:
-//   1. Run infra/setup-ai-search-pipeline.sh   — indexes docs/help/*.md into aiSearch
-//   2. Run infra/setup-foundry-agent.sh        — creates the agent, wired to that index
-//   3. Deploy infra/foundry-agent-publish.bicep — publishes it as an Agent Application + grants
+// control-plane, Entra-ID-only operation with no ARM resource of its own) and does NOT publish
+// it. After this deploys (see infra-help-assistant.yml / README.md's Help Assistant section):
+//   1. infra/setup-ai-search-pipeline.sh indexes docs/help/*.md into aiSearch (pipeline job)
+//   2. Create the agent BY HAND in the Foundry portal (Agents panel), wired to that index
+//   3. infra/create-help-assistant-service-principal.sh (manual — Graph/directory op, not ARM)
+//   4. Deploy infra/foundry-agent-publish.bicep — publishes it as an Agent Application + grants
 //                                                  the HelpAssistantService app registration
-//                                                  RBAC to invoke it
+//                                                  RBAC to invoke it (pipeline job)
 // See README.md's Help Assistant section for the full sequence.
 // ============================================================
 resource foundryAccount 'Microsoft.CognitiveServices/accounts@2025-06-01' = {

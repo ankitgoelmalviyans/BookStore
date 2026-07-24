@@ -1,8 +1,12 @@
 #!/bin/bash
-# Step 1 of the Help Assistant setup — provisions the base infra: blob storage, AI Search, and the
-# Foundry account/project/chat-model-deployment. Does NOT create or publish the agent itself; run
-# infra/setup-ai-search-pipeline.sh and infra/setup-foundry-agent.sh next. See README.md's Help
-# Assistant section for the full sequence.
+# Provisions the Help Assistant's base infra: blob storage, AI Search, and the Foundry
+# account/project/model deployments. Does NOT create or publish the agent itself — the agent is
+# created by hand in the Foundry portal (Agents panel), then published via
+# infra/deploy-foundry-agent-publish.sh. See README.md's Help Assistant section for the full
+# sequence.
+#
+# Runs the same way locally or as the "Deploy Base Infra" job in infra-help-assistant.yml — that
+# job just calls this script; it's the single source of truth either way.
 #
 # Usage: ./infra/deploy-ai-foundry.sh <resource-group> <location>
 set -euo pipefail
@@ -32,4 +36,6 @@ echo "Next steps:"
 echo "  1. Add the storageAccountName output above to GitHub secrets as HELP_DOCS_STORAGE_ACCOUNT"
 echo "  2. Push docs/help/*.md to main so sync-help-docs.yml uploads them to blob"
 echo "  3. Run ./infra/setup-ai-search-pipeline.sh $RESOURCE_GROUP to index them into AI Search"
-echo "  4. Run ./infra/setup-foundry-agent.sh $RESOURCE_GROUP to create the agent"
+echo "  4. Create the agent yourself in the Foundry portal, attaching that index as its Knowledge source"
+echo "  5. Run ./infra/create-help-assistant-service-principal.sh once, then publish the agent"
+echo "     (./infra/deploy-foundry-agent-publish.sh, or the pipeline job)"

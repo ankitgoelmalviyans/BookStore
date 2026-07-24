@@ -1,0 +1,168 @@
+name: Infrastructure — Help Assistant (Foundry)
+
+# Deliberately separate from infra-bicep.yml/main.bicep — isolated infra for the Help Assistant
+# feature, its own Foundry project, nothing shared with the existing Ask-AI book-search feature.
+#
+# Three jobs:
+#   1. deploy-base-infra    — storage, AI Search, Foundry account/project/model deployments.
+#                              Idempotent; safe to re-run any time.
+#   2. setup-search-pipeline — indexes docs/help/*.md into AI Search. Runs after every base-infra
+#                              deploy, including whenever docs/help/** changes, so content stays
+#                              in sync automatically.
+#   3. publish-agent        — publishes an agent YOU created by hand in the Foundry portal (Agents
+#                              panel) as a stable Agent Application. Only runs when triggered
+#                              manually with agentName supplied — creating the agent itself is a
+#                              one-off content/design decision, not something this pipeline does
+#                              for you. See infra/create-help-assistant-service-principal.sh for
+#                              the (separately manual, for security reasons) identity step this
+#                              job depends on.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/ai-foundry.bicep'
+      - 'infra/setup-ai-search-pipeline.sh'
+      - 'docs/help/**'
+  workflow_dispatch:
+    inputs:
+      agentName:
+        description: 'Agent name, exactly as created in the Foundry portal — leave blank to only run base-infra + search-pipeline'
+        required: false
+        default: ''
+      agentVersion:
+        description: 'Agent version to publish'
+        required: false
+        default: '1'
+      applicationName:
+        description: 'Name for the published Agent Application resource'
+        required: false
+        default: 'bookstore-help-assistant-app'
+      servicePrincipalObjectId:
+        description: 'HelpAssistantService app registration object ID (from create-help-assistant-service-principal.sh)'
+        required: false
+        default: ''
+      foundryUserRoleId:
+        description: '"Foundry User" role definition GUID (az role definition list --name "Foundry User" --query "[].name" -o tsv)'
+        required: false
+        default: ''
+
+env:
+  RESOURCE_GROUP: BookStoreRG_GA
+  LOCATION: centralindia
+
+jobs:
+  # ─────────────────────────────────────────
+  # JOB 1 — Storage + AI Search + Foundry account/project/model deployments
+  # ─────────────────────────────────────────
+  deploy-base-infra:
+    name: Deploy Base Infra
+    runs-on: ubuntu-latest
+
+    outputs:
+      storageAccountName: ${{ steps.outputs.outputs.storageAccountName }}
+      foundryAccountName: ${{ steps.outputs.outputs.foundryAccountName }}
+      foundryProjectName: ${{ steps.outputs.outputs.foundryProjectName }}
+      aiSearchName: ${{ steps.outputs.outputs.aiSearchName }}
+      embeddingModelDeploymentName: ${{ steps.outputs.outputs.embeddingModelDeploymentName }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy base infra
+        run: ./infra/deploy-ai-foundry.sh "${{ env.RESOURCE_GROUP }}" "${{ env.LOCATION }}"
+
+      - name: Capture outputs
+        id: outputs
+        run: |
+          OUTPUT=$(az deployment group show \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name help-assistant-base-infra \
+            --query properties.outputs \
+            --output json)
+
+          echo "storageAccountName=$(echo $OUTPUT | jq -r .storageAccountName.value)" >> $GITHUB_OUTPUT
+          echo "foundryAccountName=$(echo $OUTPUT | jq -r .foundryAccountName.value)" >> $GITHUB_OUTPUT
+          echo "foundryProjectName=$(echo $OUTPUT | jq -r .foundryProjectName.value)" >> $GITHUB_OUTPUT
+          echo "aiSearchName=$(echo $OUTPUT | jq -r .aiSearchName.value)" >> $GITHUB_OUTPUT
+          echo "embeddingModelDeploymentName=$(echo $OUTPUT | jq -r .embeddingModelDeploymentName.value)" >> $GITHUB_OUTPUT
+
+      - name: Print summary
+        run: |
+          echo "=========================================="
+          echo "Base infra deployed"
+          echo "=========================================="
+          echo "ACTION REQUIRED (one-time): add to GitHub secrets:"
+          echo "  HELP_DOCS_STORAGE_ACCOUNT = ${{ steps.outputs.outputs.storageAccountName }}"
+
+  # ─────────────────────────────────────────
+  # JOB 2 — Index docs/help/*.md into AI Search
+  # ─────────────────────────────────────────
+  setup-search-pipeline:
+    name: Index Help Docs into AI Search
+    needs: deploy-base-infra
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Index help docs
+        run: |
+          ./infra/setup-ai-search-pipeline.sh \
+            "${{ env.RESOURCE_GROUP }}" \
+            "${{ needs.deploy-base-infra.outputs.aiSearchName }}" \
+            "${{ needs.deploy-base-infra.outputs.storageAccountName }}" \
+            "${{ needs.deploy-base-infra.outputs.foundryAccountName }}" \
+            "${{ needs.deploy-base-infra.outputs.embeddingModelDeploymentName }}"
+
+  # ─────────────────────────────────────────
+  # JOB 3 — Publish an agent you created by hand in the Foundry portal
+  # ─────────────────────────────────────────
+  publish-agent:
+    name: Publish Foundry Agent Application
+    needs: deploy-base-infra
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.agentName != '' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Publish agent
+        run: |
+          ./infra/deploy-foundry-agent-publish.sh \
+            "${{ env.RESOURCE_GROUP }}" \
+            "${{ needs.deploy-base-infra.outputs.foundryAccountName }}" \
+            "${{ needs.deploy-base-infra.outputs.foundryProjectName }}" \
+            "${{ github.event.inputs.servicePrincipalObjectId }}" \
+            "${{ github.event.inputs.foundryUserRoleId }}" \
+            "${{ github.event.inputs.agentName }}" \
+            "${{ github.event.inputs.agentVersion }}" \
+            "${{ github.event.inputs.applicationName }}"
+
+      - name: Print summary
+        run: |
+          echo "=========================================="
+          echo "ACTION REQUIRED: add to GitHub secrets (consumed by cd-costopt.yml):"
+          echo "  FOUNDRY_ACCOUNT_NAME     = ${{ needs.deploy-base-infra.outputs.foundryAccountName }}"
+          echo "  FOUNDRY_PROJECT_NAME     = ${{ needs.deploy-base-infra.outputs.foundryProjectName }}"
+          echo "  FOUNDRY_APPLICATION_NAME = ${{ github.event.inputs.applicationName }}"
+          echo "  (plus HELP_ASSISTANT_TENANT_ID/CLIENT_ID/CLIENT_SECRET from"
+          echo "  create-help-assistant-service-principal.sh, and HELP_ASSISTANT_API_URL for cd-ui.yml)"

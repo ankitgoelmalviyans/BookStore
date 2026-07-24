@@ -1,10 +1,15 @@
-// Publishes an already-created Foundry agent (created by infra/setup-foundry-agent.sh — agent
-// creation is a control-plane, Entra-ID-only data-plane API call, not an ARM resource) as a
-// stable, RBAC-governed Agent Application, and grants BookStore.HelpAssistantService's app
-// registration the role it needs to invoke it.
+// Publishes an already-created Foundry agent as a stable, RBAC-governed Agent Application, and
+// grants BookStore.HelpAssistantService's app registration the role it needs to invoke it.
 //
-// Run this AFTER infra/setup-foundry-agent.sh has created the agent — `agentName`/`agentVersion`
-// below must reference an agent that already exists in the project, or this deployment fails.
+// The agent itself is created BY HAND in the Foundry portal (Agents panel) — instructions/model/
+// knowledge-source configuration is a control-plane, Entra-ID-only operation with no ARM resource
+// of its own, and it's a one-off content/design decision, not something worth scripting. Attach
+// the 'bookstore-help-index' AI Search index (created by the search-pipeline job /
+// setup-ai-search-pipeline.sh) as its Knowledge source there.
+//
+// Run this AFTER that agent exists — `agentName`/`agentVersion` below must exactly match it, or
+// this deployment fails. See infra/create-help-assistant-service-principal.sh for
+// `servicePrincipalObjectId`.
 //
 // Agent Applications do not support API-key auth — Entra ID/RBAC only. See
 // https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/agent-applications
@@ -15,10 +20,10 @@ param foundryAccountName string
 @description('Name of the Foundry project created by infra/ai-foundry.bicep (output: foundryProjectName)')
 param foundryProjectName string
 
-@description('Name of the underlying agent, as created by infra/setup-foundry-agent.sh')
+@description('Name of the agent, exactly as created in the Foundry portal (Agents panel)')
 param agentName string = 'BookStore-Help-Assistant'
 
-@description('Version of the agent to deploy (increments each time setup-foundry-agent.sh updates instructions/tools)')
+@description('Version of the agent to deploy (increments each time you update its instructions/tools in the Foundry portal)')
 param agentVersion string = '1'
 
 @description('Name for the published Agent Application resource')
@@ -27,7 +32,7 @@ param applicationName string = 'bookstore-help-assistant-app'
 @description('Name for the application deployment (routing target)')
 param deploymentName string = 'production'
 
-@description('Object (principal) ID of the HelpAssistantService app registration — the identity that will invoke this agent. Create it first: az ad sp create-for-rbac (see infra/setup-foundry-agent.sh header comment)')
+@description('Object (principal) ID of the HelpAssistantService app registration — the identity that will invoke this agent. Create it first with infra/create-help-assistant-service-principal.sh')
 param servicePrincipalObjectId string
 
 @description('''

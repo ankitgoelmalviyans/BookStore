@@ -498,9 +498,9 @@ jobs:
           # Isolated from aiservice above — its own Foundry project, own Entra ID app registration,
           # own K8s secret. No SQL dependency, deploys unconditionally, anonymous endpoint (no
           # Jwt:Key). Unset Foundry__* just means the pod runs with its built-in fake agent client
-          # until the one-time setup (infra/setup-foundry-agent.sh +
-          # infra/deploy-foundry-agent-publish.sh) has been run — same posture as AzureOpenAI__Key
-          # above.
+          # until the one-time setup (see infra-help-assistant.yml / README.md's Help Assistant
+          # section — create-help-assistant-service-principal.sh + a portal-created agent +
+          # deploy-foundry-agent-publish.sh) has been run — same posture as AzureOpenAI__Key above.
           kubectl create secret generic helpassistantservice-secrets \
             --from-literal=AllowedOrigins__0="${{ secrets.ALLOWED_ORIGINS }}" \
             --from-literal=Foundry__TenantId="${{ secrets.HELP_ASSISTANT_TENANT_ID }}" \
@@ -880,8 +880,8 @@ jobs:
           echo "HelpAssistant: https://${{ env.INGRESS_HOST }}/help-assistant"
           if [ -z "${{ secrets.HELP_ASSISTANT_CLIENT_SECRET }}" ]; then
             echo "              (HELP_ASSISTANT_CLIENT_SECRET unset — HelpAssistantService is"
-            echo "              running its built-in fake agent client, not real Foundry. Run"
-            echo "              infra/setup-foundry-agent.sh + deploy-foundry-agent-publish.sh.)"
+            echo "              running its built-in fake agent client, not real Foundry. See"
+            echo "              README.md's Help Assistant section for the one-time setup.)"
           fi
           # Derived from actual Helm release state, not just whether this run's secret was set —
           # a release deployed in an earlier run stays reported as deployed even if the secret
