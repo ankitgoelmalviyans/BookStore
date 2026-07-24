@@ -113,6 +113,13 @@ resource chatModelDeployment 'Microsoft.CognitiveServices/accounts/deployments@2
 
 // Used by the AI Search skillset (infra/setup-ai-search-pipeline.sh) to embed docs/help/*.md at
 // index time — a separate deployment from chatModelDeployment since it's a different model kind.
+//
+// Explicitly depends on chatModelDeployment (via dependsOn, not just declaration order — Bicep
+// doesn't infer an ordering dependency between two sibling resources that don't reference each
+// other) because ARM deploys independent children of the same parent in parallel by default, and
+// Microsoft.CognitiveServices/accounts only allows one write at a time on the parent account —
+// concurrent deployment creation fails with "another operation is being performed on the parent
+// resource" (RequestConflict/409) without this.
 resource embeddingModelDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
   parent: foundryAccount
   name: embeddingModelName
@@ -127,6 +134,9 @@ resource embeddingModelDeployment 'Microsoft.CognitiveServices/accounts/deployme
       version: embeddingModelVersion
     }
   }
+  dependsOn: [
+    chatModelDeployment
+  ]
 }
 
 // ============================================================

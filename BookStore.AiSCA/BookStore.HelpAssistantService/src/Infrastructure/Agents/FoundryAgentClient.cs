@@ -59,8 +59,11 @@ public class FoundryAgentClient : IHelpAssistantAgentClient
 
         if (!response.IsSuccessStatusCode)
         {
-            var body = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError("Foundry agent call failed with {StatusCode}: {Body}", response.StatusCode, body);
+            // Deliberately not logging the response body — this is an anonymous, public-facing
+            // endpoint, and the body can echo back prompt content or provider diagnostics that
+            // shouldn't land in shared logs. Status code + CorrelationId (already in every log
+            // line via CorrelationIdMiddleware's LogContext scope) is enough to triage from here.
+            _logger.LogError("Foundry agent call failed with {StatusCode}", response.StatusCode);
             throw new InvalidOperationException($"Foundry agent request failed with status {(int)response.StatusCode}.");
         }
 

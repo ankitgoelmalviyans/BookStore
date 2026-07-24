@@ -1,5 +1,7 @@
+using System.Threading.RateLimiting;
 using BookStore.HelpAssistantService.API.Middleware;
 using BookStore.HelpAssistantService.Extensions;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.OpenApi.Models;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -63,6 +65,30 @@ builder.Services.AddCors(options =>
     });
 });
 
+// Anonymous endpoint proxying to a paid Foundry model — HelpAssistantChatService already caps
+// conversation size, but without a rate limit a client could still replay max-size requests
+// indefinitely. Partitioned by client IP; behind the AKS ingress that's the nginx controller's
+// forwarded address (X-Forwarded-For), falling back to the connection's remote address for
+// direct/local calls. This isn't spoof-proof against a determined attacker forging XFF, but it's
+// a reasonable coarse abuse guard for a single-ingress deployment, not a security boundary.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("help-assistant", context =>
+    {
+        var partitionKey = context.Request.Headers["X-Forwarded-For"].FirstOrDefault()?.Split(',')[0].Trim()
+            ?? context.Connection.RemoteIpAddress?.ToString()
+            ?? "unknown";
+
+        return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        });
+    });
+});
+
 builder.Services.AddOpenTelemetry()
     .WithTracing(tracing =>
     {
@@ -99,9 +125,10 @@ builder.Services.AddOpenTelemetry()
 
 var app = builder.Build();
 
-// Canonical middleware pipeline order, same as every other service in this platform:
+// Canonical middleware pipeline order, same as every other service in this platform, plus
+// RateLimiter (this service's addition — see the anonymous-endpoint comment above):
 //   1. CorrelationId  2. RequestLogging (DurationMs)  3. Exception (ProblemDetails)  4. Swagger/UI
-//   5. CORS  6. Controllers  7. HealthChecks
+//   5. CORS  6. RateLimiter  7. Controllers  8. HealthChecks
 // No Authentication/Authorization stage — every endpoint on this service is intentionally
 // anonymous (public help widget); see HelpAssistantController's doc comment.
 app.UseMiddleware<CorrelationIdMiddleware>();
@@ -112,6 +139,7 @@ app.UseSwagger();
 app.UseSwaggerUI();
 
 app.UseCors("AllowFrontend");
+app.UseRateLimiter();
 
 app.MapControllers();
 app.MapHealthChecks("/health");

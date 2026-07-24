@@ -51,6 +51,11 @@ env:
   RESOURCE_GROUP: BookStoreRG_GA
   LOCATION: centralindia
 
+# Read-only: these jobs deploy to Azure (via AZURE_CREDENTIALS), they never need to write back to
+# GitHub.
+permissions:
+  contents: read
+
 jobs:
   # ─────────────────────────────────────────
   # JOB 1 — Storage + AI Search + Foundry account/project/model deployments
@@ -145,24 +150,36 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      # Inputs are user-supplied at dispatch time — GitHub expands ${{ }} as raw text before the
+      # shell parses the script, so splicing them directly into `run:` would let a crafted input
+      # (backticks, $(...)) execute arbitrary code in a job holding AZURE_CREDENTIALS. Routing
+      # through env: and referencing as $VAR avoids that; the shell treats them as inert data.
       - name: Publish agent
+        env:
+          AGENT_NAME: ${{ github.event.inputs.agentName }}
+          AGENT_VERSION: ${{ github.event.inputs.agentVersion }}
+          APPLICATION_NAME: ${{ github.event.inputs.applicationName }}
+          SP_OBJECT_ID: ${{ github.event.inputs.servicePrincipalObjectId }}
+          FOUNDRY_USER_ROLE_ID: ${{ github.event.inputs.foundryUserRoleId }}
         run: |
           ./infra/deploy-foundry-agent-publish.sh \
             "${{ env.RESOURCE_GROUP }}" \
             "${{ needs.deploy-base-infra.outputs.foundryAccountName }}" \
             "${{ needs.deploy-base-infra.outputs.foundryProjectName }}" \
-            "${{ github.event.inputs.servicePrincipalObjectId }}" \
-            "${{ github.event.inputs.foundryUserRoleId }}" \
-            "${{ github.event.inputs.agentName }}" \
-            "${{ github.event.inputs.agentVersion }}" \
-            "${{ github.event.inputs.applicationName }}"
+            "$SP_OBJECT_ID" \
+            "$FOUNDRY_USER_ROLE_ID" \
+            "$AGENT_NAME" \
+            "$AGENT_VERSION" \
+            "$APPLICATION_NAME"
 
       - name: Print summary
+        env:
+          APPLICATION_NAME: ${{ github.event.inputs.applicationName }}
         run: |
           echo "=========================================="
           echo "ACTION REQUIRED: add to GitHub secrets (consumed by cd-costopt.yml):"
           echo "  FOUNDRY_ACCOUNT_NAME     = ${{ needs.deploy-base-infra.outputs.foundryAccountName }}"
           echo "  FOUNDRY_PROJECT_NAME     = ${{ needs.deploy-base-infra.outputs.foundryProjectName }}"
-          echo "  FOUNDRY_APPLICATION_NAME = ${{ github.event.inputs.applicationName }}"
+          echo "  FOUNDRY_APPLICATION_NAME = $APPLICATION_NAME"
           echo "  (plus HELP_ASSISTANT_TENANT_ID/CLIENT_ID/CLIENT_SECRET from"
           echo "  create-help-assistant-service-principal.sh, and HELP_ASSISTANT_API_URL for cd-ui.yml)"

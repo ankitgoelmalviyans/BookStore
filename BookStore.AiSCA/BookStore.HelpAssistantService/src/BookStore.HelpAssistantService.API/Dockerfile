@@ -14,6 +14,7 @@ RUN dotnet publish "BookStore.HelpAssistantService.API.csproj" -c Release -o /ap
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app
 COPY --from=build /app/publish .
+USER app
 
 EXPOSE 80
 ENTRYPOINT ["dotnet", "BookStore.HelpAssistantService.API.dll"]
