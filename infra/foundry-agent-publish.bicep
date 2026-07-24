@@ -70,9 +70,14 @@ resource agentApplication 'Microsoft.CognitiveServices/accounts/projects/applica
         agentName: agentName
       }
     ]
-    authorizationPolicy: {
-      type: 'Default'
-    }
+    // Deliberately omitted: a live deployment against 2026-05-15-preview rejected
+    // authorizationPolicy: { type: 'Default' } with "Missing discriminator property
+    // [AuthorizationScheme] in request body" — the static docs for this exact pinned version still
+    // show `type` as the discriminator, contradicting what the service actually asked for, so
+    // rather than guess at the right property name for an unstable preview schema,
+    // authorizationPolicy is left out entirely. Per Microsoft's own how-to guide: "By default
+    // authorizationPolicy is set to Default (Azure RBAC)" when omitted — which is exactly the
+    // behavior we want anyway.
   }
 }
 
