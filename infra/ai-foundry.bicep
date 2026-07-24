@@ -4,9 +4,16 @@ param location string = resourceGroup().location
 @description('Environment prefix')
 param environmentPrefix string = 'bookstore'
 
+// GlobalStandard gpt-5-mini is NOT available in centralindia (or most regions) — per
+// https://learn.microsoft.com/en-us/azure/foundry-classic/agents/concepts/model-region-support
+// it's only offered in australiaeast, eastus, eastus2, japaneast, southindia, swedencentral,
+// switzerlandnorth, uksouth. southindia is the closest of those to centralindia (this repo's
+// primary region, see README's ADR), hence the default location override below. gpt-5-family
+// models may also require subscription registration — see
+// https://aka.ms/openai/gpt-5/2025-08-07 — before a deployment will succeed.
 @description('Chat model to deploy for the Help Assistant agent (must be available in the chosen region)')
-param chatModelName string = 'gpt-4o-mini'
-param chatModelVersion string = '2024-07-18'
+param chatModelName string = 'gpt-5-mini'
+param chatModelVersion string = '2025-08-07'
 param chatModelCapacity int = 10
 
 @description('Embedding model deployed for the AI Search skillset (infra/setup-ai-search-pipeline.sh)')
