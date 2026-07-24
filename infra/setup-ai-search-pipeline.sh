@@ -171,14 +171,17 @@ curl -s -o /dev/null -X POST "${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}/run?ap
   -H "api-key: ${SEARCH_ADMIN_KEY}"
 
 echo "Waiting for the run to finish..."
-STATUS="running"
+# The indexer's CURRENT execution state is the top-level "status" field (running/idle/error) —
+# "lastResult.status" is the outcome of the *previous* completed run and stays "success"/etc even
+# while a new run is actively in progress, so polling on that field alone exits immediately on a
+# stale result instead of waiting for the new one.
 for i in $(seq 1 24); do
   sleep 5
   RESULT=$(curl -s "${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}/status?api-version=${API_VERSION}" \
     -H "api-key: ${SEARCH_ADMIN_KEY}")
-  STATUS=$(echo "$RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('lastResult',{}).get('status','unknown'))" 2>/dev/null || echo "unknown")
-  echo "  attempt $i: lastResult.status=$STATUS"
-  if [ "$STATUS" != "running" ] && [ "$STATUS" != "unknown" ]; then
+  CURRENT_STATUS=$(echo "$RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('status','unknown'))" 2>/dev/null || echo "unknown")
+  echo "  attempt $i: status=$CURRENT_STATUS"
+  if [ "$CURRENT_STATUS" != "running" ]; then
     break
   fi
 done
