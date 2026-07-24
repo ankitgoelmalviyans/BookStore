@@ -381,7 +381,30 @@ Note: `values-costopt.yaml`/`values-demo.yaml` already stub out an `llm` block (
 
 ---
 
-## 11. Author
+## 11. Help Assistant Feature
+
+AI-powered customer support chat widget built with Azure AI Foundry.
+
+### Architecture
+- Help documents (markdown/PDF) stored in `docs/help/`
+- GitHub Actions syncs docs to Azure Blob Storage on push to main
+- Azure AI Foundry (Foundry IQ) auto-ingests from blob — chunks, embeds, indexes
+- Foundry Agent exposes REST endpoint consumed by Angular chat widget
+- Zero ongoing ops — content team adds docs, Foundry handles the rest
+
+### Setup
+1. Deploy infra: `./infra/deploy-ai-foundry.sh <resource-group> <location>`
+2. Create knowledge base and agent in Azure AI Foundry portal
+3. Add secrets to GitHub: `HELP_DOCS_STORAGE_ACCOUNT`, `FOUNDRY_AGENT_ENDPOINT`, `FOUNDRY_API_KEY`
+4. Push to main — GitHub Action syncs docs to blob automatically
+
+### Environment Variables
+- `foundryAgentEndpoint` — Azure AI Foundry agent endpoint URL
+- `foundryApiKey` — Azure AI Foundry API key
+
+---
+
+## 12. Author
 
 **Ankit Goel** — Senior Staff Engineer
 GitHub: [@ankitgoelmalviyans](https://github.com/ankitgoelmalviyans)
