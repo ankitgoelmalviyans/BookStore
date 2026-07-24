@@ -149,6 +149,15 @@ put_json "${SEARCH_ENDPOINT}/skillsets/${SKILLSET_NAME}?api-version=${API_VERSIO
 EOF
 )"
 
+# An indexer that got wedged mid-run (e.g. its very first auto-triggered run, before there was
+# anything in blob to process) can stay stuck reporting "running" indefinitely — and every
+# subsequent /run call against a stuck indexer is rejected (409/similar), so recreating the index
+# and re-running alone never unsticks it. Delete-and-recreate the indexer object itself too, same
+# reasoning as the index above: cheap to rebuild, and a fresh object carries no stuck state.
+echo "Deleting any existing indexer (safe to fail if it doesn't exist yet)..."
+curl -s -o /dev/null -X DELETE "${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}?api-version=${API_VERSION}" \
+  -H "api-key: ${SEARCH_ADMIN_KEY}" || true
+
 echo "Creating indexer..."
 put_json "${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}?api-version=${API_VERSION}" "$(cat <<EOF
 {
@@ -161,14 +170,23 @@ put_json "${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}?api-version=${API_VERSION}
 EOF
 )"
 
+# PUT above already triggers an initial run on a freshly (re)created indexer, but explicitly
+# reset+run too, and — unlike the old version of this script — actually check the status code
+# instead of discarding it, so a rejected call (e.g. 409 "already running") is visible in the log
+# instead of silently doing nothing.
 echo ""
 echo "Resetting indexer change-tracking state (forces a full re-crawl, not an incremental no-op)..."
-curl -s -o /dev/null -X POST "${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}/reset?api-version=${API_VERSION}" \
-  -H "api-key: ${SEARCH_ADMIN_KEY}"
+RESET_STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X POST "${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}/reset?api-version=${API_VERSION}" \
+  -H "api-key: ${SEARCH_ADMIN_KEY}")
+echo "  reset HTTP $RESET_STATUS"
 
 echo "Running indexer..."
-curl -s -o /dev/null -X POST "${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}/run?api-version=${API_VERSION}" \
-  -H "api-key: ${SEARCH_ADMIN_KEY}"
+RUN_STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X POST "${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}/run?api-version=${API_VERSION}" \
+  -H "api-key: ${SEARCH_ADMIN_KEY}")
+echo "  run HTTP $RUN_STATUS"
+if [ "$RUN_STATUS" -lt 200 ] || [ "$RUN_STATUS" -ge 300 ]; then
+  echo "WARNING: /run returned HTTP $RUN_STATUS (not 2xx) — the indexer likely didn't actually start a new execution."
+fi
 
 echo "Waiting for the run to finish..."
 # The indexer's CURRENT execution state is the top-level "status" field (running/idle/error) —
