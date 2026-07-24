@@ -162,13 +162,42 @@ EOF
 )"
 
 echo ""
-echo "Indexer created and will run automatically. Checking status..."
-sleep 5
-curl -s "${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}/status?api-version=${API_VERSION}" \
-  -H "api-key: ${SEARCH_ADMIN_KEY}" | python3 -m json.tool
+echo "Resetting indexer change-tracking state (forces a full re-crawl, not an incremental no-op)..."
+curl -s -o /dev/null -X POST "${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}/reset?api-version=${API_VERSION}" \
+  -H "api-key: ${SEARCH_ADMIN_KEY}"
+
+echo "Running indexer..."
+curl -s -o /dev/null -X POST "${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}/run?api-version=${API_VERSION}" \
+  -H "api-key: ${SEARCH_ADMIN_KEY}"
+
+echo "Waiting for the run to finish..."
+STATUS="running"
+for i in $(seq 1 24); do
+  sleep 5
+  RESULT=$(curl -s "${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}/status?api-version=${API_VERSION}" \
+    -H "api-key: ${SEARCH_ADMIN_KEY}")
+  STATUS=$(echo "$RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('lastResult',{}).get('status','unknown'))" 2>/dev/null || echo "unknown")
+  echo "  attempt $i: lastResult.status=$STATUS"
+  if [ "$STATUS" != "running" ] && [ "$STATUS" != "unknown" ]; then
+    break
+  fi
+done
+
+echo ""
+echo "Final indexer status:"
+echo "$RESULT" | python3 -m json.tool
+echo "$RESULT" | python3 -c "
+import json, sys
+r = json.load(sys.stdin).get('lastResult', {})
+processed, failed = r.get('itemsProcessed', 0), r.get('itemsFailed', 0)
+print(f'itemsProcessed={processed} itemsFailed={failed}')
+if processed == 0:
+    print('WARNING: 0 items processed — the docs likely did not reach the index. Check the blob container and datasource, and errors/warnings above.')
+"
 
 echo ""
 echo "Done. Re-run this script any time docs/help/*.md changes and you want to force a re-index:"
+echo "  curl -X POST \"${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}/reset?api-version=${API_VERSION}\" -H \"api-key: \$SEARCH_ADMIN_KEY\""
 echo "  curl -X POST \"${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}/run?api-version=${API_VERSION}\" -H \"api-key: \$SEARCH_ADMIN_KEY\""
 echo "Next: create the agent yourself in the Foundry portal (Agents panel), attaching this index"
 echo "('${INDEX_NAME}' in search service '${SEARCH_SERVICE}') as its Knowledge source. Then run"
