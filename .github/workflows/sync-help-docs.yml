@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'docs/help/**'
+  workflow_dispatch:
 
 # Serializes overlapping runs rather than canceling them — --delete-destination true below means
 # a canceled/interleaved run could delete blobs a newer push still needs, or leave the container
