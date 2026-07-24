@@ -25,6 +25,28 @@ SKILLSET_NAME="bookstore-help-skillset"
 INDEXER_NAME="bookstore-help-indexer"
 API_VERSION="2024-07-01"
 
+# curl -f swallows the response body on a non-2xx status, which is exactly the information needed
+# to diagnose a schema/validation error — this wraps PUT-with-body calls so the body always prints,
+# and still fails the script (via `return 1`, which trips `set -e`) on a non-2xx status.
+put_json() {
+  local url="$1"
+  local body="$2"
+  local response http_status
+  response=$(curl -s -w '\n%{http_code}' -X PUT "$url" \
+    -H "api-key: ${SEARCH_ADMIN_KEY}" -H "Content-Type: application/json" \
+    -d "$body")
+  http_status=$(echo "$response" | tail -n1)
+  response_body=$(echo "$response" | sed '$d')
+
+  if [ "$http_status" -lt 200 ] || [ "$http_status" -ge 300 ]; then
+    echo "FAILED (HTTP $http_status): $url"
+    echo "$response_body"
+    return 1
+  fi
+
+  echo "OK (HTTP $http_status)"
+}
+
 echo "Looking up credentials..."
 SEARCH_ADMIN_KEY=$(az search admin-key show --resource-group "$RESOURCE_GROUP" --service-name "$SEARCH_SERVICE" --query primaryKey -o tsv)
 STORAGE_CONNECTION=$(az storage account show-connection-string --resource-group "$RESOURCE_GROUP" --name "$STORAGE_ACCOUNT" --query connectionString -o tsv)
@@ -33,9 +55,7 @@ FOUNDRY_OPENAI_ENDPOINT="https://${FOUNDRY_ACCOUNT}.openai.azure.com"
 SEARCH_ENDPOINT="https://${SEARCH_SERVICE}.search.windows.net"
 
 echo "Creating blob data source..."
-curl -sf -X PUT "${SEARCH_ENDPOINT}/datasources/${DATASOURCE_NAME}?api-version=${API_VERSION}" \
-  -H "api-key: ${SEARCH_ADMIN_KEY}" -H "Content-Type: application/json" \
-  -d @- <<EOF
+put_json "${SEARCH_ENDPOINT}/datasources/${DATASOURCE_NAME}?api-version=${API_VERSION}" "$(cat <<EOF
 {
   "name": "${DATASOURCE_NAME}",
   "type": "azureblob",
@@ -43,15 +63,14 @@ curl -sf -X PUT "${SEARCH_ENDPOINT}/datasources/${DATASOURCE_NAME}?api-version=$
   "container": { "name": "${CONTAINER_NAME}" }
 }
 EOF
+)"
 
 echo "Creating vector index..."
-curl -sf -X PUT "${SEARCH_ENDPOINT}/indexes/${INDEX_NAME}?api-version=${API_VERSION}" \
-  -H "api-key: ${SEARCH_ADMIN_KEY}" -H "Content-Type: application/json" \
-  -d @- <<EOF
+put_json "${SEARCH_ENDPOINT}/indexes/${INDEX_NAME}?api-version=${API_VERSION}" "$(cat <<EOF
 {
   "name": "${INDEX_NAME}",
   "fields": [
-    { "name": "chunk_id", "type": "Edm.String", "key": true, "searchable": false, "filterable": false, "analyzer": "keyword" },
+    { "name": "chunk_id", "type": "Edm.String", "key": true, "searchable": false, "filterable": false },
     { "name": "parent_id", "type": "Edm.String", "filterable": true },
     { "name": "chunk_text", "type": "Edm.String", "searchable": true },
     { "name": "title", "type": "Edm.String", "searchable": true, "filterable": true },
@@ -73,11 +92,10 @@ curl -sf -X PUT "${SEARCH_ENDPOINT}/indexes/${INDEX_NAME}?api-version=${API_VERS
   }
 }
 EOF
+)"
 
 echo "Creating skillset (chunk + embed)..."
-curl -sf -X PUT "${SEARCH_ENDPOINT}/skillsets/${SKILLSET_NAME}?api-version=${API_VERSION}" \
-  -H "api-key: ${SEARCH_ADMIN_KEY}" -H "Content-Type: application/json" \
-  -d @- <<EOF
+put_json "${SEARCH_ENDPOINT}/skillsets/${SKILLSET_NAME}?api-version=${API_VERSION}" "$(cat <<EOF
 {
   "name": "${SKILLSET_NAME}",
   "description": "Chunk docs/help/*.md and embed each chunk via the Foundry embedding deployment",
@@ -121,11 +139,10 @@ curl -sf -X PUT "${SEARCH_ENDPOINT}/skillsets/${SKILLSET_NAME}?api-version=${API
   }
 }
 EOF
+)"
 
 echo "Creating indexer..."
-curl -sf -X PUT "${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}?api-version=${API_VERSION}" \
-  -H "api-key: ${SEARCH_ADMIN_KEY}" -H "Content-Type: application/json" \
-  -d @- <<EOF
+put_json "${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}?api-version=${API_VERSION}" "$(cat <<EOF
 {
   "name": "${INDEXER_NAME}",
   "dataSourceName": "${DATASOURCE_NAME}",
@@ -134,11 +151,12 @@ curl -sf -X PUT "${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}?api-version=${API_V
   "parameters": { "maxFailedItems": 0, "maxFailedItemsPerBatch": 0 }
 }
 EOF
+)"
 
 echo ""
 echo "Indexer created and will run automatically. Checking status..."
 sleep 5
-curl -sf "${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}/status?api-version=${API_VERSION}" \
+curl -s "${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}/status?api-version=${API_VERSION}" \
   -H "api-key: ${SEARCH_ADMIN_KEY}" | python3 -m json.tool
 
 echo ""
