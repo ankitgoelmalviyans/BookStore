@@ -96,6 +96,12 @@ resource foundryProject 'Microsoft.CognitiveServices/accounts/projects@2025-06-0
   parent: foundryAccount
   name: '${environmentPrefix}-help-assistant'
   location: location
+  // Required — Azure rejects project creation with "Unsupported configuration... you must enable
+  // a managed identity on your resource" without this. The parent account's identity (above)
+  // alone isn't enough; the project resource itself needs one too.
+  identity: {
+    type: 'SystemAssigned'
+  }
   properties: {
     displayName: 'BookStore Help Assistant'
     description: 'RAG project backing the Angular Help Assistant widget — isolated from the existing Ask-AI book-search feature (BookStore.AiService).'
