@@ -84,10 +84,10 @@ put_json "${SEARCH_ENDPOINT}/indexes/${INDEX_NAME}?api-version=${API_VERSION}" "
   ],
   "vectorSearch": {
     "algorithms": [
-      { "name": "help-hnsw", "kind": "hnsw", "parameters": { "m": 4, "efConstruction": 400, "metric": "cosine" } }
+      { "name": "help-hnsw", "kind": "hnsw", "hnswParameters": { "m": 4, "efConstruction": 400, "metric": "cosine" } }
     ],
     "profiles": [
-      { "name": "help-vector-profile", "algorithmConfigurationName": "help-hnsw" }
+      { "name": "help-vector-profile", "algorithm": "help-hnsw" }
     ]
   }
 }
