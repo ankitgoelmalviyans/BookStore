@@ -13,6 +13,12 @@
 //
 // Agent Applications do not support API-key auth — Entra ID/RBAC only. See
 // https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/agent-applications
+//
+// api-version 2026-05-15-preview (below) confirmed from a live deployment error, not docs — Azure
+// rejected the previously-tried 2025-12-01 with "No registered resource provider found... The
+// supported api-versions are 2025-10-01-preview, 2026-01-15-preview, 2026-03-15-preview,
+// 2026-05-15-preview." There is currently no GA version of this resource type; all four supported
+// versions are preview. Re-verify if this starts failing again — preview APIs move fast.
 
 @description('Name of the Foundry account created by infra/ai-foundry.bicep (output: foundryAccountName)')
 param foundryAccountName string
@@ -53,7 +59,7 @@ resource foundryProject 'Microsoft.CognitiveServices/accounts/projects@2025-06-0
   name: foundryProjectName
 }
 
-resource agentApplication 'Microsoft.CognitiveServices/accounts/projects/applications@2025-12-01' = {
+resource agentApplication 'Microsoft.CognitiveServices/accounts/projects/applications@2026-05-15-preview' = {
   parent: foundryProject
   name: applicationName
   properties: {
@@ -70,7 +76,7 @@ resource agentApplication 'Microsoft.CognitiveServices/accounts/projects/applica
   }
 }
 
-resource agentDeployment 'Microsoft.CognitiveServices/accounts/projects/applications/agentDeployments@2025-12-01' = {
+resource agentDeployment 'Microsoft.CognitiveServices/accounts/projects/applications/agentDeployments@2026-05-15-preview' = {
   parent: agentApplication
   name: deploymentName
   properties: {
