@@ -11,8 +11,11 @@
 # Usage: ./infra/deploy-ai-foundry.sh <resource-group> <location>
 set -euo pipefail
 
+# Default region is deliberately southindia, not centralindia (the AKS cluster's region) — the
+# default chat model (gpt-5-mini, GlobalStandard) isn't offered in centralindia; southindia is
+# the closest region that does. See the comment above chatModelName in infra/ai-foundry.bicep.
 RESOURCE_GROUP=${1:-"bookstore-rg"}
-LOCATION=${2:-"centralindia"}
+LOCATION=${2:-"southindia"}
 
 echo "Deploying Help Assistant base infrastructure (storage, AI Search, Foundry account/project)..."
 

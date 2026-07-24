@@ -49,7 +49,11 @@ on:
 
 env:
   RESOURCE_GROUP: BookStoreRG_GA
-  LOCATION: centralindia
+  # Deliberately NOT centralindia (the AKS cluster's region, main.bicep) — gpt-5-mini GlobalStandard
+  # isn't offered there. southindia is the closest supported region; see the comment above
+  # chatModelName in infra/ai-foundry.bicep. Foundry/AI Search/Storage don't need to be
+  # co-located with AKS — HelpAssistantService just calls Foundry's regional endpoint over HTTPS.
+  LOCATION: southindia
 
 # Read-only: these jobs deploy to Azure (via AZURE_CREDENTIALS), they never need to write back to
 # GitHub.
