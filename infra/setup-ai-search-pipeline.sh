@@ -65,12 +65,20 @@ put_json "${SEARCH_ENDPOINT}/datasources/${DATASOURCE_NAME}?api-version=${API_VE
 EOF
 )"
 
+# Azure AI Search doesn't allow changing an existing field's analyzer (or most other field
+# attributes) via PUT — only adding new fields is a safe in-place update. Since this index is
+# cheap to rebuild (a handful of small docs, no production traffic), delete-and-recreate is
+# simpler and more robust than trying to keep this script's schema perpetually additive-only.
+echo "Deleting any existing index (safe to fail if it doesn't exist yet)..."
+curl -s -o /dev/null -X DELETE "${SEARCH_ENDPOINT}/indexes/${INDEX_NAME}?api-version=${API_VERSION}" \
+  -H "api-key: ${SEARCH_ADMIN_KEY}" || true
+
 echo "Creating vector index..."
 put_json "${SEARCH_ENDPOINT}/indexes/${INDEX_NAME}?api-version=${API_VERSION}" "$(cat <<EOF
 {
   "name": "${INDEX_NAME}",
   "fields": [
-    { "name": "chunk_id", "type": "Edm.String", "key": true, "searchable": false, "filterable": false },
+    { "name": "chunk_id", "type": "Edm.String", "key": true, "analyzer": "keyword" },
     { "name": "parent_id", "type": "Edm.String", "filterable": true },
     { "name": "chunk_text", "type": "Edm.String", "searchable": true },
     { "name": "title", "type": "Edm.String", "searchable": true, "filterable": true },
