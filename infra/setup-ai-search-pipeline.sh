@@ -97,6 +97,18 @@ put_json "${SEARCH_ENDPOINT}/indexes/${INDEX_NAME}?api-version=${API_VERSION}" "
     "profiles": [
       { "name": "help-vector-profile", "algorithm": "help-hnsw" }
     ]
+  },
+  "semantic": {
+    "defaultConfiguration": "help-semantic-config",
+    "configurations": [
+      {
+        "name": "help-semantic-config",
+        "prioritizedFields": {
+          "titleField": { "fieldName": "title" },
+          "prioritizedContentFields": [ { "fieldName": "chunk_text" } ]
+        }
+      }
+    ]
   }
 }
 EOF
