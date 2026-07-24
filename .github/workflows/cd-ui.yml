@@ -71,6 +71,13 @@ jobs:
           sed -i "s|#{AI_API_URL}#|${{ secrets.AI_API_URL }}|g" \
             environment.prod.ts
 
+          # HelpAssistantService — isolated from AI_API_URL above (separate microservice, separate
+          # Foundry project). Same supplementary posture as Recommendation/AI: unset just means the
+          # widget's calls fail and it shows its own error state, nothing else in the app is gated
+          # on it.
+          sed -i "s|#{HELP_ASSISTANT_API_URL}#|${{ secrets.HELP_ASSISTANT_API_URL }}|g" \
+            environment.prod.ts
+
       - name: Build Angular production
         run: |
           cd BookStore.ProductSCA/product-ui

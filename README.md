@@ -383,24 +383,67 @@ Note: `values-costopt.yaml`/`values-demo.yaml` already stub out an `llm` block (
 
 ## 11. Help Assistant Feature
 
-AI-powered customer support chat widget built with Azure AI Foundry.
+AI-powered customer support chat widget backed by an Azure AI Foundry agent. Deliberately
+isolated from the existing Ask-AI book-search feature (`BookStore.AiService`) — separate
+microservice, separate Foundry project, separate credentials, separate CI/CD jobs. Nothing in
+this section touches `BookStore.AiService` or its infra.
+
+### Why a backend service sits in front of Foundry
+
+The Angular SPA never calls Foundry directly. Azure AI Foundry Agent Applications only accept
+Microsoft Entra ID/RBAC callers — there is no API-key option — so a browser-only static site
+structurally cannot invoke one on its own. `BookStore.HelpAssistantService` is a small, anonymous
+.NET microservice that holds an Entra ID app-registration credential, authenticates to Foundry
+server-side, and exposes a plain `POST /api/help-assistant/ask` endpoint the SPA calls instead.
+The Foundry endpoint, project name, and credentials never reach the browser.
 
 ### Architecture
-- Help documents (markdown/PDF) stored in `docs/help/`
-- GitHub Actions syncs docs to Azure Blob Storage on push to main
-- Azure AI Foundry (Foundry IQ) auto-ingests from blob — chunks, embeds, indexes
-- Foundry Agent exposes REST endpoint consumed by Angular chat widget
-- Zero ongoing ops — content team adds docs, Foundry handles the rest
 
-### Setup
-1. Deploy infra: `./infra/deploy-ai-foundry.sh <resource-group> <location>`
-2. Create knowledge base and agent in Azure AI Foundry portal
-3. Add secrets to GitHub: `HELP_DOCS_STORAGE_ACCOUNT`, `FOUNDRY_AGENT_ENDPOINT`, `FOUNDRY_API_KEY`
-4. Push to main — GitHub Action syncs docs to blob automatically
+```
+docs/help/*.md (repo)
+      │  GitHub Action (sync-help-docs.yml, on push to main)
+      ▼
+Azure Blob Storage (bookstore-help-docs container)
+      │  infra/setup-ai-search-pipeline.sh (indexer + AzureOpenAIEmbeddingSkill)
+      ▼
+Azure AI Search (vector index)
+      │  infra/setup-foundry-agent.sh (agent creation, wired to the index — Entra ID, control plane)
+      ▼
+Azure AI Foundry project → agent
+      │  infra/foundry-agent-publish.bicep (publish as a stable Agent Application + RBAC)
+      ▼
+Foundry Agent Application  ◄──Entra ID token (client-credentials)──  BookStore.HelpAssistantService
+                                                                              ▲
+                                                                     POST /api/help-assistant/ask
+                                                                     (anonymous, same-origin CORS)
+                                                                              │
+                                                                     Angular help-assistant widget
+```
 
-### Environment Variables
-- `foundryAgentEndpoint` — Azure AI Foundry agent endpoint URL
-- `foundryApiKey` — Azure AI Foundry API key
+### Setup (one-time)
+
+1. `./infra/deploy-ai-foundry.sh <resource-group> <location>` — provisions blob storage, AI
+   Search, and the Foundry account/project/model deployments
+2. Add `HELP_DOCS_STORAGE_ACCOUNT` to GitHub secrets (use the real deployed storage account name
+   from the command above — it may differ from the requested name if that was globally taken);
+   push `docs/help/*.md` so `sync-help-docs.yml` uploads them to blob
+3. `./infra/setup-ai-search-pipeline.sh <resource-group>` — indexes the synced docs into AI Search
+4. `./infra/setup-foundry-agent.sh <resource-group>` — creates (idempotently) the
+   `bookstore-help-assistant-sp` Entra ID app registration, and creates the agent wired to that
+   index. **Save the printed `ClientSecret` immediately — it is not shown again.**
+5. `./infra/deploy-foundry-agent-publish.sh <resource-group> <foundry-account> <foundry-project> <sp-object-id> <foundry-user-role-id>`
+   — publishes the agent as a stable Agent Application and grants the app registration RBAC to
+   invoke it (nothing else)
+6. Add to GitHub secrets: `HELP_ASSISTANT_API_URL`, `HELP_ASSISTANT_TENANT_ID`,
+   `HELP_ASSISTANT_CLIENT_ID`, `HELP_ASSISTANT_CLIENT_SECRET`, `FOUNDRY_ACCOUNT_NAME`,
+   `FOUNDRY_PROJECT_NAME`, `FOUNDRY_APPLICATION_NAME`
+
+Until step 6 is done, `BookStore.HelpAssistantService` runs with a deterministic fake agent client
+(same "builds/demos with no credentials" posture as `PaymentService`'s `FakePaymentGateway`) — the
+widget works end-to-end, it just doesn't answer from real content yet.
+
+### Environment variables
+- `helpAssistantApiUrl` — `BookStore.HelpAssistantService`'s own base URL (not Foundry's)
 
 ---
 
