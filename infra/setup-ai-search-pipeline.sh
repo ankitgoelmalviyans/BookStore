@@ -23,7 +23,7 @@ INDEX_NAME="bookstore-help-index"
 DATASOURCE_NAME="bookstore-help-datasource"
 SKILLSET_NAME="bookstore-help-skillset"
 INDEXER_NAME="bookstore-help-indexer"
-API_VERSION="2024-07-01"
+API_VERSION="2026-04-01"
 
 # curl -f swallows the response body on a non-2xx status, which is exactly the information needed
 # to diagnose a schema/validation error — this wraps PUT-with-body calls so the body always prints,
@@ -78,8 +78,8 @@ put_json "${SEARCH_ENDPOINT}/indexes/${INDEX_NAME}?api-version=${API_VERSION}" "
       "name": "chunk_vector",
       "type": "Collection(Edm.Single)",
       "searchable": true,
-      "vectorSearchDimensions": 1536,
-      "vectorSearchProfileName": "help-vector-profile"
+      "dimensions": 1536,
+      "vectorSearchProfile": "help-vector-profile"
     }
   ],
   "vectorSearch": {
