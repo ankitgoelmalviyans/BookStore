@@ -188,13 +188,15 @@ EOF
 # instead of silently doing nothing.
 echo ""
 echo "Resetting indexer change-tracking state (forces a full re-crawl, not an incremental no-op)..."
+# -d '' forces curl to send Content-Length: 0 — without it, a bodyless POST omits that header
+# entirely, and Azure's front end rejects it with 411 Length Required.
 RESET_STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X POST "${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}/reset?api-version=${API_VERSION}" \
-  -H "api-key: ${SEARCH_ADMIN_KEY}")
+  -H "api-key: ${SEARCH_ADMIN_KEY}" -d '')
 echo "  reset HTTP $RESET_STATUS"
 
 echo "Running indexer..."
 RUN_STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X POST "${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}/run?api-version=${API_VERSION}" \
-  -H "api-key: ${SEARCH_ADMIN_KEY}")
+  -H "api-key: ${SEARCH_ADMIN_KEY}" -d '')
 echo "  run HTTP $RUN_STATUS"
 if [ "$RUN_STATUS" -lt 200 ] || [ "$RUN_STATUS" -ge 300 ]; then
   echo "WARNING: /run returned HTTP $RUN_STATUS (not 2xx) — the indexer likely didn't actually start a new execution."
@@ -230,8 +232,8 @@ if processed == 0:
 
 echo ""
 echo "Done. Re-run this script any time docs/help/*.md changes and you want to force a re-index:"
-echo "  curl -X POST \"${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}/reset?api-version=${API_VERSION}\" -H \"api-key: \$SEARCH_ADMIN_KEY\""
-echo "  curl -X POST \"${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}/run?api-version=${API_VERSION}\" -H \"api-key: \$SEARCH_ADMIN_KEY\""
+echo "  curl -X POST \"${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}/reset?api-version=${API_VERSION}\" -H \"api-key: \$SEARCH_ADMIN_KEY\" -d ''"
+echo "  curl -X POST \"${SEARCH_ENDPOINT}/indexers/${INDEXER_NAME}/run?api-version=${API_VERSION}\" -H \"api-key: \$SEARCH_ADMIN_KEY\" -d ''"
 echo "Next: create the agent yourself in the Foundry portal (Agents panel), attaching this index"
 echo "('${INDEX_NAME}' in search service '${SEARCH_SERVICE}') as its Knowledge source. Then run"
 echo "infra/create-help-assistant-service-principal.sh once, and publish the agent (pipeline job"

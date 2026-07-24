@@ -1,5 +1,17 @@
-@description('Location for all resources')
+@description('Location for most resources (storage, Foundry account/project/model deployments)')
 param location string = resourceGroup().location
+
+// Confirmed empirically (2026-07-24): Azure AI Search's Semantic Ranker — required by Foundry
+// IQ's "Knowledge Base" feature — isn't available in southindia, even on services that otherwise
+// work fine there. Foundry's error was "Knowledge Base requires Semantic Search to be enabled for
+// this service"; recreating the same Free-tier search service in centralindia resolved it with no
+// other change, which rules out pricing tier as the cause (Free tier does support Semantic Ranker
+// via its "free agentic retrieval plan" — just not in every region). This is a *different* region
+// requirement than chatModelName below (gpt-5-mini needs southindia, not centralindia) — hence two
+// separate location parameters. AI Search and the Foundry account don't need to be co-located;
+// HelpAssistantService and Foundry both just call each one's regional endpoint over HTTPS.
+@description('Location for the AI Search service specifically — must support Semantic Ranker')
+param searchLocation string = 'centralindia'
 
 @description('Environment prefix')
 param environmentPrefix string = 'bookstore'
@@ -50,7 +62,7 @@ resource helpDocsContainer 'Microsoft.Storage/storageAccounts/blobServices/conta
 // ============================================================
 resource aiSearch 'Microsoft.Search/searchServices@2023-11-01' = {
   name: '${environmentPrefix}-ai-search'
-  location: location
+  location: searchLocation
   sku: {
     name: 'free'
   }
