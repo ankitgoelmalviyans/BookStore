@@ -1,0 +1,61 @@
+<!-- Floating chat button -->
+<button
+  class="chat-toggle-btn"
+  (click)="toggleChat()"
+  [attr.aria-label]="isOpen() ? 'Close Help Assistant' : 'Open Help Assistant'">
+  <span *ngIf="!isOpen()">💬 Help</span>
+  <span *ngIf="isOpen()">✕</span>
+</button>
+
+<!-- Chat window -->
+<div class="chat-window" *ngIf="isOpen()">
+
+  <!-- Header -->
+  <div class="chat-header">
+    <div class="chat-header-info">
+      <span class="chat-icon">🤖</span>
+      <div>
+        <div class="chat-title">BookStore Assistant</div>
+        <div class="chat-subtitle">Powered by Azure AI Foundry</div>
+      </div>
+    </div>
+    <button class="clear-btn" (click)="clearChat()" title="Clear chat">↺</button>
+  </div>
+
+  <!-- Messages -->
+  <div class="chat-messages">
+    <div
+      *ngFor="let message of messages()"
+      class="message"
+      [class.user-message]="message.role === 'user'"
+      [class.assistant-message]="message.role === 'assistant'">
+      <div class="message-bubble">{{ message.content }}</div>
+    </div>
+
+    <!-- Loading indicator -->
+    <div class="message assistant-message" *ngIf="isLoading()">
+      <div class="message-bubble loading">
+        <span></span><span></span><span></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Input -->
+  <div class="chat-input-area">
+    <textarea
+      class="chat-input"
+      [(ngModel)]="question"
+      (keydown)="onEnter($event)"
+      placeholder="Ask me about orders, returns, payments..."
+      rows="1"
+      [disabled]="isLoading()">
+    </textarea>
+    <button
+      class="send-btn"
+      (click)="ask()"
+      [disabled]="!question.trim() || isLoading()">
+      ➤
+    </button>
+  </div>
+
+</div>

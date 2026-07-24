@@ -66,6 +66,17 @@ aiservice:
   ingress:
     host: ""               # set by pipeline: $INGRESS_HOST
 
+# Isolated from aiservice above — a separate microservice, separate Foundry project, separate
+# credentials. No SQL dependency, deploys unconditionally. Anonymous endpoint (public help
+# widget), so no Jwt:Key. Falls back to a deterministic fake agent client until the one-time
+# Foundry setup (infra/setup-foundry-agent.sh + infra/deploy-foundry-agent-publish.sh) has run and
+# its app-registration credentials are in the helpassistantservice-secrets K8s secret.
+helpassistantservice:
+  image:
+    tag: ""                # set by pipeline: ${{ github.sha }}
+  ingress:
+    host: ""               # set by pipeline: $INGRESS_HOST
+
 # Gateway — Profile A uses NGINX Ingress (free, inside AKS)
 # No APIM in this profile
 gateway:

@@ -1,0 +1,45 @@
+name: Sync Help Docs to Azure Blob
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/help/**'
+
+# Serializes overlapping runs rather than canceling them — --delete-destination true below means
+# a canceled/interleaved run could delete blobs a newer push still needs, or leave the container
+# reflecting a stale mid-sync state. Pending runs queue behind the in-progress one instead.
+concurrency:
+  group: help-docs-sync
+
+# Read-only: this workflow only reads the repo and calls Azure, it never needs to write back to
+# GitHub — same minimal-permissions posture as the rest of this repo's workflows.
+permissions:
+  contents: read
+
+jobs:
+  sync-help-docs:
+    name: Sync Help Docs to Azure Blob Storage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Sync-only, never pushes — don't leave the token persisted in .git/config.
+          persist-credentials: false
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Sync help docs to Blob Storage
+        uses: azure/CLI@v2
+        with:
+          inlineScript: |
+            az storage blob sync \
+              --source ./docs/help \
+              --container bookstore-help-docs \
+              --account-name ${{ secrets.HELP_DOCS_STORAGE_ACCOUNT }} \
+              --delete-destination true

@@ -329,6 +329,44 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
 
   # ─────────────────────────────────────────
+  # JOB 6d — Build and push HelpAssistantService
+  # ─────────────────────────────────────────
+  build-push-help-assistant:
+    name: Build and Push HelpAssistantService
+    runs-on: ubuntu-latest
+
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Login to ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ACR_SERVER }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Set image tag
+        id: meta
+        run: |
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          echo "tags=${{ env.ACR_SERVER }}/helpassistantservice:$SHORT_SHA" >> $GITHUB_OUTPUT
+          echo "short-sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+
+      - name: Build and push HelpAssistantService
+        uses: docker/build-push-action@v5
+        with:
+          context: BookStore.AiSCA/BookStore.HelpAssistantService/src
+          file: BookStore.AiSCA/BookStore.HelpAssistantService/src/BookStore.HelpAssistantService.API/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+
+  # ─────────────────────────────────────────
   # JOB 7 — Deploy all services to AKS
   # ─────────────────────────────────────────
   deploy:
@@ -343,6 +381,7 @@ jobs:
       - build-push-notification
       - build-push-recommendation
       - build-push-ai
+      - build-push-help-assistant
     env:
       # Mirrored from secrets into env so step `if:` conditions can check "is this set" without
       # referencing the secrets context directly in an expression.
@@ -456,6 +495,23 @@ jobs:
             --namespace=${{ env.NAMESPACE }} \
             --dry-run=client -o yaml | kubectl apply -f -
 
+          # Isolated from aiservice above — its own Foundry project, own Entra ID app registration,
+          # own K8s secret. No SQL dependency, deploys unconditionally, anonymous endpoint (no
+          # Jwt:Key). Unset Foundry__* just means the pod runs with its built-in fake agent client
+          # until the one-time setup (see infra-help-assistant.yml / README.md's Help Assistant
+          # section — create-help-assistant-service-principal.sh + a portal-created agent +
+          # deploy-foundry-agent-publish.sh) has been run — same posture as AzureOpenAI__Key above.
+          kubectl create secret generic helpassistantservice-secrets \
+            --from-literal=AllowedOrigins__0="${{ secrets.ALLOWED_ORIGINS }}" \
+            --from-literal=Foundry__TenantId="${{ secrets.HELP_ASSISTANT_TENANT_ID }}" \
+            --from-literal=Foundry__ClientId="${{ secrets.HELP_ASSISTANT_CLIENT_ID }}" \
+            --from-literal=Foundry__ClientSecret="${{ secrets.HELP_ASSISTANT_CLIENT_SECRET }}" \
+            --from-literal=Foundry__AccountName="${{ secrets.FOUNDRY_ACCOUNT_NAME }}" \
+            --from-literal=Foundry__ProjectName="${{ secrets.FOUNDRY_PROJECT_NAME }}" \
+            --from-literal=Foundry__ApplicationName="${{ secrets.FOUNDRY_APPLICATION_NAME }}" \
+            --namespace=${{ env.NAMESPACE }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
       # Gated the same way as Order/Payment below, for the same reason: applying this with an
       # empty ConnectionStrings__AuthDb when AUTH_SQL_CONNECTION is unset would silently overwrite
       # a *running* authservice release's secret with a broken connection string the moment its
@@ -536,6 +592,7 @@ jobs:
           helm dependency update infrastructure/helm/notificationservice
           helm dependency update infrastructure/helm/recommendationservice
           helm dependency update infrastructure/helm/aiservice
+          helm dependency update infrastructure/helm/helpassistantservice
 
       - name: Get short SHA
         id: sha
@@ -714,6 +771,20 @@ jobs:
             --wait \
             --timeout 5m
 
+      # No SQL dependency — deploys unconditionally, same as AiService. Isolated Foundry
+      # credentials being unset doesn't block this — the pod just runs with its built-in fake
+      # agent client.
+      - name: Deploy HelpAssistantService
+        run: |
+          helm upgrade --install helpassistantservice \
+            infrastructure/helm/helpassistantservice \
+            --values infrastructure/helm/values-costopt.yaml \
+            --set image.tag=${{ steps.sha.outputs.short }} \
+            --set-string ingress.host=${{ env.INGRESS_HOST }} \
+            --namespace ${{ env.NAMESPACE }} \
+            --wait \
+            --timeout 5m
+
       - name: Create Splunk secret
         run: |
           kubectl create secret generic splunk-secrets \
@@ -747,6 +818,8 @@ jobs:
             -n ${{ env.NAMESPACE }} --timeout=3m
           kubectl rollout status deployment/aiservice \
             -n ${{ env.NAMESPACE }} --timeout=3m
+          kubectl rollout status deployment/helpassistantservice \
+            -n ${{ env.NAMESPACE }} --timeout=3m
 
       - name: Health check OrderService
         if: ${{ env.ORDER_SQL_CONNECTION != '' }}
@@ -779,6 +852,7 @@ jobs:
           helm rollback notificationservice -n ${{ env.NAMESPACE }} || true
           helm rollback recommendationservice -n ${{ env.NAMESPACE }} || true
           helm rollback aiservice -n ${{ env.NAMESPACE }} || true
+          helm rollback helpassistantservice -n ${{ env.NAMESPACE }} || true
           echo "Rollback complete"
 
       - name: Print deployment summary
@@ -802,6 +876,12 @@ jobs:
           if [ -z "${{ secrets.AZURE_OPENAI_KEY }}" ]; then
             echo "              (AZURE_OPENAI_KEY unset — AiService is running its built-in fake"
             echo "              embedding/answer clients, not real Azure OpenAI.)"
+          fi
+          echo "HelpAssistant: https://${{ env.INGRESS_HOST }}/help-assistant"
+          if [ -z "${{ secrets.HELP_ASSISTANT_CLIENT_SECRET }}" ]; then
+            echo "              (HELP_ASSISTANT_CLIENT_SECRET unset — HelpAssistantService is"
+            echo "              running its built-in fake agent client, not real Foundry. See"
+            echo "              README.md's Help Assistant section for the one-time setup.)"
           fi
           # Derived from actual Helm release state, not just whether this run's secret was set —
           # a release deployed in an earlier run stays reported as deployed even if the secret

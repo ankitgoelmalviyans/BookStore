@@ -367,6 +367,51 @@ jobs:
           tags: aiservice:ci
 
   # ─────────────────────────────────────────
+  # JOB 3h — Build and test HelpAssistantService
+  # ─────────────────────────────────────────
+  build-help-assistant:
+    name: Build HelpAssistantService
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Build/test only — never pushes — so don't leave the token in .git/config.
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore
+        run: |
+          dotnet restore \
+            BookStore.AiSCA/BookStore.HelpAssistantService/BookStore.HelpAssistantService.sln
+
+      - name: Build
+        run: |
+          dotnet build \
+            BookStore.AiSCA/BookStore.HelpAssistantService/BookStore.HelpAssistantService.sln \
+            --no-restore \
+            --configuration Release
+
+      - name: Test
+        run: |
+          dotnet test \
+            BookStore.AiSCA/BookStore.HelpAssistantService/tests/HelpAssistantService.UnitTests/HelpAssistantService.UnitTests.csproj \
+            --configuration Release
+
+      - name: Docker build check
+        uses: docker/build-push-action@v5
+        with:
+          context: BookStore.AiSCA/BookStore.HelpAssistantService/src
+          file: BookStore.AiSCA/BookStore.HelpAssistantService/src/BookStore.HelpAssistantService.API/Dockerfile
+          push: false
+          tags: helpassistantservice:ci
+
+  # ─────────────────────────────────────────
   # JOB 3e — Validate EF Core migrations (AuthService/OrderService/PaymentService)
   # ─────────────────────────────────────────
   validate-ef-migrations:
@@ -502,6 +547,7 @@ jobs:
           helm dependency update infrastructure/helm/notificationservice
           helm dependency update infrastructure/helm/recommendationservice
           helm dependency update infrastructure/helm/aiservice
+          helm dependency update infrastructure/helm/helpassistantservice
 
       - name: Helm lint
         run: |
@@ -513,6 +559,7 @@ jobs:
           helm lint infrastructure/helm/notificationservice
           helm lint infrastructure/helm/recommendationservice
           helm lint infrastructure/helm/aiservice
+          helm lint infrastructure/helm/helpassistantservice
 
       - name: Helm dry run — Profile A
         run: |
@@ -564,6 +611,12 @@ jobs:
             --set image.tag=ci-test \
             > /dev/null
 
+          helm template helpassistantservice infrastructure/helm/helpassistantservice \
+            --values infrastructure/helm/values-costopt.yaml \
+            --set ingress.host=1.2.3.4.nip.io \
+            --set image.tag=ci-test \
+            > /dev/null
+
           echo "Helm dry run passed for Profile A"
 
   # ─────────────────────────────────────────
@@ -591,6 +644,16 @@ jobs:
           az bicep build \
             --file infrastructure/bicep/main.demo.bicep
           echo "main.demo.bicep syntax valid"
+
+      - name: Validate Bicep syntax — Help Assistant infra
+        run: |
+          az bicep build \
+            --file infra/ai-foundry.bicep
+          echo "ai-foundry.bicep syntax valid"
+
+          az bicep build \
+            --file infra/foundry-agent-publish.bicep
+          echo "foundry-agent-publish.bicep syntax valid"
 
   # ─────────────────────────────────────────
   # JOB 7 — Security scan
@@ -658,6 +721,7 @@ jobs:
       - build-notification
       - build-recommendation
       - build-ai
+      - build-help-assistant
       - validate-ef-migrations
       - build-ui
       - validate-helm
@@ -678,6 +742,7 @@ jobs:
           echo "✓ NotificationService builds"
           echo "✓ RecommendationService builds"
           echo "✓ AiService builds"
+          echo "✓ HelpAssistantService builds"
           echo "✓ EF Core migrations valid (Order/Payment)"
           echo "✓ Angular UI builds"
           echo "✓ Helm charts valid"
